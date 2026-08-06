@@ -20,9 +20,11 @@ export default function Saldos() {
   const [mostrarForm, setMostrarForm] = React.useState(false);
   const [salvando, setSalvando] = React.useState(false);
   const [novoBanco, setNovoBanco] = React.useState(false);
+  const [novaSecretaria, setNovaSecretaria] = React.useState(false);
 
   const [form, setForm] = React.useState({
     secretaria_id: "",
+    secretaria_novo_nome: "",
     banco_id: "",
     banco_novo_nome: "",
     nome_conta: "",
@@ -91,12 +93,24 @@ export default function Saldos() {
     } finally {
       setCarregando(false);
     }
-  }  async function criarConta(e) {
+  }
+  async function criarConta(e) {
     e.preventDefault();
     setSalvando(true);
     setErro(null);
     try {
+      let secretariaId = form.secretaria_id;
       let bancoId = form.banco_id;
+
+      if (novaSecretaria && form.secretaria_novo_nome.trim()) {
+        const { data: secData, error: eSec } = await supabase
+          .from("secretarias")
+          .insert({ nome: form.secretaria_novo_nome.trim() })
+          .select()
+          .single();
+        if (eSec) throw eSec;
+        secretariaId = secData.id;
+      }
 
       if (novoBanco && form.banco_novo_nome.trim()) {
         const { data: bancoData, error: eBanco } = await supabase
@@ -108,14 +122,14 @@ export default function Saldos() {
         bancoId = bancoData.id;
       }
 
-      if (!form.secretaria_id || !bancoId || !form.nome_conta) {
+      if (!secretariaId || !bancoId || !form.nome_conta) {
         throw new Error("Preencha secretaria, banco e nome da conta.");
       }
 
       const { data: contaData, error: eConta } = await supabase
         .from("contas_bancarias")
         .insert({
-          secretaria_id: form.secretaria_id,
+          secretaria_id: secretariaId,
           banco_id: bancoId,
           nome_conta: form.nome_conta,
           numero_conta: form.numero_conta || null,
@@ -135,6 +149,7 @@ export default function Saldos() {
 
       setForm({
         secretaria_id: "",
+        secretaria_novo_nome: "",
         banco_id: "",
         banco_novo_nome: "",
         nome_conta: "",
@@ -144,6 +159,7 @@ export default function Saldos() {
         data_saldo: hojeISO(),
       });
       setNovoBanco(false);
+      setNovaSecretaria(false);
       setMostrarForm(false);
       await carregarDados();
     } catch (e) {
@@ -209,16 +225,39 @@ export default function Saldos() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria</label>
-                <select
-                  value={form.secretaria_id}
-                  onChange={(e) => setForm({ ...form, secretaria_id: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                >
-                  <option value="">Selecione...</option>
-                  {secretarias.map((s) => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </select>
+                {!novaSecretaria ? (
+                  <select
+                    value={form.secretaria_id}
+                    onChange={(e) => {
+                      if (e.target.value === "__nova__") setNovaSecretaria(true);
+                      else setForm({ ...form, secretaria_id: e.target.value });
+                    }}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Selecione...</option>
+                    {secretarias.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                    <option value="__nova__">+ Cadastrar nova secretaria</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      type="text"
+                      placeholder="Nome da nova secretaria"
+                      value={form.secretaria_novo_nome}
+                      onChange={(e) => setForm({ ...form, secretaria_novo_nome: e.target.value })}
+                      className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setNovaSecretaria(false); setForm({ ...form, secretaria_novo_nome: "" }); }}
+                      className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -425,4 +464,3 @@ export default function Saldos() {
     </Layout>
   );
 }
-
