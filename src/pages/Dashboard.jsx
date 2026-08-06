@@ -1,5 +1,7 @@
 import React from "react";
-import { Calendar, Bell, Plus } from "lucide-react";
+import {
+  Calendar, Bell, Plus
+} from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -103,8 +105,7 @@ export default function Dashboard() {
             {erro} -- cadastre secretarias e contas no Supabase (ou rode o schema em <code>supabase/schema.sql</code>).
           </div>
         )}
-
-        {carregando ? (
+         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando dados do Supabase...</div>
         ) : (
           <>
@@ -184,4 +185,28 @@ export default function Dashboard() {
                 </div>
 
                 <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5">
-                  <h2 className="text-base font-semibold mb-3">Últimos Registros
+                  <h2 className="text-base font-semibold mb-3">Últimos Registros</h2>
+                  {ultimosRegistros.length === 0 ? (
+                    <div className="text-xs text-[#0F2A44]/40">Nenhum registro no histórico ainda.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {ultimosRegistros.map((r, i) => (
+                        <div key={i} className="text-sm">
+                          <div className="font-medium">{r.acao} -- {r.tabela_referencia}</div>
+                          <div className="text-xs text-[#0F2A44]/50">
+                            {new Date(r.data_hora).toLocaleString("pt-BR")}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Layout>
+  );
+}
+
