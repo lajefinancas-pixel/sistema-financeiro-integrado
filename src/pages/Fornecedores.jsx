@@ -6,6 +6,9 @@ import Layout from "../components/Layout";
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function hojeISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 const SITUACOES = [
   { value: "em_aberto", label: "Em aberto", cor: "#EA9A1E", bg: "#FFF6E5" },
@@ -19,6 +22,20 @@ function situacaoInfo(v) {
   return SITUACOES.find((s) => s.value === v) ?? SITUACOES[0];
 }
 
+const FORM_VALOR_VAZIO = {
+  fornecedor_id: "",
+  numero_processo: "",
+  numero_empenho: "",
+  numero_nota_fiscal: "",
+  data_nota_fiscal: hojeISO(),
+  parcela: "",
+  valor_bruto: "",
+  optante_simples: true,
+  desconto_iss: "",
+  desconto_ir: "",
+  data_vencimento: "",
+};
+
 export default function Fornecedores() {
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -27,6 +44,7 @@ export default function Fornecedores() {
   const [expandido, setExpandido] = React.useState(null);
 
   const [mostrarForm, setMostrarForm] = React.useState(false);
+  const [mostrarFormValor, setMostrarFormValor] = React.useState(false);
   const [salvando, setSalvando] = React.useState(false);
 
   const [form, setForm] = React.useState({
@@ -39,15 +57,7 @@ export default function Fornecedores() {
     email: "",
   });
 
-  const [formValor, setFormValor] = React.useState({
-    numero_processo: "",
-    numero_empenho: "",
-    numero_nota_fiscal: "",
-    parcela: "",
-    valor: "",
-    data_vencimento: "",
-  });
-  const [fornecedorParaValor, setFornecedorParaValor] = React.useState(null);
+  const [formValor, setFormValor] = React.useState(FORM_VALOR_VAZIO);
 
   React.useEffect(() => {
     carregarDados();
@@ -90,7 +100,6 @@ export default function Fornecedores() {
       setCarregando(false);
     }
   }
-
   async function criarFornecedor(e) {
     e.preventDefault();
     setSalvando(true);
@@ -111,13 +120,8 @@ export default function Fornecedores() {
       if (error) throw error;
 
       setForm({
-        razao_social: "",
-        nome_fantasia: "",
-        cpf_cnpj: "",
-        secretaria_id: "",
-        descricao: "",
-        telefone: "",
-        email: "",
+        razao_social: "", nome_fantasia: "", cpf_cnpj: "", secretaria_id: "",
+        descricao: "", telefone: "", email: "",
       });
       setMostrarForm(false);
       await carregarDados();
@@ -128,32 +132,46 @@ export default function Fornecedores() {
     }
   }
 
-  async function adicionarValor(fornecedorId) {
+  function calcularValorLiquido() {
+    const bruto = parseFloat(formValor.valor_bruto || "0");
+    if (formValor.optante_simples) return bruto;
+    const iss = parseFloat(formValor.desconto_iss || "0");
+    const ir = parseFloat(formValor.desconto_ir || "0");
+    return bruto - iss - ir;
+  }
+
+  async function criarValor(e) {
+    e.preventDefault();
     setSalvando(true);
     setErro(null);
     try {
-      if (!formValor.valor) throw new Error("Informe o valor.");
+      if (!formValor.fornecedor_id) throw new Error("Selecione o fornecedor.");
+      if (!formValor.valor_bruto) throw new Error("Informe o valor da nota.");
+
+      const bruto = parseFloat(formValor.valor_bruto);
+      const iss = formValor.optante_simples ? 0 : parseFloat(formValor.desconto_iss || "0");
+      const ir = formValor.optante_simples ? 0 : parseFloat(formValor.desconto_ir || "0");
+      const liquido = bruto - iss - ir;
+
       const { error } = await supabase.from("valores_em_aberto").insert({
-        fornecedor_id: fornecedorId,
+        fornecedor_id: formValor.fornecedor_id,
         numero_processo: formValor.numero_processo || null,
         numero_empenho: formValor.numero_empenho || null,
         numero_nota_fiscal: formValor.numero_nota_fiscal || null,
+        data_nota_fiscal: formValor.data_nota_fiscal || null,
         parcela: formValor.parcela || null,
-        valor: parseFloat(formValor.valor),
+        valor_bruto: bruto,
+        valor: liquido,
+        optante_simples: formValor.optante_simples,
+        desconto_iss: iss,
+        desconto_ir: ir,
         data_vencimento: formValor.data_vencimento || null,
         situacao: "em_aberto",
       });
       if (error) throw error;
 
-      setFormValor({
-        numero_processo: "",
-        numero_empenho: "",
-        numero_nota_fiscal: "",
-        parcela: "",
-        valor: "",
-        data_vencimento: "",
-      });
-      setFornecedorParaValor(null);
+      setFormValor(FORM_VALOR_VAZIO);
+      setMostrarFormValor(false);
       await carregarDados();
     } catch (e) {
       setErro(e.message ?? "Erro ao adicionar valor.");
@@ -177,7 +195,6 @@ export default function Fornecedores() {
   }
 
   const totalGeralAberto = fornecedores.reduce((acc, f) => acc + f.totalAberto, 0);
-
   return (
     <Layout>
       <div className="px-8 py-7">
@@ -188,13 +205,22 @@ export default function Fornecedores() {
               Total em aberto: <span className="font-semibold">{formatBRL(totalGeralAberto)}</span>
             </p>
           </div>
-          <button
-            onClick={() => setMostrarForm((v) => !v)}
-            className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
-          >
-            {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-            {mostrarForm ? "Cancelar" : "Novo Fornecedor"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setMostrarFormValor((v) => !v); setMostrarForm(false); }}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
+            >
+              {mostrarFormValor ? <X size={16} /> : <Plus size={16} />}
+              {mostrarFormValor ? "Cancelar" : "Novo Valor em Aberto"}
+            </button>
+            <button
+              onClick={() => { setMostrarForm((v) => !v); setMostrarFormValor(false); }}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+            >
+              {mostrarForm ? <X size={16} /> : <Plus size={16} />}
+              {mostrarForm ? "Cancelar" : "Novo Fornecedor"}
+            </button>
+          </div>
         </div>
 
         {erro && (
@@ -203,6 +229,152 @@ export default function Fornecedores() {
           </div>
         )}
 
+        {mostrarFormValor && (
+          <form
+            onSubmit={criarValor}
+            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4"
+          >
+            <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar valor em aberto</h2>
+
+            <div>
+              <label className="text-xs font-medium text-[#0F2A44]/70">Fornecedor</label>
+              <select
+                value={formValor.fornecedor_id}
+                onChange={(e) => setFormValor({ ...formValor, fornecedor_id: e.target.value })}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+              >
+                <option value="">Selecione...</option>
+                {fornecedores.map((f) => (
+                  <option key={f.id} value={f.id}>{f.razao_social}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Número da NF</label>
+                <input
+                  type="text"
+                  value={formValor.numero_nota_fiscal}
+                  onChange={(e) => setFormValor({ ...formValor, numero_nota_fiscal: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Data da NF</label>
+                <input
+                  type="date"
+                  value={formValor.data_nota_fiscal}
+                  onChange={(e) => setFormValor({ ...formValor, data_nota_fiscal: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Valor da nota</label>
+                <input
+                  type="number" step="0.01" placeholder="0,00"
+                  value={formValor.valor_bruto}
+                  onChange={(e) => setFormValor({ ...formValor, valor_bruto: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Optante pelo Simples Nacional?</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormValor({ ...formValor, optante_simples: true })}
+                  className={`px-4 py-2 rounded-lg text-sm border ${
+                    formValor.optante_simples
+                      ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                      : "border-black/10 text-[#0F2A44]/60"
+                  }`}
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormValor({ ...formValor, optante_simples: false })}
+                  className={`px-4 py-2 rounded-lg text-sm border ${
+                    !formValor.optante_simples
+                      ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                      : "border-black/10 text-[#0F2A44]/60"
+                  }`}
+                >
+                  Não
+                </button>
+              </div>
+            </div>
+
+            {!formValor.optante_simples && (
+              <div className="grid grid-cols-2 gap-4 bg-[#0F2A44]/[0.03] rounded-lg p-3">
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Desconto de ISS</label>
+                  <input
+                    type="number" step="0.01" placeholder="0,00"
+                    value={formValor.desconto_iss}
+                    onChange={(e) => setFormValor({ ...formValor, desconto_iss: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Desconto de IR</label>
+                  <input
+                    type="number" step="0.01" placeholder="0,00"
+                    value={formValor.desconto_ir}
+                    onChange={(e) => setFormValor({ ...formValor, desconto_ir: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#EAF1FF] rounded-lg px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-[#0F2A44]/70">Valor líquido da nota</span>
+              <span className="text-base font-semibold text-[#0F2A44]">{formatBRL(calcularValorLiquido())}</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Processo (opcional)</label>
+                <input
+                  type="text"
+                  value={formValor.numero_processo}
+                  onChange={(e) => setFormValor({ ...formValor, numero_processo: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Empenho (opcional)</label>
+                <input
+                  type="text"
+                  value={formValor.numero_empenho}
+                  onChange={(e) => setFormValor({ ...formValor, numero_empenho: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Vencimento</label>
+                <input
+                  type="date"
+                  value={formValor.data_vencimento}
+                  onChange={(e) => setFormValor({ ...formValor, data_vencimento: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit" disabled={salvando}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
+            >
+              <Save size={15} />
+              {salvando ? "Salvando..." : "Salvar valor em aberto"}
+            </button>
+          </form>
+        )}
         {mostrarForm && (
           <form
             onSubmit={criarFornecedor}
@@ -288,8 +460,7 @@ export default function Fornecedores() {
             </div>
 
             <button
-              type="submit"
-              disabled={salvando}
+              type="submit" disabled={salvando}
               className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
             >
               <Save size={15} />
@@ -297,7 +468,6 @@ export default function Fornecedores() {
             </button>
           </form>
         )}
-
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : fornecedores.length === 0 ? (
@@ -329,34 +499,43 @@ export default function Fornecedores() {
                 {expandido === f.id && (
                   <div className="border-t border-black/5 px-4 py-3">
                     {f.valores.length === 0 ? (
-                      <div className="text-xs text-[#0F2A44]/40 mb-3">Nenhum valor cadastrado.</div>
+                      <div className="text-xs text-[#0F2A44]/40">Nenhum valor cadastrado.</div>
                     ) : (
-                      <table className="w-full text-sm mb-3">
+                      <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                            <th className="py-1.5 font-medium">Processo/Empenho/NF</th>
+                            <th className="py-1.5 font-medium">NF</th>
+                            <th className="py-1.5 font-medium">Data NF</th>
                             <th className="py-1.5 font-medium">Vencimento</th>
-                            <th className="py-1.5 font-medium text-right">Valor</th>
+                            <th className="py-1.5 font-medium">Simples</th>
+                            <th className="py-1.5 font-medium text-right">Bruto</th>
+                            <th className="py-1.5 font-medium text-right">Descontos</th>
+                            <th className="py-1.5 font-medium text-right">Líquido</th>
                             <th className="py-1.5 font-medium text-right">Situação</th>
                           </tr>
                         </thead>
                         <tbody>
                           {f.valores.map((v) => {
                             const info = situacaoInfo(v.situacao);
+                            const descontos = (v.desconto_iss ?? 0) + (v.desconto_ir ?? 0);
                             return (
                               <tr key={v.id} className="border-t border-black/5">
                                 <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {[v.numero_processo, v.numero_empenho, v.numero_nota_fiscal]
-                                    .filter(Boolean)
-                                    .join(" / ") || "--"}
-                                  {v.parcela ? ` (parc. ${v.parcela})` : ""}
+                                  {v.numero_nota_fiscal || "--"}
+                                  {v.parcela ? ` (${v.parcela})` : ""}
                                 </td>
                                 <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {v.data_vencimento
-                                    ? new Date(v.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")
-                                    : "--"}
+                                  {v.data_nota_fiscal ? new Date(v.data_nota_fiscal + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
                                 </td>
-                                <td className="py-2 text-right tabular-nums">{formatBRL(v.valor)}</td>
+                                <td className="py-2 text-xs text-[#0F2A44]/70">
+                                  {v.data_vencimento ? new Date(v.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
+                                </td>
+                                <td className="py-2 text-xs text-[#0F2A44]/70">{v.optante_simples ? "Sim" : "Não"}</td>
+                                <td className="py-2 text-right tabular-nums text-xs">{formatBRL(v.valor_bruto ?? v.valor)}</td>
+                                <td className="py-2 text-right tabular-nums text-xs text-red-600">
+                                  {descontos > 0 ? `- ${formatBRL(descontos)}` : "--"}
+                                </td>
+                                <td className="py-2 text-right tabular-nums font-medium">{formatBRL(v.valor)}</td>
                                 <td className="py-2 text-right">
                                   <select
                                     value={v.situacao}
@@ -374,73 +553,6 @@ export default function Fornecedores() {
                           })}
                         </tbody>
                       </table>
-                    )}
-
-                    {fornecedorParaValor === f.id ? (
-                      <div className="bg-[#0F2A44]/[0.03] rounded-lg p-3 space-y-2">
-                        <div className="grid grid-cols-3 gap-2">
-                          <input
-                            type="text" placeholder="Processo"
-                            value={formValor.numero_processo}
-                            onChange={(e) => setFormValor({ ...formValor, numero_processo: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                          <input
-                            type="text" placeholder="Empenho"
-                            value={formValor.numero_empenho}
-                            onChange={(e) => setFormValor({ ...formValor, numero_empenho: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                          <input
-                            type="text" placeholder="Nota fiscal"
-                            value={formValor.numero_nota_fiscal}
-                            onChange={(e) => setFormValor({ ...formValor, numero_nota_fiscal: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <input
-                            type="text" placeholder="Parcela (ex: 1/3)"
-                            value={formValor.parcela}
-                            onChange={(e) => setFormValor({ ...formValor, parcela: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                          <input
-                            type="number" step="0.01" placeholder="Valor"
-                            value={formValor.valor}
-                            onChange={(e) => setFormValor({ ...formValor, valor: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                          <input
-                            type="date"
-                            value={formValor.data_vencimento}
-                            onChange={(e) => setFormValor({ ...formValor, data_vencimento: e.target.value })}
-                            className="px-2 py-1.5 rounded border border-black/10 text-xs"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => adicionarValor(f.id)}
-                            disabled={salvando}
-                            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-[#0F2A44] text-white"
-                          >
-                            <Save size={12} /> Salvar valor
-                          </button>
-                          <button
-                            onClick={() => setFornecedorParaValor(null)}
-                            className="text-xs px-3 py-1.5 rounded-lg border border-black/10 text-[#0F2A44]/60"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setFornecedorParaValor(f.id)}
-                        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/[0.02]"
-                      >
-                        <Plus size={12} /> Adicionar valor em aberto
-                      </button>
                     )}
                   </div>
                 )}
