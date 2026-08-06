@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronDown } from "lucide-react";
+import { Plus, X, Trash2, Check } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 
@@ -72,6 +72,7 @@ export default function Pagamentos() {
       setCarregando(false);
     }
   }
+
   async function carregarContasEFornecedores(secId) {
     try {
       const { data: contas, error: eContas } = await supabase
@@ -177,6 +178,7 @@ export default function Pagamentos() {
     setProgramacaoId(nova.id);
     return nova.id;
   }
+
   async function toggleConta(contaId) {
     setErro(null);
     try {
@@ -267,6 +269,7 @@ export default function Pagamentos() {
       setSalvando(false);
     }
   }
+
   function editarValorLocal(pagamentoId, novoValor) {
     setPagamentos((atual) =>
       atual.map((p) => (p.id === pagamentoId ? { ...p, valor_a_pagar: novoValor } : p))
@@ -328,6 +331,93 @@ export default function Pagamentos() {
     const fornecedor = fornecedoresDaSecretaria.find((f) => f.id === fornecedorEscolhido);
     return fornecedor?.valores ?? [];
   }, [fornecedoresDaSecretaria, fornecedorEscolhido]);
+
+  return (
+    <Layout>
+      <div className="px-8 py-7">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#0F2A44]">Pagamentos Diários</h1>
+            <p className="text-sm text-[#0F2A44]/60 mt-0.5">
+              {fechado ? "Dia fechado -- alterações ficam registradas no histórico." : "Programação do dia"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={secretariaId}
+              onChange={(e) => setSecretariaId(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
+            >
+              {secretarias.map((s) => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={data}
+              onChange={(e) => setData(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
+            />
+          </div>
+        </div>
+
+        {erro && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5">
+            {erro}
+          </div>
+        )}
+
+        {carregando ? (
+          <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
+        ) : (
+          <div>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
+                <div className="text-xs text-[#0F2A44]/50">Saldo disponível</div>
+                <div className="text-xl font-semibold text-[#0F2A44] mt-1">{formatBRL(saldoDisponivel)}</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
+                <div className="text-xs text-[#0F2A44]/50">Total programado</div>
+                <div className="text-xl font-semibold text-[#0F2A44] mt-1">{formatBRL(totalProgramado)}</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
+                <div className="text-xs text-[#0F2A44]/50">Saldo restante (resta)</div>
+                <div
+                  className="text-xl font-semibold mt-1"
+                  style={{ color: saldoRestante < 0 ? "#DC2626" : "#0F2A44" }}
+                >
+                  {formatBRL(saldoRestante)}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6">
+              <h2 className="text-sm font-semibold text-[#0F2A44] mb-3">Contas bancárias selecionadas para o dia</h2>
+              {contasDaSecretaria.length === 0 ? (
+                <div className="text-xs text-[#0F2A44]/40">Nenhuma conta cadastrada para esta secretaria.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {contasDaSecretaria.map((c) => {
+                    const selecionada = contasSelecionadas.has(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleConta(c.id)}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border ${
+                          selecionada
+                            ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                            : "border-black/10 text-[#0F2A44]/70"
+                        }`}
+                      >
+                        {selecionada && <Check size={12} />}
+                        {c.banco} · {c.nome_conta} -- {formatBRL(c.saldo)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-2 mb-4">
               <button
                 onClick={() => { setMostrarAddCadastrado((v) => !v); setMostrarAddAvulso(false); }}
@@ -415,6 +505,7 @@ export default function Pagamentos() {
                 </button>
               </div>
             )}
+
             <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-black/5">
                 <h2 className="text-sm font-semibold text-[#0F2A44]">Pagamentos do dia</h2>
@@ -505,7 +596,7 @@ export default function Pagamentos() {
                 </table>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </Layout>
