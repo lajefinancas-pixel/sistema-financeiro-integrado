@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import { Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -27,6 +27,11 @@ export default function Saldos() {
   const [salvando, setSalvando] = React.useState(false);
   const [novoBanco, setNovoBanco] = React.useState(false);
   const [novaSecretaria, setNovaSecretaria] = React.useState(false);
+
+  const [mostrarImportar, setMostrarImportar] = React.useState(false);
+  const [textoImportar, setTextoImportar] = React.useState("");
+  const [importando, setImportando] = React.useState(false);
+  const [resultadoImportar, setResultadoImportar] = React.useState(null);
 
   const [form, setForm] = React.useState({
     secretaria_id: "",
@@ -98,14 +103,48 @@ export default function Saldos() {
       setCarregando(false);
     }
   }
+  const [editandoSecretariaId, setEditandoSecretariaId] = React.useState(null);
+  const [saldosLote, setSaldosLote] = React.useState({});
+  const [dataLote, setDataLote] = React.useState(hojeISO());
+
+  function iniciarEdicaoLote(sec) {
+    const inicial = {};
+    sec.contas.forEach((c) => {
+      inicial[c.id] = String(c.saldo);
+    });
+    setSaldosLote(inicial);
+    setDataLote(hojeISO());
+    setEditandoSecretariaId(sec.id);
+  }
+
+  async function salvarLote(sec) {
+    setSalvando(true);
+    setErro(null);
+    try {
+      const linhas = sec.contas.map((c) => ({
+        conta_id: c.id,
+        valor_saldo: parseFloat(saldosLote[c.id] || "0"),
+        data_saldo: dataLote,
+      }));
+      const { error } = await supabase
+        .from("saldos_historico")
+        .upsert(linhas, { onConflict: "conta_id,data_saldo" });
+      if (error) throw error;
+      setEditandoSecretariaId(null);
+      setSaldosLote({});
+      await carregarDados();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao salvar saldos em lote.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   async function excluirConta(contaId) {
     if (!confirm("Excluir esta conta bancária? Os saldos dela também serão removidos do painel.")) return;
     setErro(null);
     try {
-      const { error } = await supabase
-        .from("contas_bancarias")
-        .update({ ativo: false })
-        .eq("id", contaId);
+      const { error } = await supabase.from("contas_bancarias").update({ ativo: false }).eq("id", contaId);
       if (error) throw error;
       await carregarDados();
     } catch (e) {
@@ -117,10 +156,7 @@ export default function Saldos() {
     if (!confirm(`Excluir a secretaria "${nome}"? As contas cadastradas nela deixarão de aparecer no painel.`)) return;
     setErro(null);
     try {
-      const { error } = await supabase
-        .from("secretarias")
-        .update({ ativo: false })
-        .eq("id", secretariaId);
+      const { error } = await supabase.from("secretarias").update({ ativo: false }).eq("id", secretariaId);
       if (error) throw error;
       await carregarDados();
     } catch (e) {
@@ -138,20 +174,14 @@ export default function Saldos() {
 
       if (novaSecretaria && form.secretaria_novo_nome.trim()) {
         const { data: secData, error: eSec } = await supabase
-          .from("secretarias")
-          .insert({ nome: form.secretaria_novo_nome.trim() })
-          .select()
-          .single();
+          .from("secretarias").insert({ nome: form.secretaria_novo_nome.trim() }).select().single();
         if (eSec) throw eSec;
         secretariaId = secData.id;
       }
 
       if (novoBanco && form.banco_novo_nome.trim()) {
         const { data: bancoData, error: eBanco } = await supabase
-          .from("bancos")
-          .insert({ nome: form.banco_novo_nome.trim() })
-          .select()
-          .single();
+          .from("bancos").insert({ nome: form.banco_novo_nome.trim() }).select().single();
         if (eBanco) throw eBanco;
         bancoId = bancoData.id;
       }
@@ -163,21 +193,14 @@ export default function Saldos() {
       const { data: contaData, error: eConta } = await supabase
         .from("contas_bancarias")
         .insert({
-          secretaria_id: secretariaId,
-          banco_id: bancoId,
-          nome_conta: form.nome_conta,
-          numero_conta: form.numero_conta || null,
-          tipo_conta: form.tipo_conta || null,
-        })
-        .select()
-        .single();
+          secretaria_id: secretariaId, banco_id: bancoId, nome_conta: form.nome_conta,
+          numero_conta: form.numero_conta || null, tipo_conta: form.tipo_conta || null,
+        }).select().single();
       if (eConta) throw eConta;
 
       const valorInicial = parseFloat(form.saldo_inicial || "0");
       const { error: eSaldo } = await supabase.from("saldos_historico").insert({
-        conta_id: contaData.id,
-        valor_saldo: valorInicial,
-        data_saldo: form.data_saldo,
+        conta_id: contaData.id, valor_saldo: valorInicial, data_saldo: form.data_saldo,
       });
       if (eSaldo) throw eSaldo;
 
@@ -220,18 +243,107 @@ export default function Saldos() {
     const linhas = [];
     contasPorSecretaria.forEach((sec) => {
       sec.contas.forEach((c) => {
-        linhas.push({
-          Secretaria: sec.nome,
-          Banco: c.banco,
-          Conta: c.nome_conta,
-          Saldo: c.saldo,
-        });
+        linhas.push({ Secretaria: sec.nome, Banco: c.banco, Conta: c.nome_conta, Saldo: c.saldo });
       });
     });
     const ws = XLSX.utils.json_to_sheet(linhas);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Saldos");
     XLSX.writeFile(wb, `saldos-${hojeISO()}.xlsx`);
+  }
+  async function importarLote() {
+    setImportando(true);
+    setErro(null);
+    setResultadoImportar(null);
+    try {
+      const linhas = textoImportar
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      let criadas = 0;
+      let erros = [];
+
+      const secretariasCache = {};
+      const bancosCache = {};
+
+      for (const linha of linhas) {
+        const partes = linha.split(";").map((p) => p.trim());
+        if (partes.length < 4) {
+          erros.push(`Linha ignorada (formato incompleto): ${linha}`);
+          continue;
+        }
+        const [secretariaNome, bancoNome, numeroConta, nomeConta, saldoStr] = partes;
+
+        try {
+          let secretariaId = secretariasCache[secretariaNome.toLowerCase()];
+          if (!secretariaId) {
+            const existente = secretarias.find(
+              (s) => s.nome.toLowerCase() === secretariaNome.toLowerCase()
+            );
+            if (existente) {
+              secretariaId = existente.id;
+            } else {
+              const { data, error } = await supabase
+                .from("secretarias").insert({ nome: secretariaNome }).select().single();
+              if (error) throw error;
+              secretariaId = data.id;
+              secretarias.push({ id: data.id, nome: secretariaNome });
+            }
+            secretariasCache[secretariaNome.toLowerCase()] = secretariaId;
+          }
+
+          let bancoId = bancosCache[bancoNome.toLowerCase()];
+          if (!bancoId) {
+            const existente = bancos.find((b) => b.nome.toLowerCase() === bancoNome.toLowerCase());
+            if (existente) {
+              bancoId = existente.id;
+            } else {
+              const { data, error } = await supabase
+                .from("bancos").insert({ nome: bancoNome }).select().single();
+              if (error) throw error;
+              bancoId = data.id;
+              bancos.push({ id: data.id, nome: bancoNome });
+            }
+            bancosCache[bancoNome.toLowerCase()] = bancoId;
+          }
+
+          const { data: contaData, error: eConta } = await supabase
+            .from("contas_bancarias")
+            .insert({
+              secretaria_id: secretariaId,
+              banco_id: bancoId,
+              nome_conta: nomeConta,
+              numero_conta: numeroConta || null,
+            })
+            .select()
+            .single();
+          if (eConta) throw eConta;
+
+          const valor = parseFloat((saldoStr || "0").replace(",", "."));
+          const { error: eSaldo } = await supabase.from("saldos_historico").insert({
+            conta_id: contaData.id,
+            valor_saldo: isNaN(valor) ? 0 : valor,
+            data_saldo: hojeISO(),
+          });
+          if (eSaldo) throw eSaldo;
+
+          criadas++;
+        } catch (e) {
+          erros.push(`Erro na linha "${linha}": ${e.message}`);
+        }
+      }
+
+      setResultadoImportar({ criadas, erros });
+      if (criadas > 0) {
+        setTextoImportar("");
+        await carregarDados();
+      }
+    } catch (e) {
+      setErro(e.message ?? "Erro ao importar.");
+    } finally {
+      setImportando(false);
+    }
   }
   return (
     <Layout>
@@ -244,26 +356,23 @@ export default function Saldos() {
         <div className="flex items-start justify-between mb-6 print:mb-4">
           <h1 className="text-2xl font-semibold text-[#0F2A44]">Saldos das Contas</h1>
           <div className="flex items-center gap-2 print:hidden">
-            <button
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-            >
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <Printer size={14} /> Imprimir
             </button>
-            <button
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-            >
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileText size={14} /> PDF
             </button>
-            <button
-              onClick={exportarExcel}
-              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-            >
+            <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileSpreadsheet size={14} /> Excel
             </button>
             <button
-              onClick={() => setMostrarForm((v) => !v)}
+              onClick={() => { setMostrarImportar((v) => !v); setMostrarForm(false); }}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              <Upload size={14} /> Importar em lote
+            </button>
+            <button
+              onClick={() => { setMostrarForm((v) => !v); setMostrarImportar(false); }}
               className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
             >
               {mostrarForm ? <X size={16} /> : <Plus size={16} />}
@@ -278,6 +387,42 @@ export default function Saldos() {
           </div>
         )}
 
+        {mostrarImportar && (
+          <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3 print:hidden">
+            <h2 className="text-base font-semibold text-[#0F2A44]">Importar contas em lote</h2>
+            <p className="text-xs text-[#0F2A44]/60">
+              Cole uma linha por conta, no formato:{" "}
+              <span className="font-mono bg-black/5 px-1 rounded">Secretaria;Banco;Número;Nome da conta;Saldo</span>
+              <br />
+              Secretarias e bancos que ainda não existirem serão criados automaticamente.
+            </p>
+            <textarea
+              value={textoImportar}
+              onChange={(e) => setTextoImportar(e.target.value)}
+              rows={8}
+              placeholder={"Secretaria de Finanças;Banco do Brasil;2.042-7;PREFEITURA;1000\nSecretaria de Saúde;Banco do Brasil;9.500-1;VIGILÂNCIA SANITÁRIA;2500"}
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-xs font-mono"
+            />
+            {resultadoImportar && (
+              <div className="text-xs space-y-1">
+                <div className="text-green-700 font-medium">{resultadoImportar.criadas} conta(s) importada(s) com sucesso.</div>
+                {resultadoImportar.erros.length > 0 && (
+                  <div className="text-red-600">
+                    {resultadoImportar.erros.map((e, i) => <div key={i}>{e}</div>)}
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={importarLote}
+              disabled={importando || !textoImportar.trim()}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
+            >
+              <Upload size={15} />
+              {importando ? "Importando..." : "Importar"}
+            </button>
+          </div>
+        )}
         {mostrarForm && (
           <form
             onSubmit={criarConta}
@@ -415,104 +560,151 @@ export default function Saldos() {
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : (
           <div className="space-y-4 print:space-y-2">
-            {contasPorSecretaria.map((sec) => (
-              <div
-                key={sec.id}
-                className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid"
-              >
-                <div
-                  className="flex items-center justify-between px-4 py-2.5"
-                  style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
-                >
-                  <span className="text-sm font-semibold" style={{ color: sec.cor }}>
-                    {sec.nome.toUpperCase()}
-                  </span>
-                  <button
-                    onClick={() => excluirSecretaria(sec.id, sec.nome)}
-                    className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
-                    title="Excluir secretaria"
+            {contasPorSecretaria.map((sec) => {
+              const emLote = editandoSecretariaId === sec.id;
+              return (
+                <div key={sec.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
+                  <div
+                    className="flex items-center justify-between px-4 py-2.5"
+                    style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
                   >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-
-                {sec.contas.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm text-[#0F2A44]/40">
-                    Nenhuma conta cadastrada nesta secretaria.
+                    <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                      {sec.nome.toUpperCase()}
+                    </span>
+                    <div className="flex items-center gap-3 print:hidden">
+                      {emLote ? (
+                        <>
+                          <input
+                            type="date"
+                            value={dataLote}
+                            onChange={(e) => setDataLote(e.target.value)}
+                            className="px-2 py-1 rounded border border-black/10 text-xs"
+                          />
+                          <button
+                            onClick={() => salvarLote(sec)}
+                            disabled={salvando}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-[#0F2A44] text-white"
+                          >
+                            <Save size={12} /> Salvar todos
+                          </button>
+                          <button
+                            onClick={() => setEditandoSecretariaId(null)}
+                            className="text-[#0F2A44]/40 hover:text-[#0F2A44]/70"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {sec.contas.length > 0 && (
+                            <button
+                              onClick={() => iniciarEdicaoLote(sec)}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10"
+                              style={{ color: sec.cor }}
+                              title="Editar todos os saldos desta secretaria"
+                            >
+                              <Pencil size={12} /> Editar saldos
+                            </button>
+                          )}
+                          <button
+                            onClick={() => excluirSecretaria(sec.id, sec.nome)}
+                            className="text-[#0F2A44]/30 hover:text-red-500"
+                            title="Excluir secretaria"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                        <th className="px-4 py-2 font-medium">Banco</th>
-                        <th className="px-4 py-2 font-medium">Conta</th>
-                        <th className="px-4 py-2 font-medium text-center">Saldo</th>
-                        <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sec.contas.map((c) => (
-                        <tr key={c.id} className="border-t border-black/5">
-                          <td className="px-4 py-2.5">{c.banco}</td>
-                          <td className="px-4 py-2.5">{c.nome_conta}</td>
-                          <td className="px-4 py-2.5 text-center tabular-nums">
-                            {editando === c.id ? (
-                              <div className="flex items-center justify-center gap-2">
-                                <input
-                                  type="date"
-                                  value={novoSaldo.data}
-                                  onChange={(e) => setNovoSaldo({ ...novoSaldo, data: e.target.value })}
-                                  className="px-2 py-1 rounded border border-black/10 text-xs"
-                                />
-                                <input
-                                  type="number" step="0.01" placeholder="0,00"
-                                  value={novoSaldo.valor}
-                                  onChange={(e) => setNovoSaldo({ ...novoSaldo, valor: e.target.value })}
-                                  className="w-24 px-2 py-1 rounded border border-black/10 text-xs text-center"
-                                />
-                              </div>
-                            ) : (
-                              formatBRL(c.saldo)
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5 print:hidden">
-                            <div className="flex items-center justify-end gap-2">
-                              {editando === c.id ? (
-                                <>
-                                  <button onClick={() => salvarNovoSaldo(c.id)} disabled={salvando} className="text-[#0F2A44] hover:text-[#0F2A44]/70">
-                                    <Save size={15} />
-                                  </button>
-                                  <button onClick={() => setEditando(null)} className="text-[#0F2A44]/40 hover:text-[#0F2A44]/70">
-                                    <X size={15} />
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => { setEditando(c.id); setNovoSaldo({ valor: String(c.saldo), data: hojeISO() }); }}
-                                    className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
-                                    title="Atualizar saldo"
-                                  >
-                                    <Pencil size={15} />
-                                  </button>
-                                  <button
-                                    onClick={() => excluirConta(c.id)}
-                                    className="text-[#0F2A44]/30 hover:text-red-500"
-                                    title="Excluir conta"
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
+
+                  {sec.contas.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-[#0F2A44]/40">
+                      Nenhuma conta cadastrada nesta secretaria.
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                          <th className="px-4 py-2 font-medium">Banco</th>
+                          <th className="px-4 py-2 font-medium">Conta</th>
+                          <th className="px-4 py-2 font-medium text-center">Saldo</th>
+                          <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            ))}
+                      </thead>
+                      <tbody>
+                        {sec.contas.map((c) => (
+                          <tr key={c.id} className="border-t border-black/5">
+                            <td className="px-4 py-2.5">{c.banco}</td>
+                            <td className="px-4 py-2.5">{c.nome_conta}</td>
+                            <td className="px-4 py-2.5 text-center tabular-nums">
+                              {emLote ? (
+                                <input
+                                  type="number" step="0.01"
+                                  value={saldosLote[c.id] ?? ""}
+                                  onChange={(e) => setSaldosLote({ ...saldosLote, [c.id]: e.target.value })}
+                                  className="w-28 px-2 py-1 rounded border border-black/10 text-xs text-center"
+                                />
+                              ) : editando === c.id ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <input
+                                    type="date"
+                                    value={novoSaldo.data}
+                                    onChange={(e) => setNovoSaldo({ ...novoSaldo, data: e.target.value })}
+                                    className="px-2 py-1 rounded border border-black/10 text-xs"
+                                  />
+                                  <input
+                                    type="number" step="0.01" placeholder="0,00"
+                                    value={novoSaldo.valor}
+                                    onChange={(e) => setNovoSaldo({ ...novoSaldo, valor: e.target.value })}
+                                    className="w-24 px-2 py-1 rounded border border-black/10 text-xs text-center"
+                                  />
+                                </div>
+                              ) : (
+                                formatBRL(c.saldo)
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 print:hidden">
+                              {!emLote && (
+                                <div className="flex items-center justify-end gap-2">
+                                  {editando === c.id ? (
+                                    <>
+                                      <button onClick={() => salvarNovoSaldo(c.id)} disabled={salvando} className="text-[#0F2A44] hover:text-[#0F2A44]/70">
+                                        <Save size={15} />
+                                      </button>
+                                      <button onClick={() => setEditando(null)} className="text-[#0F2A44]/40 hover:text-[#0F2A44]/70">
+                                        <X size={15} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => { setEditando(c.id); setNovoSaldo({ valor: String(c.saldo), data: hojeISO() }); }}
+                                        className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
+                                        title="Atualizar saldo"
+                                      >
+                                        <Pencil size={15} />
+                                      </button>
+                                      <button
+                                        onClick={() => excluirConta(c.id)}
+                                        className="text-[#0F2A44]/30 hover:text-red-500"
+                                        title="Excluir conta"
+                                      >
+                                        <Trash2 size={15} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
