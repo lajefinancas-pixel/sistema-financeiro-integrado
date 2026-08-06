@@ -7,6 +7,21 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.onerror = function (msg, url, line, col, error) {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          '<pre style="position:fixed;top:0;left:0;right:0;background:#fff;color:red;padding:20px;z-index:99999;white-space:pre-wrap;font-size:14px;">ERRO: ' +
+            msg +
+            " (linha " +
+            line +
+            ")\n" +
+            (error && error.stack ? error.stack : "") +
+            "</pre>"
+        );
+      };
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
+
