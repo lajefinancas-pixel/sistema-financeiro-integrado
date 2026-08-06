@@ -24,7 +24,7 @@ export default function Layout({ children, usuario }) {
 
   return (
     <div className="min-h-screen w-full flex bg-[#F5F3EF] text-[#0F2A44]">
-      <aside className="w-64 shrink-0 bg-[#0F2A44] text-white flex flex-col">
+            <aside className="w-64 shrink-0 bg-[#0F2A44] text-white flex flex-col print:hidden">
         <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center border-b border-white/10">
           <div className="w-16 h-16 rounded-full border-2 border-[#C9A227] flex items-center justify-center mb-3">
             <Landmark size={26} className="text-[#C9A227]" />

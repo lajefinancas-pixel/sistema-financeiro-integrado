@@ -1,13 +1,19 @@
 import React from "react";
-import { Plus, X, Pencil, Save } from "lucide-react";
+import { Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+
+const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
+}
+function hojeBR() {
+  return new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 export default function Saldos() {
@@ -70,7 +76,7 @@ export default function Saldos() {
         if (!(s.conta_id in ultimoSaldo)) ultimoSaldo[s.conta_id] = s;
       }
 
-      const agrupado = (secs ?? []).map((sec) => {
+      const agrupado = (secs ?? []).map((sec, i) => {
         const contasDaSec = (contas ?? [])
           .filter((c) => c.secretaria_id === sec.id)
           .map((c) => ({
@@ -79,10 +85,8 @@ export default function Saldos() {
             nome_conta: c.nome_conta,
             numero_conta: c.numero_conta,
             saldo: ultimoSaldo[c.id]?.valor_saldo ?? 0,
-            data_saldo: ultimoSaldo[c.id]?.data_saldo ?? null,
           }));
-        const total = contasDaSec.reduce((acc, c) => acc + c.saldo, 0);
-        return { id: sec.id, nome: sec.nome, contas: contasDaSec, total };
+        return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec };
       });
 
       setSecretarias(secs ?? []);
@@ -94,6 +98,36 @@ export default function Saldos() {
       setCarregando(false);
     }
   }
+  async function excluirConta(contaId) {
+    if (!confirm("Excluir esta conta bancária? Os saldos dela também serão removidos do painel.")) return;
+    setErro(null);
+    try {
+      const { error } = await supabase
+        .from("contas_bancarias")
+        .update({ ativo: false })
+        .eq("id", contaId);
+      if (error) throw error;
+      await carregarDados();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao excluir conta.");
+    }
+  }
+
+  async function excluirSecretaria(secretariaId, nome) {
+    if (!confirm(`Excluir a secretaria "${nome}"? As contas cadastradas nela deixarão de aparecer no painel.`)) return;
+    setErro(null);
+    try {
+      const { error } = await supabase
+        .from("secretarias")
+        .update({ ativo: false })
+        .eq("id", secretariaId);
+      if (error) throw error;
+      await carregarDados();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao excluir secretaria.");
+    }
+  }
+
   async function criarConta(e) {
     e.preventDefault();
     setSalvando(true);
@@ -148,15 +182,8 @@ export default function Saldos() {
       if (eSaldo) throw eSaldo;
 
       setForm({
-        secretaria_id: "",
-        secretaria_novo_nome: "",
-        banco_id: "",
-        banco_novo_nome: "",
-        nome_conta: "",
-        numero_conta: "",
-        tipo_conta: "",
-        saldo_inicial: "",
-        data_saldo: hojeISO(),
+        secretaria_id: "", secretaria_novo_nome: "", banco_id: "", banco_novo_nome: "",
+        nome_conta: "", numero_conta: "", tipo_conta: "", saldo_inicial: "", data_saldo: hojeISO(),
       });
       setNovoBanco(false);
       setNovaSecretaria(false);
@@ -189,28 +216,64 @@ export default function Saldos() {
     }
   }
 
-  const totalGeral = contasPorSecretaria.reduce((acc, s) => acc + s.total, 0);
+  function exportarExcel() {
+    const linhas = [];
+    contasPorSecretaria.forEach((sec) => {
+      sec.contas.forEach((c) => {
+        linhas.push({
+          Secretaria: sec.nome,
+          Banco: c.banco,
+          Conta: c.nome_conta,
+          Saldo: c.saldo,
+        });
+      });
+    });
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Saldos");
+    XLSX.writeFile(wb, `saldos-${hojeISO()}.xlsx`);
+  }
   return (
     <Layout>
-      <div className="px-8 py-7">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-[#0F2A44]">Saldos das Contas</h1>
-            <p className="text-sm text-[#0F2A44]/60 mt-0.5">
-              Total geral: <span className="font-semibold">{formatBRL(totalGeral)}</span>
-            </p>
+      <div className="px-8 py-7 print:px-0 print:py-0">
+        <div className="pl-3 border-l-2 border-[#0F2A44]/10 mb-4 print:hidden">
+          <span className="text-xs text-[#0F2A44]/50">Saldo emitido em</span>
+          <div className="text-sm font-medium text-[#0F2A44]">{hojeBR()}</div>
+        </div>
+
+        <div className="flex items-start justify-between mb-6 print:mb-4">
+          <h1 className="text-2xl font-semibold text-[#0F2A44]">Saldos das Contas</h1>
+          <div className="flex items-center gap-2 print:hidden">
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              <Printer size={14} /> Imprimir
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              <FileText size={14} /> PDF
+            </button>
+            <button
+              onClick={exportarExcel}
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              <FileSpreadsheet size={14} /> Excel
+            </button>
+            <button
+              onClick={() => setMostrarForm((v) => !v)}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+            >
+              {mostrarForm ? <X size={16} /> : <Plus size={16} />}
+              {mostrarForm ? "Cancelar" : "Novo Registro"}
+            </button>
           </div>
-          <button
-            onClick={() => setMostrarForm((v) => !v)}
-            className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
-          >
-            {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-            {mostrarForm ? "Cancelar" : "Novo Registro"}
-          </button>
         </div>
 
         {erro && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5 print:hidden">
             {erro}
           </div>
         )}
@@ -218,7 +281,7 @@ export default function Saldos() {
         {mostrarForm && (
           <form
             onSubmit={criarConta}
-            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4"
+            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4 print:hidden"
           >
             <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar nova conta</h2>
 
@@ -243,17 +306,12 @@ export default function Saldos() {
                 ) : (
                   <div className="flex gap-2 mt-1">
                     <input
-                      type="text"
-                      placeholder="Nome da nova secretaria"
+                      type="text" placeholder="Nome da nova secretaria"
                       value={form.secretaria_novo_nome}
                       onChange={(e) => setForm({ ...form, secretaria_novo_nome: e.target.value })}
                       className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                     />
-                    <button
-                      type="button"
-                      onClick={() => { setNovaSecretaria(false); setForm({ ...form, secretaria_novo_nome: "" }); }}
-                      className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50"
-                    >
+                    <button type="button" onClick={() => { setNovaSecretaria(false); setForm({ ...form, secretaria_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
                       <X size={14} />
                     </button>
                   </div>
@@ -280,17 +338,12 @@ export default function Saldos() {
                 ) : (
                   <div className="flex gap-2 mt-1">
                     <input
-                      type="text"
-                      placeholder="Nome do novo banco"
+                      type="text" placeholder="Nome do novo banco"
                       value={form.banco_novo_nome}
                       onChange={(e) => setForm({ ...form, banco_novo_nome: e.target.value })}
                       className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                     />
-                    <button
-                      type="button"
-                      onClick={() => { setNovoBanco(false); setForm({ ...form, banco_novo_nome: "" }); }}
-                      className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50"
-                    >
+                    <button type="button" onClick={() => { setNovoBanco(false); setForm({ ...form, banco_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
                       <X size={14} />
                     </button>
                   </div>
@@ -302,8 +355,7 @@ export default function Saldos() {
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Nome da conta</label>
                 <input
-                  type="text"
-                  placeholder="Ex: Conta Movimento"
+                  type="text" placeholder="Ex: Conta Movimento"
                   value={form.nome_conta}
                   onChange={(e) => setForm({ ...form, nome_conta: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
@@ -324,8 +376,7 @@ export default function Saldos() {
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Tipo (opcional)</label>
                 <input
-                  type="text"
-                  placeholder="Ex: custeio, investimento"
+                  type="text" placeholder="Ex: custeio, investimento"
                   value={form.tipo_conta}
                   onChange={(e) => setForm({ ...form, tipo_conta: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
@@ -334,9 +385,7 @@ export default function Saldos() {
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Saldo inicial</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  placeholder="0,00"
+                  type="number" step="0.01" placeholder="0,00"
                   value={form.saldo_inicial}
                   onChange={(e) => setForm({ ...form, saldo_inicial: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
@@ -354,8 +403,7 @@ export default function Saldos() {
             </div>
 
             <button
-              type="submit"
-              disabled={salvando}
+              type="submit" disabled={salvando}
               className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
             >
               <Save size={15} />
@@ -366,12 +414,26 @@ export default function Saldos() {
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 print:space-y-2">
             {contasPorSecretaria.map((sec) => (
-              <div key={sec.id} className="rounded-xl border border-black/5 overflow-hidden bg-white">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#0F2A44]/5 border-b border-black/5">
-                  <span className="text-sm font-semibold text-[#0F2A44]">{sec.nome.toUpperCase()}</span>
-                  <span className="text-sm font-semibold text-[#0F2A44]">Total: {formatBRL(sec.total)}</span>
+              <div
+                key={sec.id}
+                className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid"
+              >
+                <div
+                  className="flex items-center justify-between px-4 py-2.5"
+                  style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
+                >
+                  <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                    {sec.nome.toUpperCase()}
+                  </span>
+                  <button
+                    onClick={() => excluirSecretaria(sec.id, sec.nome)}
+                    className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
+                    title="Excluir secretaria"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
 
                 {sec.contas.length === 0 ? (
@@ -384,9 +446,8 @@ export default function Saldos() {
                       <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                         <th className="px-4 py-2 font-medium">Banco</th>
                         <th className="px-4 py-2 font-medium">Conta</th>
-                        <th className="px-4 py-2 font-medium">Data do saldo</th>
-                        <th className="px-4 py-2 font-medium text-right">Saldo</th>
-                        <th className="px-4 py-2 font-medium text-right">Ações</th>
+                        <th className="px-4 py-2 font-medium text-center">Saldo</th>
+                        <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -394,12 +455,9 @@ export default function Saldos() {
                         <tr key={c.id} className="border-t border-black/5">
                           <td className="px-4 py-2.5">{c.banco}</td>
                           <td className="px-4 py-2.5">{c.nome_conta}</td>
-                          <td className="px-4 py-2.5 text-[#0F2A44]/60">
-                            {c.data_saldo ? new Date(c.data_saldo + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
-                          </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums">
+                          <td className="px-4 py-2.5 text-center tabular-nums">
                             {editando === c.id ? (
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center justify-center gap-2">
                                 <input
                                   type="date"
                                   value={novoSaldo.data}
@@ -407,47 +465,44 @@ export default function Saldos() {
                                   className="px-2 py-1 rounded border border-black/10 text-xs"
                                 />
                                 <input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0,00"
+                                  type="number" step="0.01" placeholder="0,00"
                                   value={novoSaldo.valor}
                                   onChange={(e) => setNovoSaldo({ ...novoSaldo, valor: e.target.value })}
-                                  className="w-24 px-2 py-1 rounded border border-black/10 text-xs text-right"
+                                  className="w-24 px-2 py-1 rounded border border-black/10 text-xs text-center"
                                 />
                               </div>
                             ) : (
                               formatBRL(c.saldo)
                             )}
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td className="px-4 py-2.5 print:hidden">
                             <div className="flex items-center justify-end gap-2">
                               {editando === c.id ? (
                                 <>
-                                  <button
-                                    onClick={() => salvarNovoSaldo(c.id)}
-                                    disabled={salvando}
-                                    className="text-[#0F2A44] hover:text-[#0F2A44]/70"
-                                  >
+                                  <button onClick={() => salvarNovoSaldo(c.id)} disabled={salvando} className="text-[#0F2A44] hover:text-[#0F2A44]/70">
                                     <Save size={15} />
                                   </button>
-                                  <button
-                                    onClick={() => setEditando(null)}
-                                    className="text-[#0F2A44]/40 hover:text-[#0F2A44]/70"
-                                  >
+                                  <button onClick={() => setEditando(null)} className="text-[#0F2A44]/40 hover:text-[#0F2A44]/70">
                                     <X size={15} />
                                   </button>
                                 </>
                               ) : (
-                                <button
-                                  onClick={() => {
-                                    setEditando(c.id);
-                                    setNovoSaldo({ valor: String(c.saldo), data: hojeISO() });
-                                  }}
-                                  className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
-                                  title="Atualizar saldo"
-                                >
-                                  <Pencil size={15} />
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => { setEditando(c.id); setNovoSaldo({ valor: String(c.saldo), data: hojeISO() }); }}
+                                    className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
+                                    title="Atualizar saldo"
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => excluirConta(c.id)}
+                                    className="text-[#0F2A44]/30 hover:text-red-500"
+                                    title="Excluir conta"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
