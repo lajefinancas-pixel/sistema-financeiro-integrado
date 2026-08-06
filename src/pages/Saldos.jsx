@@ -33,6 +33,10 @@ export default function Saldos() {
   const [importando, setImportando] = React.useState(false);
   const [resultadoImportar, setResultadoImportar] = React.useState(null);
 
+  const [editandoSecretariaId, setEditandoSecretariaId] = React.useState(null);
+  const [saldosLote, setSaldosLote] = React.useState({});
+  const [dataLote, setDataLote] = React.useState(hojeISO());
+
   const [form, setForm] = React.useState({
     secretaria_id: "",
     secretaria_novo_nome: "",
@@ -103,10 +107,6 @@ export default function Saldos() {
       setCarregando(false);
     }
   }
-  const [editandoSecretariaId, setEditandoSecretariaId] = React.useState(null);
-  const [saldosLote, setSaldosLote] = React.useState({});
-  const [dataLote, setDataLote] = React.useState(hojeISO());
-
   function iniciarEdicaoLote(sec) {
     const inicial = {};
     sec.contas.forEach((c) => {
@@ -243,7 +243,7 @@ export default function Saldos() {
     const linhas = [];
     contasPorSecretaria.forEach((sec) => {
       sec.contas.forEach((c) => {
-        linhas.push({ Secretaria: sec.nome, Banco: c.banco, Conta: c.nome_conta, Saldo: c.saldo });
+        linhas.push({ Secretaria: sec.nome, Banco: c.banco, Numero: c.numero_conta, Conta: c.nome_conta, Saldo: c.saldo });
       });
     });
     const ws = XLSX.utils.json_to_sheet(linhas);
@@ -400,7 +400,7 @@ export default function Saldos() {
               value={textoImportar}
               onChange={(e) => setTextoImportar(e.target.value)}
               rows={8}
-              placeholder={"Secretaria de Finanças;Banco do Brasil;2.042-7;PREFEITURA;1000\nSecretaria de Saúde;Banco do Brasil;9.500-1;VIGILÂNCIA SANITÁRIA;2500"}
+              placeholder={"Secretaria de Finanças;Banco do Brasil;2.042-7;PREFEITURA;1000"}
               className="w-full px-3 py-2 rounded-lg border border-black/10 text-xs font-mono"
             />
             {resultadoImportar && (
@@ -422,6 +422,139 @@ export default function Saldos() {
               {importando ? "Importando..." : "Importar"}
             </button>
           </div>
+        )}
+        {mostrarForm && (
+          <form
+            onSubmit={criarConta}
+            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4 print:hidden"
+          >
+            <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar nova conta</h2>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria</label>
+                {!novaSecretaria ? (
+                  <select
+                    value={form.secretaria_id}
+                    onChange={(e) => {
+                      if (e.target.value === "__nova__") setNovaSecretaria(true);
+                      else setForm({ ...form, secretaria_id: e.target.value });
+                    }}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Selecione...</option>
+                    {secretarias.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                    <option value="__nova__">+ Cadastrar nova secretaria</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      type="text" placeholder="Nome da nova secretaria"
+                      value={form.secretaria_novo_nome}
+                      onChange={(e) => setForm({ ...form, secretaria_novo_nome: e.target.value })}
+                      className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                    <button type="button" onClick={() => { setNovaSecretaria(false); setForm({ ...form, secretaria_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Banco</label>
+                {!novoBanco ? (
+                  <select
+                    value={form.banco_id}
+                    onChange={(e) => {
+                      if (e.target.value === "__novo__") setNovoBanco(true);
+                      else setForm({ ...form, banco_id: e.target.value });
+                    }}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Selecione...</option>
+                    {bancos.map((b) => (
+                      <option key={b.id} value={b.id}>{b.nome}</option>
+                    ))}
+                    <option value="__novo__">+ Cadastrar novo banco</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      type="text" placeholder="Nome do novo banco"
+                      value={form.banco_novo_nome}
+                      onChange={(e) => setForm({ ...form, banco_novo_nome: e.target.value })}
+                      className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                    <button type="button" onClick={() => { setNovoBanco(false); setForm({ ...form, banco_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Nome da conta</label>
+                <input
+                  type="text" placeholder="Ex: Conta Movimento"
+                  value={form.nome_conta}
+                  onChange={(e) => setForm({ ...form, nome_conta: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Número da conta (opcional)</label>
+                <input
+                  type="text"
+                  value={form.numero_conta}
+                  onChange={(e) => setForm({ ...form, numero_conta: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Tipo (opcional)</label>
+                <input
+                  type="text" placeholder="Ex: custeio, investimento"
+                  value={form.tipo_conta}
+                  onChange={(e) => setForm({ ...form, tipo_conta: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Saldo inicial</label>
+                <input
+                  type="number" step="0.01" placeholder="0,00"
+                  value={form.saldo_inicial}
+                  onChange={(e) => setForm({ ...form, saldo_inicial: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Data do saldo</label>
+                <input
+                  type="date"
+                  value={form.data_saldo}
+                  onChange={(e) => setForm({ ...form, data_saldo: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit" disabled={salvando}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
+            >
+              <Save size={15} />
+              {salvando ? "Salvando..." : "Salvar conta"}
+            </button>
+          </form>
         )}
         {mostrarForm && (
           <form
@@ -627,11 +760,8 @@ export default function Saldos() {
                       <thead>
                         <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                           <th className="px-4 py-2 font-medium">Banco</th>
-                                                    <th className="px-4 py-2 font-medium">Banco</th>
                           <th className="px-4 py-2 font-medium">Conta</th>
                           <th className="px-4 py-2 font-medium">Número</th>
-                          <th className="px-4 py-2 font-medium text-center">Saldo</th>
-
                           <th className="px-4 py-2 font-medium text-center">Saldo</th>
                           <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
                         </tr>
@@ -639,12 +769,9 @@ export default function Saldos() {
                       <tbody>
                         {sec.contas.map((c) => (
                           <tr key={c.id} className="border-t border-black/5">
-                                                       <td className="px-4 py-2.5">{c.banco}</td>
+                            <td className="px-4 py-2.5">{c.banco}</td>
                             <td className="px-4 py-2.5">{c.nome_conta}</td>
                             <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
-                            <td className="px-4 py-2.5 text-center tabular-nums">
-
-                            <td className="px-4 py-2.5">{c.nome_conta}</td>
                             <td className="px-4 py-2.5 text-center tabular-nums">
                               {emLote ? (
                                 <input
