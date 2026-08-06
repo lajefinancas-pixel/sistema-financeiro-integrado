@@ -627,7 +627,11 @@ export default function Saldos() {
                       <thead>
                         <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                           <th className="px-4 py-2 font-medium">Banco</th>
+                                                    <th className="px-4 py-2 font-medium">Banco</th>
                           <th className="px-4 py-2 font-medium">Conta</th>
+                          <th className="px-4 py-2 font-medium">Número</th>
+                          <th className="px-4 py-2 font-medium text-center">Saldo</th>
+
                           <th className="px-4 py-2 font-medium text-center">Saldo</th>
                           <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
                         </tr>
@@ -635,7 +639,11 @@ export default function Saldos() {
                       <tbody>
                         {sec.contas.map((c) => (
                           <tr key={c.id} className="border-t border-black/5">
-                            <td className="px-4 py-2.5">{c.banco}</td>
+                                                       <td className="px-4 py-2.5">{c.banco}</td>
+                            <td className="px-4 py-2.5">{c.nome_conta}</td>
+                            <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
+                            <td className="px-4 py-2.5 text-center tabular-nums">
+
                             <td className="px-4 py-2.5">{c.nome_conta}</td>
                             <td className="px-4 py-2.5 text-center tabular-nums">
                               {emLote ? (
