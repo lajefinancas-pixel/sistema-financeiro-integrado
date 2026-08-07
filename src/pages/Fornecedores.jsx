@@ -23,6 +23,8 @@ function situacaoInfo(v) {
   return SITUACOES.find((s) => s.value === v) ?? SITUACOES[0];
 }
 
+const ALIQUOTAS_PADRAO = [2, 3, 4, 5];
+
 const FORM_VALOR_VAZIO = {
   fornecedor_id: "",
   numero_processo: "",
@@ -31,9 +33,12 @@ const FORM_VALOR_VAZIO = {
   data_nota_fiscal: hojeISO(),
   parcela: "",
   valor_bruto: "",
+  base_calculo: "",
   optante_simples: true,
-  desconto_iss: "",
-  desconto_ir: "",
+  aliquota_iss: "",
+  aliquota_iss_outra: "",
+  aliquota_ir: "",
+  aliquota_ir_outra: "",
   data_vencimento: "",
 };
 
@@ -59,6 +64,8 @@ export default function Fornecedores() {
   });
 
   const [formValor, setFormValor] = React.useState(FORM_VALOR_VAZIO);
+  const [fixarIss, setFixarIss] = React.useState(false);
+  const [fixarIr, setFixarIr] = React.useState(false);
 
   React.useEffect(() => {
     carregarDados();
@@ -74,7 +81,7 @@ export default function Fornecedores() {
 
       const { data: forns, error: e2 } = await supabase
         .from("fornecedores")
-        .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, telefone, email, secretarias(nome)")
+        .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, telefone, email, aliquota_iss_fixa, aliquota_ir_fixa, secretarias(nome)")
         .eq("ativo", true)
         .order("razao_social");
       if (e2) throw e2;
@@ -101,7 +108,6 @@ export default function Fornecedores() {
       setCarregando(false);
     }
   }
-
   async function criarFornecedor(e) {
     e.preventDefault();
     setSalvando(true);
@@ -138,10 +144,7 @@ export default function Fornecedores() {
     if (!confirm(`Excluir o fornecedor "${nome}"? Os valores em aberto dele deixarão de aparecer no sistema.`)) return;
     setErro(null);
     try {
-      const { error } = await supabase
-        .from("fornecedores")
-        .update({ ativo: false })
-        .eq("id", id);
+      const { error } = await supabase.from("fornecedores").update({ ativo: false }).eq("id", id);
       if (error) throw error;
       if (expandido === id) setExpandido(null);
       await carregarDados();
@@ -150,14 +153,40 @@ export default function Fornecedores() {
     }
   }
 
+  function aliquotaIssFinal() {
+    if (formValor.aliquota_iss === "outra") return parseFloat(formValor.aliquota_iss_outra || "0");
+    return parseFloat(formValor.aliquota_iss || "0");
+  }
+  function aliquotaIrFinal() {
+    if (formValor.aliquota_ir === "outra") return parseFloat(formValor.aliquota_ir_outra || "0");
+    return parseFloat(formValor.aliquota_ir || "0");
+  }
+
+  function calcularISS() {
+    const base = parseFloat(formValor.base_calculo || formValor.valor_bruto || "0");
+    return base * (aliquotaIssFinal() / 100);
+  }
+  function calcularIR() {
+    const base = parseFloat(formValor.base_calculo || formValor.valor_bruto || "0");
+    return base * (aliquotaIrFinal() / 100);
+  }
   function calcularValorLiquido() {
     const bruto = parseFloat(formValor.valor_bruto || "0");
     if (formValor.optante_simples) return bruto;
-    const iss = parseFloat(formValor.desconto_iss || "0");
-    const ir = parseFloat(formValor.desconto_ir || "0");
-    return bruto - iss - ir;
+    return bruto - calcularISS() - calcularIR();
   }
 
+  function selecionarFornecedorNoValor(fornecedorId) {
+    const fornecedor = fornecedores.find((f) => String(f.id) === String(fornecedorId));
+    setFormValor({
+      ...formValor,
+      fornecedor_id: fornecedorId,
+      aliquota_iss: fornecedor?.aliquota_iss_fixa ? String(fornecedor.aliquota_iss_fixa) : "",
+      aliquota_ir: fornecedor?.aliquota_ir_fixa ? String(fornecedor.aliquota_ir_fixa) : "",
+    });
+    setFixarIss(false);
+    setFixarIr(false);
+  }
   async function criarValor(e) {
     e.preventDefault();
     setSalvando(true);
@@ -167,8 +196,11 @@ export default function Fornecedores() {
       if (!formValor.valor_bruto) throw new Error("Informe o valor da nota.");
 
       const bruto = parseFloat(formValor.valor_bruto);
-      const iss = formValor.optante_simples ? 0 : parseFloat(formValor.desconto_iss || "0");
-      const ir = formValor.optante_simples ? 0 : parseFloat(formValor.desconto_ir || "0");
+      const base = parseFloat(formValor.base_calculo || formValor.valor_bruto);
+      const issAliquota = formValor.optante_simples ? 0 : aliquotaIssFinal();
+      const irAliquota = formValor.optante_simples ? 0 : aliquotaIrFinal();
+      const iss = formValor.optante_simples ? 0 : calcularISS();
+      const ir = formValor.optante_simples ? 0 : calcularIR();
       const liquido = bruto - iss - ir;
 
       const { error } = await supabase.from("valores_em_aberto").insert({
@@ -179,16 +211,30 @@ export default function Fornecedores() {
         data_nota_fiscal: formValor.data_nota_fiscal || null,
         parcela: formValor.parcela || null,
         valor_bruto: bruto,
+        base_calculo: base,
         valor: liquido,
         optante_simples: formValor.optante_simples,
         desconto_iss: iss,
         desconto_ir: ir,
+        aliquota_iss: issAliquota,
+        aliquota_ir: irAliquota,
         data_vencimento: formValor.data_vencimento || null,
         situacao: "em_aberto",
       });
       if (error) throw error;
 
+      if (!formValor.optante_simples) {
+        const updates = {};
+        if (fixarIss) updates.aliquota_iss_fixa = issAliquota;
+        if (fixarIr) updates.aliquota_ir_fixa = irAliquota;
+        if (Object.keys(updates).length > 0) {
+          await supabase.from("fornecedores").update(updates).eq("id", formValor.fornecedor_id);
+        }
+      }
+
       setFormValor(FORM_VALOR_VAZIO);
+      setFixarIss(false);
+      setFixarIr(false);
       setMostrarFormValor(false);
       await carregarDados();
     } catch (e) {
@@ -213,10 +259,7 @@ export default function Fornecedores() {
   async function mudarSituacao(valorId, novaSituacao) {
     setErro(null);
     try {
-      const { error } = await supabase
-        .from("valores_em_aberto")
-        .update({ situacao: novaSituacao })
-        .eq("id", valorId);
+      const { error } = await supabase.from("valores_em_aberto").update({ situacao: novaSituacao }).eq("id", valorId);
       if (error) throw error;
       await carregarDados();
     } catch (e) {
@@ -228,14 +271,17 @@ export default function Fornecedores() {
     const linhas = [];
     fornecedores.forEach((f) => {
       if (f.valores.length === 0) {
-        linhas.push({ Fornecedor: f.razao_social, CPF_CNPJ: f.cpf_cnpj, NF: "", Valor: "", Situacao: "" });
+        linhas.push({ Fornecedor: f.razao_social, CPF_CNPJ: f.cpf_cnpj, NF: "", Bruto: "", ISS: "", IR: "", Liquido: "", Situacao: "" });
       }
       f.valores.forEach((v) => {
         linhas.push({
           Fornecedor: f.razao_social,
           CPF_CNPJ: f.cpf_cnpj,
           NF: v.numero_nota_fiscal ?? "",
-          Valor: v.valor,
+          Bruto: v.valor_bruto ?? v.valor,
+          ISS: v.desconto_iss ?? 0,
+          IR: v.desconto_ir ?? 0,
+          Liquido: v.valor,
           Situacao: v.situacao,
         });
       });
@@ -247,7 +293,6 @@ export default function Fornecedores() {
   }
 
   const totalGeralAberto = fornecedores.reduce((acc, f) => acc + f.totalAberto, 0);
-
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
@@ -302,7 +347,7 @@ export default function Fornecedores() {
               <label className="text-xs font-medium text-[#0F2A44]/70">Fornecedor</label>
               <select
                 value={formValor.fornecedor_id}
-                onChange={(e) => setFormValor({ ...formValor, fornecedor_id: e.target.value })}
+                onChange={(e) => selecionarFornecedorNoValor(e.target.value)}
                 className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
               >
                 <option value="">Selecione...</option>
@@ -332,7 +377,7 @@ export default function Fornecedores() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Valor da nota</label>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Valor bruto da nota</label>
                 <input
                   type="number" step="0.01" placeholder="0,00"
                   value={formValor.valor_bruto}
@@ -349,9 +394,7 @@ export default function Fornecedores() {
                   type="button"
                   onClick={() => setFormValor({ ...formValor, optante_simples: true })}
                   className={`px-4 py-2 rounded-lg text-sm border ${
-                    formValor.optante_simples
-                      ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-                      : "border-black/10 text-[#0F2A44]/60"
+                    formValor.optante_simples ? "bg-[#0F2A44] text-white border-[#0F2A44]" : "border-black/10 text-[#0F2A44]/60"
                   }`}
                 >
                   Sim
@@ -360,35 +403,115 @@ export default function Fornecedores() {
                   type="button"
                   onClick={() => setFormValor({ ...formValor, optante_simples: false })}
                   className={`px-4 py-2 rounded-lg text-sm border ${
-                    !formValor.optante_simples
-                      ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-                      : "border-black/10 text-[#0F2A44]/60"
+                    !formValor.optante_simples ? "bg-[#0F2A44] text-white border-[#0F2A44]" : "border-black/10 text-[#0F2A44]/60"
                   }`}
                 >
                   Não
                 </button>
               </div>
             </div>
-
             {!formValor.optante_simples && (
-              <div className="grid grid-cols-2 gap-4 bg-[#0F2A44]/[0.03] rounded-lg p-3">
+              <div className="bg-[#0F2A44]/[0.03] rounded-lg p-4 space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Desconto de ISS</label>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Base de cálculo</label>
                   <input
-                    type="number" step="0.01" placeholder="0,00"
-                    value={formValor.desconto_iss}
-                    onChange={(e) => setFormValor({ ...formValor, desconto_iss: e.target.value })}
+                    type="number" step="0.01"
+                    placeholder={formValor.valor_bruto || "0,00"}
+                    value={formValor.base_calculo}
+                    onChange={(e) => setFormValor({ ...formValor, base_calculo: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                   />
+                  <p className="text-[10px] text-[#0F2A44]/40 mt-1">Deixe em branco para usar o valor bruto como base.</p>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Desconto de IR</label>
-                  <input
-                    type="number" step="0.01" placeholder="0,00"
-                    value={formValor.desconto_ir}
-                    onChange={(e) => setFormValor({ ...formValor, desconto_ir: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Alíquota de ISS</label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {ALIQUOTAS_PADRAO.map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => setFormValor({ ...formValor, aliquota_iss: String(a) })}
+                          className={`px-3 py-1.5 rounded-md text-xs border ${
+                            formValor.aliquota_iss === String(a)
+                              ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                              : "border-black/10 text-[#0F2A44]/60"
+                          }`}
+                        >
+                          {a}%
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setFormValor({ ...formValor, aliquota_iss: "outra" })}
+                        className={`px-3 py-1.5 rounded-md text-xs border ${
+                          formValor.aliquota_iss === "outra"
+                            ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                            : "border-black/10 text-[#0F2A44]/60"
+                        }`}
+                      >
+                        Outra
+                      </button>
+                    </div>
+                    {formValor.aliquota_iss === "outra" && (
+                      <input
+                        type="number" step="0.01" placeholder="Ex: 3.5"
+                        value={formValor.aliquota_iss_outra}
+                        onChange={(e) => setFormValor({ ...formValor, aliquota_iss_outra: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mb-2"
+                      />
+                    )}
+                    <label className="flex items-center gap-1.5 text-xs text-[#0F2A44]/60">
+                      <input type="checkbox" checked={fixarIss} onChange={(e) => setFixarIss(e.target.checked)} className="w-3.5 h-3.5 accent-[#0F2A44]" />
+                      Fixar esta alíquota para este fornecedor
+                    </label>
+                    <div className="text-xs text-[#0F2A44]/70 mt-1.5">ISS retido: <span className="font-semibold">{formatBRL(calcularISS())}</span></div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Alíquota de IR</label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {ALIQUOTAS_PADRAO.map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => setFormValor({ ...formValor, aliquota_ir: String(a) })}
+                          className={`px-3 py-1.5 rounded-md text-xs border ${
+                            formValor.aliquota_ir === String(a)
+                              ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                              : "border-black/10 text-[#0F2A44]/60"
+                          }`}
+                        >
+                          {a}%
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setFormValor({ ...formValor, aliquota_ir: "outra" })}
+                        className={`px-3 py-1.5 rounded-md text-xs border ${
+                          formValor.aliquota_ir === "outra"
+                            ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                            : "border-black/10 text-[#0F2A44]/60"
+                        }`}
+                      >
+                        Outra
+                      </button>
+                    </div>
+                    {formValor.aliquota_ir === "outra" && (
+                      <input
+                        type="number" step="0.01" placeholder="Ex: 1.5"
+                        value={formValor.aliquota_ir_outra}
+                        onChange={(e) => setFormValor({ ...formValor, aliquota_ir_outra: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mb-2"
+                      />
+                    )}
+                    <label className="flex items-center gap-1.5 text-xs text-[#0F2A44]/60">
+                      <input type="checkbox" checked={fixarIr} onChange={(e) => setFixarIr(e.target.checked)} className="w-3.5 h-3.5 accent-[#0F2A44]" />
+                      Fixar esta alíquota para este fornecedor
+                    </label>
+                    <div className="text-xs text-[#0F2A44]/70 mt-1.5">IR retido: <span className="font-semibold">{formatBRL(calcularIR())}</span></div>
+                  </div>
                 </div>
               </div>
             )}
@@ -437,7 +560,6 @@ export default function Fornecedores() {
             </button>
           </form>
         )}
-
         {mostrarForm && (
           <form
             onSubmit={criarFornecedor}
@@ -531,7 +653,6 @@ export default function Fornecedores() {
             </button>
           </form>
         )}
-
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : fornecedores.length === 0 ? (
@@ -543,19 +664,21 @@ export default function Fornecedores() {
             {fornecedores.map((f) => (
               <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
                 <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
-                  <button
-                    onClick={() => setExpandido(expandido === f.id ? null : f.id)}
-                    className="flex-1 text-left"
-                  >
+                  <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="flex-1 text-left">
                     <div className="text-sm font-semibold text-[#0F2A44]">{f.razao_social}</div>
                     <div className="text-xs text-[#0F2A44]/50">
                       {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
+                      {(f.aliquota_iss_fixa || f.aliquota_ir_fixa) && (
+                        <span className="ml-2 text-[10px] text-[#0F2A44]/40">
+                          {f.aliquota_iss_fixa ? `ISS fixo: ${f.aliquota_iss_fixa}%` : ""}
+                          {f.aliquota_iss_fixa && f.aliquota_ir_fixa ? " · " : ""}
+                          {f.aliquota_ir_fixa ? `IR fixo: ${f.aliquota_ir_fixa}%` : ""}
+                        </span>
+                      )}
                     </div>
                   </button>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-[#0F2A44]">
-                      {formatBRL(f.totalAberto)}
-                    </span>
+                    <span className="text-sm font-semibold text-[#0F2A44]">{formatBRL(f.totalAberto)}</span>
                     <button
                       onClick={() => excluirFornecedor(f.id, f.razao_social)}
                       className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
@@ -569,7 +692,7 @@ export default function Fornecedores() {
                   </div>
                 </div>
 
-                {(expandido === f.id) && (
+                {expandido === f.id && (
                   <div className="border-t border-black/5 px-4 py-3">
                     {f.valores.length === 0 ? (
                       <div className="text-xs text-[#0F2A44]/40">Nenhum valor cadastrado.</div>
@@ -578,11 +701,10 @@ export default function Fornecedores() {
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                             <th className="py-1.5 font-medium">NF</th>
-                            <th className="py-1.5 font-medium">Data NF</th>
                             <th className="py-1.5 font-medium">Vencimento</th>
-                            <th className="py-1.5 font-medium">Simples</th>
                             <th className="py-1.5 font-medium text-right">Bruto</th>
-                            <th className="py-1.5 font-medium text-right">Descontos</th>
+                            <th className="py-1.5 font-medium text-right">ISS</th>
+                            <th className="py-1.5 font-medium text-right">IR</th>
                             <th className="py-1.5 font-medium text-right">Líquido</th>
                             <th className="py-1.5 font-medium text-right">Situação</th>
                             <th className="py-1.5 font-medium text-right print:hidden">Ações</th>
@@ -591,23 +713,20 @@ export default function Fornecedores() {
                         <tbody>
                           {f.valores.map((v) => {
                             const info = situacaoInfo(v.situacao);
-                            const descontos = (v.desconto_iss ?? 0) + (v.desconto_ir ?? 0);
                             return (
                               <tr key={v.id} className="border-t border-black/5">
                                 <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {v.numero_nota_fiscal || "--"}
-                                  {v.parcela ? ` (${v.parcela})` : ""}
-                                </td>
-                                <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {v.data_nota_fiscal ? new Date(v.data_nota_fiscal + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
+                                  {v.numero_nota_fiscal || "--"}{v.parcela ? ` (${v.parcela})` : ""}
                                 </td>
                                 <td className="py-2 text-xs text-[#0F2A44]/70">
                                   {v.data_vencimento ? new Date(v.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
                                 </td>
-                                <td className="py-2 text-xs text-[#0F2A44]/70">{v.optante_simples ? "Sim" : "Não"}</td>
                                 <td className="py-2 text-right tabular-nums text-xs">{formatBRL(v.valor_bruto ?? v.valor)}</td>
                                 <td className="py-2 text-right tabular-nums text-xs text-red-600">
-                                  {descontos > 0 ? `- ${formatBRL(descontos)}` : "--"}
+                                  {v.desconto_iss > 0 ? `${formatBRL(v.desconto_iss)} (${v.aliquota_iss}%)` : "--"}
+                                </td>
+                                <td className="py-2 text-right tabular-nums text-xs text-red-600">
+                                  {v.desconto_ir > 0 ? `${formatBRL(v.desconto_ir)} (${v.aliquota_ir}%)` : "--"}
                                 </td>
                                 <td className="py-2 text-right tabular-nums font-medium">{formatBRL(v.valor)}</td>
                                 <td className="py-2 text-right">

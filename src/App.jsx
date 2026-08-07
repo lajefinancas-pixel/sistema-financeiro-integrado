@@ -8,6 +8,7 @@ import Fornecedores from "./pages/Fornecedores";
 import Pagamentos from "./pages/Pagamentos";
 import Historico from "./pages/Historico";
 import Relatorios from "./pages/Relatorios";
+import Auditoria from "./pages/Auditoria";
 import Configuracoes from "./pages/Configuracoes";
 
 function RotaProtegida({ children }) {
@@ -34,6 +35,7 @@ export default function App() {
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/historico" element={<RotaProtegida><Historico /></RotaProtegida>} />
       <Route path="/relatorios" element={<RotaProtegida><Relatorios /></RotaProtegida>} />
+      <Route path="/auditoria" element={<RotaProtegida><Auditoria /></RotaProtegida>} />
       <Route path="/configuracoes" element={<RotaProtegida><Configuracoes /></RotaProtegida>} />
     </Routes>
   );
