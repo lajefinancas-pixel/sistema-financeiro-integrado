@@ -5,3 +5,45 @@
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
+@media print {
+  body {
+    font-size: 11px;
+  }
+  table {
+    font-size: 10px;
+  }
+  h1 {
+    font-size: 16px !important;
+  }
+  .rounded-2xl,
+  .rounded-xl {
+    border-radius: 0 !important;
+  }
+  .shadow-sm {
+    box-shadow: none !important;
+  }
+  .p-5 {
+    padding: 8px !important;
+  }
+  .p-4 {
+    padding: 6px !important;
+  }
+  .px-5 {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  .py-2\.5 {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+  }
+  .mb-6 {
+    margin-bottom: 8px !important;
+  }
+  .gap-4 {
+    gap: 6px !important;
+  }
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+}
