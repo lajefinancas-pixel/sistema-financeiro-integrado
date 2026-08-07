@@ -706,7 +706,7 @@ export default function Saldos() {
           carregando ? (
             <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
           ) : (
-            <div className="space-y-4 print:space-y-2">
+            <div className="space-y-4 print:space-y-2 print:print-2col">
               {contasPorSecretaria.map((sec) => {
                 const emLote = editandoSecretariaId === sec.id;
                 return (
@@ -930,7 +930,7 @@ export default function Saldos() {
                   Nenhum saldo registrado até esta data.
                 </div>
               ) : (
-                <div className="space-y-4 print:space-y-2">
+                <div className="space-y-4 print:space-y-2 print:print-2col">
                   {contasPorSecretariaNaData.map((sec) => (
                     <div key={sec.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
                       <div
