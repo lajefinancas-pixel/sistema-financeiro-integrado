@@ -1,5 +1,6 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 
@@ -100,6 +101,7 @@ export default function Fornecedores() {
       setCarregando(false);
     }
   }
+
   async function criarFornecedor(e) {
     e.preventDefault();
     setSalvando(true);
@@ -129,6 +131,22 @@ export default function Fornecedores() {
       setErro(e.message ?? "Erro ao cadastrar fornecedor.");
     } finally {
       setSalvando(false);
+    }
+  }
+
+  async function excluirFornecedor(id, nome) {
+    if (!confirm(`Excluir o fornecedor "${nome}"? Os valores em aberto dele deixarão de aparecer no sistema.`)) return;
+    setErro(null);
+    try {
+      const { error } = await supabase
+        .from("fornecedores")
+        .update({ ativo: false })
+        .eq("id", id);
+      if (error) throw error;
+      if (expandido === id) setExpandido(null);
+      await carregarDados();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao excluir fornecedor.");
     }
   }
 
@@ -180,6 +198,18 @@ export default function Fornecedores() {
     }
   }
 
+  async function excluirValor(id) {
+    if (!confirm("Excluir este valor em aberto?")) return;
+    setErro(null);
+    try {
+      const { error } = await supabase.from("valores_em_aberto").delete().eq("id", id);
+      if (error) throw error;
+      await carregarDados();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao excluir valor.");
+    }
+  }
+
   async function mudarSituacao(valorId, novaSituacao) {
     setErro(null);
     try {
@@ -194,18 +224,50 @@ export default function Fornecedores() {
     }
   }
 
+  function exportarExcel() {
+    const linhas = [];
+    fornecedores.forEach((f) => {
+      if (f.valores.length === 0) {
+        linhas.push({ Fornecedor: f.razao_social, CPF_CNPJ: f.cpf_cnpj, NF: "", Valor: "", Situacao: "" });
+      }
+      f.valores.forEach((v) => {
+        linhas.push({
+          Fornecedor: f.razao_social,
+          CPF_CNPJ: f.cpf_cnpj,
+          NF: v.numero_nota_fiscal ?? "",
+          Valor: v.valor,
+          Situacao: v.situacao,
+        });
+      });
+    });
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Fornecedores");
+    XLSX.writeFile(wb, `fornecedores-${hojeISO()}.xlsx`);
+  }
+
   const totalGeralAberto = fornecedores.reduce((acc, f) => acc + f.totalAberto, 0);
+
   return (
     <Layout>
-      <div className="px-8 py-7">
-        <div className="flex items-start justify-between mb-6">
+      <div className="px-8 py-7 print:px-0 print:py-0">
+        <div className="flex items-start justify-between mb-6 print:mb-4">
           <div>
             <h1 className="text-2xl font-semibold text-[#0F2A44]">Fornecedores</h1>
             <p className="text-sm text-[#0F2A44]/60 mt-0.5">
               Total em aberto: <span className="font-semibold">{formatBRL(totalGeralAberto)}</span>
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 print:hidden">
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <Printer size={14} /> Imprimir
+            </button>
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <FileText size={14} /> PDF
+            </button>
+            <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <FileSpreadsheet size={14} /> Excel
+            </button>
             <button
               onClick={() => { setMostrarFormValor((v) => !v); setMostrarForm(false); }}
               className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
@@ -224,7 +286,7 @@ export default function Fornecedores() {
         </div>
 
         {erro && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5 print:hidden">
             {erro}
           </div>
         )}
@@ -232,7 +294,7 @@ export default function Fornecedores() {
         {mostrarFormValor && (
           <form
             onSubmit={criarValor}
-            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4"
+            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4 print:hidden"
           >
             <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar valor em aberto</h2>
 
@@ -375,10 +437,11 @@ export default function Fornecedores() {
             </button>
           </form>
         )}
+
         {mostrarForm && (
           <form
             onSubmit={criarFornecedor}
-            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4"
+            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4 print:hidden"
           >
             <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar fornecedor</h2>
 
@@ -468,6 +531,7 @@ export default function Fornecedores() {
             </button>
           </form>
         )}
+
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : fornecedores.length === 0 ? (
@@ -477,26 +541,35 @@ export default function Fornecedores() {
         ) : (
           <div className="space-y-3">
             {fornecedores.map((f) => (
-              <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white">
-                <button
-                  onClick={() => setExpandido(expandido === f.id ? null : f.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]"
-                >
-                  <div className="text-left">
+              <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
+                <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
+                  <button
+                    onClick={() => setExpandido(expandido === f.id ? null : f.id)}
+                    className="flex-1 text-left"
+                  >
                     <div className="text-sm font-semibold text-[#0F2A44]">{f.razao_social}</div>
                     <div className="text-xs text-[#0F2A44]/50">
                       {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
                     </div>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-[#0F2A44]">
                       {formatBRL(f.totalAberto)}
                     </span>
-                    {expandido === f.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    <button
+                      onClick={() => excluirFornecedor(f.id, f.razao_social)}
+                      className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
+                      title="Excluir fornecedor"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="print:hidden">
+                      {expandido === f.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
                   </div>
-                </button>
+                </div>
 
-                {expandido === f.id && (
+                {(expandido === f.id) && (
                   <div className="border-t border-black/5 px-4 py-3">
                     {f.valores.length === 0 ? (
                       <div className="text-xs text-[#0F2A44]/40">Nenhum valor cadastrado.</div>
@@ -512,6 +585,7 @@ export default function Fornecedores() {
                             <th className="py-1.5 font-medium text-right">Descontos</th>
                             <th className="py-1.5 font-medium text-right">Líquido</th>
                             <th className="py-1.5 font-medium text-right">Situação</th>
+                            <th className="py-1.5 font-medium text-right print:hidden">Ações</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -547,6 +621,11 @@ export default function Fornecedores() {
                                       <option key={s.value} value={s.value}>{s.label}</option>
                                     ))}
                                   </select>
+                                </td>
+                                <td className="py-2 text-right print:hidden">
+                                  <button onClick={() => excluirValor(v.id)} className="text-[#0F2A44]/30 hover:text-red-500">
+                                    <Trash2 size={14} />
+                                  </button>
                                 </td>
                               </tr>
                             );
