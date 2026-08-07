@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -41,6 +41,10 @@ export default function Pagamentos() {
   const [fornecedorEscolhido, setFornecedorEscolhido] = React.useState("");
   const [valorEmAbertoEscolhido, setValorEmAbertoEscolhido] = React.useState("");
   const [avulso, setAvulso] = React.useState({ nome: "", descricao: "", valor: "" });
+
+  const [mostrarCopiar, setMostrarCopiar] = React.useState(false);
+  const [programacoesParaCopiar, setProgramacoesParaCopiar] = React.useState([]);
+  const [programacaoParaCopiarId, setProgramacaoParaCopiarId] = React.useState("");
 
   const timersRef = React.useRef({});
 
@@ -301,6 +305,96 @@ export default function Pagamentos() {
     }
   }
 
+  async function abrirCopiarProgramacao() {
+    setMostrarCopiar((v) => !v);
+    setMostrarNovaProgramacao(false);
+    if (!mostrarCopiar) {
+      try {
+        const { data: progs, error } = await supabase
+          .from("programacoes_pagamento")
+          .select("id, nome_programacao, data_programacao")
+          .eq("secretaria_id", secretariaId)
+          .order("data_programacao", { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        setProgramacoesParaCopiar(progs ?? []);
+      } catch (e) {
+        setErro(e.message ?? "Erro ao buscar programações anteriores.");
+      }
+    }
+  }
+
+  async function copiarProgramacao() {
+    if (!programacaoParaCopiarId) {
+      setErro("Selecione uma programação para copiar.");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    try {
+      const origem = programacoesParaCopiar.find((p) => p.id === programacaoParaCopiarId);
+
+      const { data: userData } = await supabase.auth.getUser();
+      const { data: nova, error: eNova } = await supabase
+        .from("programacoes_pagamento")
+        .insert({
+          secretaria_id: secretariaId,
+          data_programacao: data,
+          responsavel_id: userData.user.id,
+          nome_programacao: origem?.nome_programacao
+            ? `${origem.nome_programacao} (cópia)`
+            : "Cópia de programação",
+        })
+        .select()
+        .single();
+      if (eNova) throw eNova;
+
+      const { data: contasOrigem, error: eContasOrigem } = await supabase
+        .from("programacao_contas")
+        .select("conta_id")
+        .eq("programacao_id", programacaoParaCopiarId);
+      if (eContasOrigem) throw eContasOrigem;
+
+      if (contasOrigem && contasOrigem.length > 0) {
+        const novasContas = contasOrigem.map((c) => ({
+          programacao_id: nova.id,
+          conta_id: c.conta_id,
+        }));
+        const { error: eInsContas } = await supabase.from("programacao_contas").insert(novasContas);
+        if (eInsContas) throw eInsContas;
+      }
+
+      const { data: pagamentosOrigem, error: ePagOrigem } = await supabase
+        .from("pagamentos")
+        .select("fornecedor_id, valor_em_aberto_id, valor_a_pagar, nome_avulso, descricao")
+        .eq("programacao_id", programacaoParaCopiarId);
+      if (ePagOrigem) throw ePagOrigem;
+
+      if (pagamentosOrigem && pagamentosOrigem.length > 0) {
+        const novosPagamentos = pagamentosOrigem.map((p) => ({
+          programacao_id: nova.id,
+          fornecedor_id: p.fornecedor_id,
+          valor_em_aberto_id: p.valor_em_aberto_id,
+          valor_a_pagar: p.valor_a_pagar,
+          nome_avulso: p.nome_avulso,
+          descricao: p.descricao,
+          situacao: "pendente",
+        }));
+        const { error: eInsPag } = await supabase.from("pagamentos").insert(novosPagamentos);
+        if (eInsPag) throw eInsPag;
+      }
+
+      setMostrarCopiar(false);
+      setProgramacaoParaCopiarId("");
+      await carregarProgramacoesDoDia();
+      setProgramacaoAtualId(nova.id);
+    } catch (e) {
+      setErro(e.message ?? "Erro ao copiar programação.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   async function toggleConta(contaId) {
     if (!programacaoAtualId) {
       setErro("Crie ou selecione uma programação primeiro.");
@@ -332,6 +426,14 @@ export default function Pagamentos() {
       await carregarProgramacoesDoDia();
     } catch (e) {
       setErro(e.message ?? "Erro ao selecionar conta.");
+    }
+  }
+
+  async function abrirAddCadastrado() {
+    setMostrarAddCadastrado((v) => !v);
+    setMostrarAddAvulso(false);
+    if (!mostrarAddCadastrado) {
+      await carregarContasEFornecedores(secretariaId);
     }
   }
 
@@ -537,13 +639,22 @@ export default function Pagamentos() {
             <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6 print:hidden">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-[#0F2A44]">Programações deste dia</h2>
-                <button
-                  onClick={() => setMostrarNovaProgramacao((v) => !v)}
-                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white"
-                >
-                  {mostrarNovaProgramacao ? <X size={14} /> : <Plus size={14} />}
-                  Nova programação
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={abrirCopiarProgramacao}
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]"
+                  >
+                    {mostrarCopiar ? <X size={14} /> : <Copy size={14} />}
+                    Copiar programação anterior
+                  </button>
+                  <button
+                    onClick={() => { setMostrarNovaProgramacao((v) => !v); setMostrarCopiar(false); }}
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white"
+                  >
+                    {mostrarNovaProgramacao ? <X size={14} /> : <Plus size={14} />}
+                    Nova programação
+                  </button>
+                </div>
               </div>
 
               {mostrarNovaProgramacao && (
@@ -561,6 +672,30 @@ export default function Pagamentos() {
                     className="text-sm px-4 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-50"
                   >
                     Criar
+                  </button>
+                </div>
+              )}
+
+              {mostrarCopiar && (
+                <div className="flex gap-2 mb-3">
+                  <select
+                    value={programacaoParaCopiarId}
+                    onChange={(e) => setProgramacaoParaCopiarId(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Selecione a programação a copiar...</option>
+                    {programacoesParaCopiar.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {new Date(p.data_programacao + "T00:00:00").toLocaleDateString("pt-BR")} -- {p.nome_programacao || "Sem nome"}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={copiarProgramacao}
+                    disabled={salvando}
+                    className="text-sm px-4 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-50"
+                  >
+                    {salvando ? "Copiando..." : `Copiar para ${new Date(data + "T00:00:00").toLocaleDateString("pt-BR")}`}
                   </button>
                 </div>
               )}
@@ -701,7 +836,7 @@ export default function Pagamentos() {
 
                 <div className="flex items-center gap-2 mb-4 print:hidden">
                   <button
-                    onClick={() => { setMostrarAddCadastrado((v) => !v); setMostrarAddAvulso(false); }}
+                    onClick={abrirAddCadastrado}
                     className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
                   >
                     {mostrarAddCadastrado ? <X size={16} /> : <Plus size={16} />}
@@ -737,6 +872,9 @@ export default function Pagamentos() {
                         className="px-3 py-2 rounded-lg border border-black/10 text-sm disabled:opacity-50"
                       >
                         <option value="">Selecione o valor em aberto...</option>
+                        {todosValoresEmAberto.length === 0 && fornecedorEscolhido && (
+                          <option value="" disabled>Este fornecedor não tem valores em aberto</option>
+                        )}
                         {todosValoresEmAberto.map((v) => (
                           <option key={v.id} value={v.id}>
                             NF {v.numero_nota_fiscal || "--"} -- {formatBRL(v.valor - (v.valor_pago ?? 0))}
