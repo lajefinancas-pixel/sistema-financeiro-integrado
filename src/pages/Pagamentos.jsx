@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy } from "lucide-react";
+import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy, Lock, Unlock } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -146,7 +146,6 @@ export default function Pagamentos() {
       setErro(e.message ?? "Erro ao carregar contas e fornecedores.");
     }
   }
-
   async function carregarProgramacoesDoDia() {
     setErro(null);
     try {
@@ -258,6 +257,43 @@ export default function Pagamentos() {
     }
   }
 
+  async function fecharMovimento() {
+    if (!confirm("Fechar o movimento deste dia? A programação ficará somente para leitura até ser reaberta.")) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      const { error } = await supabase
+        .from("programacoes_pagamento")
+        .update({ fechado: true })
+        .eq("id", programacaoAtualId);
+      if (error) throw error;
+      setFechado(true);
+      await carregarProgramacoesDoDia();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao fechar movimento.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function reabrirMovimento() {
+    if (!confirm("Reabrir esta programação para edição?")) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      const { error } = await supabase
+        .from("programacoes_pagamento")
+        .update({ fechado: false })
+        .eq("id", programacaoAtualId);
+      if (error) throw error;
+      setFechado(false);
+      await carregarProgramacoesDoDia();
+    } catch (e) {
+      setErro(e.message ?? "Erro ao reabrir movimento.");
+    } finally {
+      setSalvando(false);
+    }
+  }
   async function criarProgramacao() {
     if (!nomeNovaProgramacao.trim()) {
       setErro("Dê um nome para a nova programação.");
@@ -396,10 +432,7 @@ export default function Pagamentos() {
   }
 
   async function toggleConta(contaId) {
-    if (!programacaoAtualId) {
-      setErro("Crie ou selecione uma programação primeiro.");
-      return;
-    }
+    if (!programacaoAtualId || fechado) return;
     setErro(null);
     try {
       const jaSelecionada = contasSelecionadas.has(contaId);
@@ -436,7 +469,6 @@ export default function Pagamentos() {
       await carregarContasEFornecedores(secretariaId);
     }
   }
-
   async function adicionarPagamentoCadastrado() {
     if (!fornecedorEscolhido || !valorEmAbertoEscolhido) {
       setErro("Selecione o fornecedor e o valor em aberto.");
@@ -446,8 +478,9 @@ export default function Pagamentos() {
     setErro(null);
     try {
       const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
-const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEmAbertoEscolhido));
+      const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEmAbertoEscolhido));
       const restante = (valorObj?.valor ?? 0) - (valorObj?.valor_pago ?? 0);
+
       const { error } = await supabase.from("pagamentos").insert({
         programacao_id: programacaoAtualId,
         fornecedor_id: fornecedorEscolhido,
@@ -583,10 +616,9 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
   const saldoRestante = saldoDisponivel - totalProgramado;
 
   const todosValoresEmAberto = React.useMemo(() => {
-  const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
+    const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
     return fornecedor?.valores ?? [];
   }, [fornecedoresDaSecretaria, fornecedorEscolhido]);
-
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
@@ -594,7 +626,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
           <div>
             <h1 className="text-2xl font-semibold text-[#0F2A44]">Pagamentos Diários</h1>
             <p className="text-sm text-[#0F2A44]/60 mt-0.5 print:hidden">
-              {fechado ? "Programação fechada." : "Selecione ou crie uma programação para o dia"}
+              {fechado ? "Programação fechada -- somente leitura." : "Selecione ou crie uma programação para o dia"}
             </p>
           </div>
           <div className="flex items-center gap-2 print:hidden">
@@ -714,8 +746,8 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                         }`}
                       >
                         {programacaoAtualId === p.id && <ChevronRight size={12} />}
+                        {p.fechado && <Lock size={11} />}
                         {p.nome_programacao || "Sem nome"}
-                        {p.fechado && " (fechada)"}
                       </button>
                       <button
                         onClick={() => excluirProgramacao(p.id)}
@@ -732,9 +764,35 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                 </div>
               )}
             </div>
-
             {programacaoAtualId && (
               <>
+                <div className="flex items-center justify-between mb-3 print:hidden">
+                  <div />
+                  {fechado ? (
+                    <button
+                      onClick={reabrirMovimento}
+                      disabled={salvando}
+                      className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]"
+                    >
+                      <Unlock size={13} /> Reabrir movimento
+                    </button>
+                  ) : (
+                    <button
+                      onClick={fecharMovimento}
+                      disabled={salvando}
+                      className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#16A34A] text-white"
+                    >
+                      <Lock size={13} /> Fechar Movimento do Dia
+                    </button>
+                  )}
+                </div>
+
+                {fechado && (
+                  <div className="bg-[#EAFBF0] border border-[#16A34A]/20 text-[#16A34A] text-sm rounded-lg px-4 py-3 mb-5 print:hidden flex items-center gap-2">
+                    <Lock size={14} /> Este movimento está fechado. Reabra para fazer alterações.
+                  </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-4 mb-6 print:mb-4 print:break-inside-avoid">
                   <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
                     <div className="text-xs text-[#0F2A44]/50">Saldo disponível</div>
@@ -758,21 +816,23 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                 <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 print:break-inside-avoid">
                   <div className="flex items-center justify-between mb-1">
                     <h2 className="text-sm font-semibold text-[#0F2A44]">Contas bancárias desta programação</h2>
-                    {!contasFinalizadas ? (
-                      <button
-                        onClick={() => setContasFinalizadas(true)}
-                        disabled={contasSelecionadas.size === 0}
-                        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40 print:hidden"
-                      >
-                        <Check size={13} /> Finalizar escolha
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setContasFinalizadas(false)}
-                        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] print:hidden"
-                      >
-                        <Pencil size={13} /> Editar contas
-                      </button>
+                    {!fechado && (
+                      !contasFinalizadas ? (
+                        <button
+                          onClick={() => setContasFinalizadas(true)}
+                          disabled={contasSelecionadas.size === 0}
+                          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40 print:hidden"
+                        >
+                          <Check size={13} /> Finalizar escolha
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setContasFinalizadas(false)}
+                          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] print:hidden"
+                        >
+                          <Pencil size={13} /> Editar contas
+                        </button>
+                      )
                     )}
                   </div>
                   <p className="text-xs text-[#0F2A44]/50 mb-3 print:hidden">
@@ -792,6 +852,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                                 <input
                                   type="checkbox"
                                   checked={selecionada}
+                                  disabled={fechado}
                                   onChange={() => toggleConta(c.id)}
                                   className="w-4 h-4 rounded accent-[#0F2A44]"
                                 />
@@ -832,25 +893,26 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                     </table>
                   )}
                 </div>
+                {!fechado && (
+                  <div className="flex items-center gap-2 mb-4 print:hidden">
+                    <button
+                      onClick={abrirAddCadastrado}
+                      className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
+                    >
+                      {mostrarAddCadastrado ? <X size={16} /> : <Plus size={16} />}
+                      Fornecedor cadastrado
+                    </button>
+                    <button
+                      onClick={() => { setMostrarAddAvulso((v) => !v); setMostrarAddCadastrado(false); }}
+                      className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
+                    >
+                      {mostrarAddAvulso ? <X size={16} /> : <Plus size={16} />}
+                      Fornecedor não cadastrado
+                    </button>
+                  </div>
+                )}
 
-                <div className="flex items-center gap-2 mb-4 print:hidden">
-                  <button
-                    onClick={abrirAddCadastrado}
-                    className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
-                  >
-                    {mostrarAddCadastrado ? <X size={16} /> : <Plus size={16} />}
-                    Fornecedor cadastrado
-                  </button>
-                  <button
-                    onClick={() => { setMostrarAddAvulso((v) => !v); setMostrarAddCadastrado(false); }}
-                    className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
-                  >
-                    {mostrarAddAvulso ? <X size={16} /> : <Plus size={16} />}
-                    Fornecedor não cadastrado
-                  </button>
-                </div>
-
-                {mostrarAddCadastrado && (
+                {mostrarAddCadastrado && !fechado && (
                   <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3 print:hidden">
                     <h3 className="text-sm font-semibold text-[#0F2A44]">Adicionar pagamento de fornecedor cadastrado</h3>
                     <div className="grid grid-cols-2 gap-3">
@@ -891,7 +953,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                   </div>
                 )}
 
-                {mostrarAddAvulso && (
+                {mostrarAddAvulso && !fechado && (
                   <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3 print:hidden">
                     <h3 className="text-sm font-semibold text-[#0F2A44]">Adicionar fornecedor não cadastrado</h3>
                     <div className="grid grid-cols-2 gap-3">
@@ -933,7 +995,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                           <th className="px-5 py-2 font-medium">Fornecedor</th>
                           <th className="px-5 py-2 font-medium text-right">Valor a pagar</th>
                           <th className="px-5 py-2 font-medium text-center">Situação</th>
-                          <th className="px-5 py-2 font-medium text-right print:hidden">Ações</th>
+                          {!fechado && <th className="px-5 py-2 font-medium text-right print:hidden">Ações</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -948,18 +1010,24 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                               )}
                             </td>
                             <td className="px-5 py-2.5 text-right">
-                              <input
-                                type="number" step="0.01"
-                                value={p.valor_a_pagar}
-                                onChange={(e) => editarValorLocal(p.id, e.target.value)}
-                                className="w-28 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
-                              />
+                              {fechado ? (
+                                formatBRL(p.valor_a_pagar)
+                              ) : (
+                                <input
+                                  type="number" step="0.01"
+                                  value={p.valor_a_pagar}
+                                  onChange={(e) => editarValorLocal(p.id, e.target.value)}
+                                  className="w-28 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
+                                />
+                              )}
                             </td>
                             <td className="px-5 py-2.5 text-center">
                               {p.situacao === "pago" ? (
                                 <span className="text-xs font-medium text-[#16A34A] bg-[#EAFBF0] px-2 py-1 rounded-md">
                                   Pago
                                 </span>
+                              ) : fechado ? (
+                                <span className="text-xs font-medium text-[#0F2A44]/50">Pendente</span>
                               ) : (
                                 <button
                                   onClick={() => marcarPago(p.id)}
@@ -969,11 +1037,13 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                                 </button>
                               )}
                             </td>
-                            <td className="px-5 py-2.5 text-right print:hidden">
-                              <button onClick={() => removerPagamento(p.id)} className="text-[#0F2A44]/30 hover:text-red-500">
-                                <Trash2 size={15} />
-                              </button>
-                            </td>
+                            {!fechado && (
+                              <td className="px-5 py-2.5 text-right print:hidden">
+                                <button onClick={() => removerPagamento(p.id)} className="text-[#0F2A44]/30 hover:text-red-500">
+                                  <Trash2 size={15} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -983,7 +1053,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                           <td className="px-5 py-3 text-right text-sm font-semibold text-[#0F2A44]">
                             {formatBRL(totalProgramado)}
                           </td>
-                          <td colSpan={2} />
+                          {!fechado && <td />}
                         </tr>
                         <tr>
                           <td className="px-5 py-3 text-sm font-semibold text-[#0F2A44]">RESTA</td>
@@ -993,7 +1063,7 @@ const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEm
                           >
                             {formatBRL(saldoRestante)}
                           </td>
-                          <td colSpan={2} />
+                          {!fechado && <td />}
                         </tr>
                       </tfoot>
                     </table>
