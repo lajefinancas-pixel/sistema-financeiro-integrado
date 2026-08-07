@@ -1,5 +1,6 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronRight } from "lucide-react";
+import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 
@@ -27,6 +28,7 @@ export default function Pagamentos() {
   const [mostrarNovaProgramacao, setMostrarNovaProgramacao] = React.useState(false);
 
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
+  const [contasFinalizadas, setContasFinalizadas] = React.useState(false);
   const [pagamentos, setPagamentos] = React.useState([]);
   const [fechado, setFechado] = React.useState(false);
 
@@ -68,6 +70,7 @@ export default function Pagamentos() {
       setContasSelecionadas(new Set());
       setPagamentos([]);
       setFechado(false);
+      setContasFinalizadas(false);
     }
   }, [programacaoAtualId]);
 
@@ -110,6 +113,7 @@ export default function Pagamentos() {
       const contasComSaldo = (contas ?? []).map((c) => ({
         id: c.id,
         nome_conta: c.nome_conta,
+        numero_conta: c.numero_conta,
         banco: c.bancos?.nome ?? "--",
         saldo: ultimoSaldo[c.id] ?? 0,
       }));
@@ -234,7 +238,9 @@ export default function Pagamentos() {
         .select("conta_id")
         .eq("programacao_id", programacaoAtualId);
       if (ePc) throw ePc;
-      setContasSelecionadas(new Set((pc ?? []).map((r) => r.conta_id)));
+      const setContas = new Set((pc ?? []).map((r) => r.conta_id));
+      setContasSelecionadas(setContas);
+      setContasFinalizadas(setContas.size > 0);
 
       const { data: pgs, error: ePgs } = await supabase
         .from("pagamentos")
@@ -437,6 +443,18 @@ export default function Pagamentos() {
     }
   }
 
+  function exportarExcel() {
+    const linhas = pagamentos.map((p) => ({
+      Fornecedor: p.fornecedores?.razao_social ?? p.nome_avulso,
+      Valor: p.valor_a_pagar,
+      Situacao: p.situacao,
+    }));
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Pagamentos");
+    XLSX.writeFile(wb, `pagamentos-${data}.xlsx`);
+  }
+
   const contasComSaldoDisponivelHoje = React.useMemo(() => {
     return contasDaSecretaria.map((c) => {
       const comprometidoOutras = Object.entries(
@@ -449,11 +467,13 @@ export default function Pagamentos() {
     });
   }, [contasDaSecretaria, comprometidoPorConta, programacaoAtualId]);
 
-  const saldoDisponivel = React.useMemo(() => {
-    return contasComSaldoDisponivelHoje
-      .filter((c) => contasSelecionadas.has(c.id))
-      .reduce((acc, c) => acc + c.saldoHoje, 0);
+  const contasSelecionadasComSaldo = React.useMemo(() => {
+    return contasComSaldoDisponivelHoje.filter((c) => contasSelecionadas.has(c.id));
   }, [contasComSaldoDisponivelHoje, contasSelecionadas]);
+
+  const saldoDisponivel = React.useMemo(() => {
+    return contasSelecionadasComSaldo.reduce((acc, c) => acc + c.saldoHoje, 0);
+  }, [contasSelecionadasComSaldo]);
 
   const totalProgramado = React.useMemo(() => {
     return pagamentos.reduce((acc, p) => acc + (parseFloat(p.valor_a_pagar) || 0), 0);
@@ -468,15 +488,24 @@ export default function Pagamentos() {
 
   return (
     <Layout>
-      <div className="px-8 py-7">
-        <div className="flex items-start justify-between mb-6">
+      <div className="px-8 py-7 print:px-0 print:py-0">
+        <div className="flex items-start justify-between mb-6 print:mb-4">
           <div>
             <h1 className="text-2xl font-semibold text-[#0F2A44]">Pagamentos Diários</h1>
-            <p className="text-sm text-[#0F2A44]/60 mt-0.5">
+            <p className="text-sm text-[#0F2A44]/60 mt-0.5 print:hidden">
               {fechado ? "Programação fechada." : "Selecione ou crie uma programação para o dia"}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 print:hidden">
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <Printer size={14} /> Imprimir
+            </button>
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <FileText size={14} /> PDF
+            </button>
+            <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+              <FileSpreadsheet size={14} /> Excel
+            </button>
             <select
               value={secretariaId}
               onChange={(e) => { setSecretariaId(e.target.value); setProgramacaoAtualId(null); }}
@@ -496,7 +525,7 @@ export default function Pagamentos() {
         </div>
 
         {erro && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5 print:hidden">
             {erro}
           </div>
         )}
@@ -505,7 +534,7 @@ export default function Pagamentos() {
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
         ) : (
           <div>
-            <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6">
+            <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6 print:hidden">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-[#0F2A44]">Programações deste dia</h2>
                 <button
@@ -572,7 +601,7 @@ export default function Pagamentos() {
 
             {programacaoAtualId && (
               <>
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-3 gap-4 mb-6 print:mb-4 print:break-inside-avoid">
                   <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
                     <div className="text-xs text-[#0F2A44]/50">Saldo disponível</div>
                     <div className="text-xl font-semibold text-[#0F2A44] mt-1">{formatBRL(saldoDisponivel)}</div>
@@ -592,44 +621,85 @@ export default function Pagamentos() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6">
-                  <h2 className="text-sm font-semibold text-[#0F2A44] mb-1">Contas bancárias desta programação</h2>
-                  <p className="text-xs text-[#0F2A44]/50 mb-3">
+                <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 print:break-inside-avoid">
+                  <div className="flex items-center justify-between mb-1">
+                    <h2 className="text-sm font-semibold text-[#0F2A44]">Contas bancárias desta programação</h2>
+                    {!contasFinalizadas ? (
+                      <button
+                        onClick={() => setContasFinalizadas(true)}
+                        disabled={contasSelecionadas.size === 0}
+                        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40 print:hidden"
+                      >
+                        <Check size={13} /> Finalizar escolha
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setContasFinalizadas(false)}
+                        className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] print:hidden"
+                      >
+                        <Pencil size={13} /> Editar contas
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#0F2A44]/50 mb-3 print:hidden">
                     O saldo já considera o que outras programações de hoje reservaram nas mesmas contas.
                   </p>
-                  {contasComSaldoDisponivelHoje.length === 0 ? (
-                    <div className="text-xs text-[#0F2A44]/40">Nenhuma conta cadastrada para esta secretaria.</div>
+
+                  {!contasFinalizadas ? (
+                    contasComSaldoDisponivelHoje.length === 0 ? (
+                      <div className="text-xs text-[#0F2A44]/40">Nenhuma conta cadastrada para esta secretaria.</div>
+                    ) : (
+                      <div className="divide-y divide-black/5">
+                        {contasComSaldoDisponivelHoje.map((c) => {
+                          const selecionada = contasSelecionadas.has(c.id);
+                          return (
+                            <label key={c.id} className="flex items-center justify-between py-2.5 cursor-pointer">
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selecionada}
+                                  onChange={() => toggleConta(c.id)}
+                                  className="w-4 h-4 rounded accent-[#0F2A44]"
+                                />
+                                <span className="text-sm text-[#0F2A44]">{c.banco} · {c.nome_conta}</span>
+                              </div>
+                              <span className="text-sm tabular-nums text-[#0F2A44]/70">{formatBRL(c.saldoHoje)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )
                   ) : (
-                    <div className="divide-y divide-black/5">
-                      {contasComSaldoDisponivelHoje.map((c) => {
-                        const selecionada = contasSelecionadas.has(c.id);
-                        return (
-                          <label
-                            key={c.id}
-                            className="flex items-center justify-between py-2.5 cursor-pointer"
-                          >
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={selecionada}
-                                onChange={() => toggleConta(c.id)}
-                                className="w-4 h-4 rounded accent-[#0F2A44]"
-                              />
-                              <span className="text-sm text-[#0F2A44]">
-                                {c.banco} · {c.nome_conta}
-                              </span>
-                            </div>
-                            <span className="text-sm tabular-nums text-[#0F2A44]/70">
-                              {formatBRL(c.saldoHoje)}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40 border-b border-black/5">
+                          <th className="py-2 font-medium">Instituição</th>
+                          <th className="py-2 font-medium">Conta Nº</th>
+                          <th className="py-2 font-medium">Objeto</th>
+                          <th className="py-2 font-medium text-right">Saldo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {contasSelecionadasComSaldo.map((c) => (
+                          <tr key={c.id} className="border-b border-black/5">
+                            <td className="py-2">{c.banco}</td>
+                            <td className="py-2 text-[#0F2A44]/70">{c.numero_conta || "--"}</td>
+                            <td className="py-2">{c.nome_conta}</td>
+                            <td className="py-2 text-right tabular-nums">{formatBRL(c.saldoHoje)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-[#0F2A44]/[0.03]">
+                          <td colSpan={3} className="py-2.5 font-semibold text-[#0F2A44]">TOTAL SALDO</td>
+                          <td className="py-2.5 text-right font-semibold text-[#0F2A44]">{formatBRL(saldoDisponivel)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-4 print:hidden">
                   <button
                     onClick={() => { setMostrarAddCadastrado((v) => !v); setMostrarAddAvulso(false); }}
                     className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44] hover:bg-black/5"
@@ -647,7 +717,7 @@ export default function Pagamentos() {
                 </div>
 
                 {mostrarAddCadastrado && (
-                  <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3">
+                  <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3 print:hidden">
                     <h3 className="text-sm font-semibold text-[#0F2A44]">Adicionar pagamento de fornecedor cadastrado</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <select
@@ -685,19 +755,13 @@ export default function Pagamentos() {
                 )}
 
                 {mostrarAddAvulso && (
-                  <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3">
+                  <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-3 print:hidden">
                     <h3 className="text-sm font-semibold text-[#0F2A44]">Adicionar fornecedor não cadastrado</h3>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <input
                         type="text" placeholder="Nome"
                         value={avulso.nome}
                         onChange={(e) => setAvulso({ ...avulso, nome: e.target.value })}
-                        className="px-3 py-2 rounded-lg border border-black/10 text-sm"
-                      />
-                      <input
-                        type="text" placeholder="Descrição (opcional)"
-                        value={avulso.descricao}
-                        onChange={(e) => setAvulso({ ...avulso, descricao: e.target.value })}
                         className="px-3 py-2 rounded-lg border border-black/10 text-sm"
                       />
                       <input
@@ -717,7 +781,7 @@ export default function Pagamentos() {
                   </div>
                 )}
 
-                <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden print:break-inside-avoid">
                   <div className="px-5 py-3 border-b border-black/5">
                     <h2 className="text-sm font-semibold text-[#0F2A44]">Pagamentos desta programação</h2>
                   </div>
@@ -730,10 +794,9 @@ export default function Pagamentos() {
                       <thead>
                         <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40 border-b border-black/5">
                           <th className="px-5 py-2 font-medium">Fornecedor</th>
-                          <th className="px-5 py-2 font-medium">Referência</th>
                           <th className="px-5 py-2 font-medium text-right">Valor a pagar</th>
                           <th className="px-5 py-2 font-medium text-center">Situação</th>
-                          <th className="px-5 py-2 font-medium text-right">Ações</th>
+                          <th className="px-5 py-2 font-medium text-right print:hidden">Ações</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -742,22 +805,17 @@ export default function Pagamentos() {
                             <td className="px-5 py-2.5">
                               {p.fornecedores?.razao_social ?? p.nome_avulso}
                               {!p.fornecedor_id && (
-                                <span className="ml-1.5 text-[10px] uppercase text-[#EA9A1E] bg-[#FFF6E5] px-1.5 py-0.5 rounded">
+                                <span className="ml-1.5 text-[10px] uppercase text-[#EA9A1E] bg-[#FFF6E5] px-1.5 py-0.5 rounded print:hidden">
                                   não cadastrado
                                 </span>
                               )}
-                            </td>
-                            <td className="px-5 py-2.5 text-xs text-[#0F2A44]/60">
-                              {p.valores_em_aberto?.numero_nota_fiscal
-                                ? `NF ${p.valores_em_aberto.numero_nota_fiscal}`
-                                : p.descricao || "--"}
                             </td>
                             <td className="px-5 py-2.5 text-right">
                               <input
                                 type="number" step="0.01"
                                 value={p.valor_a_pagar}
                                 onChange={(e) => editarValorLocal(p.id, e.target.value)}
-                                className="w-28 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums"
+                                className="w-28 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
                               />
                             </td>
                             <td className="px-5 py-2.5 text-center">
@@ -768,17 +826,14 @@ export default function Pagamentos() {
                               ) : (
                                 <button
                                   onClick={() => marcarPago(p.id)}
-                                  className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md"
+                                  className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md print:hidden"
                                 >
                                   Marcar como pago
                                 </button>
                               )}
                             </td>
-                            <td className="px-5 py-2.5 text-right">
-                              <button
-                                onClick={() => removerPagamento(p.id)}
-                                className="text-[#0F2A44]/30 hover:text-red-500"
-                              >
+                            <td className="px-5 py-2.5 text-right print:hidden">
+                              <button onClick={() => removerPagamento(p.id)} className="text-[#0F2A44]/30 hover:text-red-500">
                                 <Trash2 size={15} />
                               </button>
                             </td>
@@ -787,14 +842,14 @@ export default function Pagamentos() {
                       </tbody>
                       <tfoot>
                         <tr className="bg-[#0F2A44]/[0.03]">
-                          <td colSpan={2} className="px-5 py-3 text-sm font-semibold text-[#0F2A44]">TOTAL</td>
+                          <td className="px-5 py-3 text-sm font-semibold text-[#0F2A44]">TOTAL</td>
                           <td className="px-5 py-3 text-right text-sm font-semibold text-[#0F2A44]">
                             {formatBRL(totalProgramado)}
                           </td>
                           <td colSpan={2} />
                         </tr>
                         <tr>
-                          <td colSpan={2} className="px-5 py-3 text-sm font-semibold text-[#0F2A44]">RESTA</td>
+                          <td className="px-5 py-3 text-sm font-semibold text-[#0F2A44]">RESTA</td>
                           <td
                             className="px-5 py-3 text-right text-sm font-semibold"
                             style={{ color: saldoRestante < 0 ? "#DC2626" : "#0F2A44" }}
