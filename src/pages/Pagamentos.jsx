@@ -445,10 +445,9 @@ export default function Pagamentos() {
     setSalvando(true);
     setErro(null);
     try {
-      const fornecedor = fornecedoresDaSecretaria.find((f) => f.id === fornecedorEscolhido);
-      const valorObj = fornecedor?.valores.find((v) => v.id === valorEmAbertoEscolhido);
+      const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
+const valorObj = fornecedor?.valores.find((v) => String(v.id) === String(valorEmAbertoEscolhido));
       const restante = (valorObj?.valor ?? 0) - (valorObj?.valor_pago ?? 0);
-
       const { error } = await supabase.from("pagamentos").insert({
         programacao_id: programacaoAtualId,
         fornecedor_id: fornecedorEscolhido,
@@ -584,7 +583,7 @@ export default function Pagamentos() {
   const saldoRestante = saldoDisponivel - totalProgramado;
 
   const todosValoresEmAberto = React.useMemo(() => {
-    const fornecedor = fornecedoresDaSecretaria.find((f) => f.id === fornecedorEscolhido);
+  const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
     return fornecedor?.valores ?? [];
   }, [fornecedoresDaSecretaria, fornecedorEscolhido]);
 
