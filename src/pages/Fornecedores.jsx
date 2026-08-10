@@ -43,6 +43,36 @@ const FAIXAS_VALOR = [
   { label: "Acima de R$ 50.000", min: "50000.01", max: "" },
 ];
 
+// Cada opção olha só para dados tributários que já existem: alíquotas fixas do
+// fornecedor e retenções lançadas nos valores em aberto dele.
+const TRIBUTARIOS = [
+  { value: "iss_com", label: "Possui retenção de ISS", oposto: "iss_sem", testa: (p) => p.iss },
+  { value: "iss_sem", label: "Sem retenção de ISS", oposto: "iss_com", testa: (p) => !p.iss },
+  { value: "ir_com", label: "Possui IRPJ", oposto: "ir_sem", testa: (p) => p.ir },
+  { value: "ir_sem", label: "Sem IRPJ", oposto: "ir_com", testa: (p) => !p.ir },
+  { value: "retencoes", label: "Possui retenções tributárias", testa: (p) => p.retencoes },
+  { value: "pendencia", label: "Pendência tributária", testa: (p) => p.pendencia },
+];
+
+const DOCUMENTACOES = [
+  { value: "completa", label: "Documentação completa", precisaValidade: false },
+  { value: "incompleta", label: "Documentação incompleta", precisaValidade: false },
+  { value: "vencido", label: "Documento vencido", precisaValidade: true },
+  { value: "proximo", label: "Documento próximo do vencimento", precisaValidade: true },
+];
+
+// Campos do cadastro do fornecedor considerados na conferência de documentação.
+const CAMPOS_CADASTRO = ["razao_social", "cpf_cnpj", "secretaria_id", "telefone", "email", "descricao"];
+
+// Nomes aceitos dentro de dados_bancarios; o cadastro pode gravar a chave de formas diferentes.
+const CHAVES_BANCARIAS = {
+  banco: ["banco", "instituicao"],
+  agencia: ["agencia"],
+  conta: ["conta"],
+};
+
+const DIAS_PROXIMO_VENCIMENTO = 30;
+
 const FILTROS_VAZIOS = {
   nome: "",
   dataInicial: "",
@@ -52,6 +82,13 @@ const FILTROS_VAZIOS = {
   valorMax: "",
   documento: "",
   situacao: "",
+  secretariasIds: [],
+  tipo: "",
+  tributarios: [],
+  banco: "",
+  agencia: "",
+  conta: "",
+  documentacao: "",
 };
 
 function normalizarTexto(v) {
@@ -83,8 +120,105 @@ function filtroPreenchido(f) {
     f.valorMin !== "" ||
     f.valorMax !== "" ||
     f.documento.trim() !== "" ||
-    f.situacao !== ""
+    f.situacao !== "" ||
+    f.secretariasIds.length > 0 ||
+    f.tipo !== "" ||
+    f.tributarios.length > 0 ||
+    f.banco.trim() !== "" ||
+    f.agencia.trim() !== "" ||
+    f.conta.trim() !== "" ||
+    f.documentacao !== ""
   );
+}
+
+function formatarData(iso) {
+  const data = soData(iso);
+  return data ? new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR") : "";
+}
+function chaveSimples(v) {
+  return normalizarTexto(v).replace(/[^a-z0-9]/g, "");
+}
+
+// Tipo do fornecedor: usa a coluna de tipo do cadastro quando ela existir; sem
+// ela, o próprio CPF/CNPJ já registrado diz se é pessoa física ou jurídica.
+function tipoDoFornecedor(f, campoTipo) {
+  if (campoTipo) return String(f[campoTipo] ?? "").trim();
+  const digitos = somenteDigitos(f.cpf_cnpj);
+  if (digitos.length === 11) return "Pessoa Física";
+  if (digitos.length === 14) return "Pessoa Jurídica";
+  return "";
+}
+
+function perfilTributario(f) {
+  const issFixo = paraNumero(f.aliquota_iss_fixa) > 0;
+  const irFixo = paraNumero(f.aliquota_ir_fixa) > 0;
+  const iss = issFixo || f.valores.some((v) => (v.desconto_iss ?? 0) > 0);
+  const ir = irFixo || f.valores.some((v) => (v.desconto_ir ?? 0) > 0);
+  // Pendência: lançamento fora do Simples com alíquota informada e nenhuma retenção aplicada.
+  const pendencia = f.valores.some(
+    (v) =>
+      v.optante_simples === false &&
+      ((v.aliquota_iss ?? 0) > 0 || (v.aliquota_ir ?? 0) > 0) &&
+      (v.desconto_iss ?? 0) <= 0 &&
+      (v.desconto_ir ?? 0) <= 0
+  );
+  return { iss, ir, retencoes: iss || ir, pendencia };
+}
+
+// Texto pesquisável de banco/agência/conta a partir de dados_bancarios do cadastro.
+// Aceita tanto o campo gravado como texto quanto como objeto com chaves próprias.
+function textoBancario(f, campo) {
+  const dados = f.dados_bancarios;
+  if (!dados) return "";
+  if (typeof dados !== "object") return String(dados);
+  if (Object.keys(dados).length === 0) return "";
+
+  const encontrados = [];
+  Object.entries(dados).forEach(([chave, valor]) => {
+    if (valor === null || valor === undefined || typeof valor === "object") return;
+    const nome = chaveSimples(chave);
+    if (CHAVES_BANCARIAS[campo].some((esperada) => nome.includes(esperada))) encontrados.push(String(valor));
+  });
+  // Sem chave reconhecida, procura no conteúdo inteiro para não perder o filtro.
+  return encontrados.length > 0 ? encontrados.join(" ") : JSON.stringify(dados);
+}
+
+// Datas de validade que existirem no cadastro (inclusive dentro de campos em JSON).
+function datasDeValidade(f) {
+  const datas = [];
+  const varrer = (obj, profundidade) => {
+    if (!obj || typeof obj !== "object" || profundidade > 2) return;
+    Object.entries(obj).forEach(([chave, valor]) => {
+      if (chave === "valores") return; // lançamentos têm vencimento de título, não de documento
+      if (valor && typeof valor === "object") return varrer(valor, profundidade + 1);
+      if (!/validade|vencimento/.test(normalizarTexto(chave))) return;
+      const data = soData(valor);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(data)) datas.push(data);
+    });
+  };
+  varrer(f, 0);
+  return datas;
+}
+
+function camposFaltando(f) {
+  const faltando = CAMPOS_CADASTRO.filter((campo) => String(f[campo] ?? "").trim() === "");
+  if ("dados_bancarios" in f && !textoBancario(f, "banco")) faltando.push("dados_bancarios");
+  return faltando;
+}
+
+function combinaDocumentacao(f, escolha) {
+  if (escolha === "completa") return camposFaltando(f).length === 0;
+  if (escolha === "incompleta") return camposFaltando(f).length > 0;
+
+  const datas = datasDeValidade(f);
+  if (datas.length === 0) return false;
+  const hoje = hojeISO();
+  if (escolha === "vencido") return datas.some((d) => d < hoje);
+
+  const limite = new Date(`${hoje}T00:00:00`);
+  limite.setDate(limite.getDate() + DIAS_PROXIMO_VENCIMENTO);
+  const limiteISO = limite.toISOString().slice(0, 10);
+  return datas.some((d) => d >= hoje && d <= limiteISO);
 }
 
 const FORM_VALOR_VAZIO = {
@@ -171,9 +305,10 @@ export default function Fornecedores() {
         .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
       if (e1) throw e1;
 
+      // "*" traz também os campos usados só nos filtros (ex: dados bancários), sem mudar o cadastro.
       const { data: forns, error: e2 } = await supabase
         .from("fornecedores")
-        .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, telefone, email, aliquota_iss_fixa, aliquota_ir_fixa, created_at, secretarias(nome)")
+        .select("*, secretarias(nome)")
         .eq("ativo", true)
         .order("razao_social");
       if (e2) throw e2;
@@ -393,6 +528,40 @@ export default function Fornecedores() {
       .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
   }, [fornecedores]);
 
+  // Coluna de tipo do cadastro, se ela existir na tabela de fornecedores.
+  const campoTipo = React.useMemo(() => {
+    const chaves = new Set();
+    fornecedores.forEach((f) => Object.keys(f).forEach((k) => chaves.add(k)));
+    return (
+      [...chaves].find(
+        (k) =>
+          /^(tipo|categoria|natureza|classificacao)/.test(normalizarTexto(k)) &&
+          fornecedores.some((f) => typeof f[k] === "string" && f[k].trim() !== "")
+      ) ?? ""
+    );
+  }, [fornecedores]);
+
+  // Tipos oferecidos no filtro: apenas os que aparecem nos fornecedores cadastrados.
+  const tiposDisponiveis = React.useMemo(() => {
+    const encontrados = new Set();
+    fornecedores.forEach((f) => {
+      const tipo = tipoDoFornecedor(f, campoTipo);
+      if (tipo) encontrados.add(tipo);
+    });
+    return [...encontrados].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [fornecedores, campoTipo]);
+
+  // Só oferece os filtros que têm base no cadastro atual.
+  const temDadosBancarios = React.useMemo(
+    () => fornecedores.some((f) => "dados_bancarios" in f),
+    [fornecedores]
+  );
+  const temValidadeDocumentos = React.useMemo(
+    () => fornecedores.some((f) => datasDeValidade(f).length > 0),
+    [fornecedores]
+  );
+  const documentacoesDisponiveis = DOCUMENTACOES.filter((d) => !d.precisaValidade || temValidadeDocumentos);
+
   function dataDoLancamento(valor, campo) {
     if (campo === "emissao") return [valor.data_nota_fiscal];
     if (campo === "vencimento") return [valor.data_vencimento];
@@ -401,9 +570,12 @@ export default function Fornecedores() {
     return [];
   }
 
-  const fornecedoresFiltrados = React.useMemo(() => {
+  const { fornecedoresFiltrados, totalFiltrado } = React.useMemo(() => {
     const busca = normalizarTexto(buscaRapida);
-    const { nome, dataInicial, dataFinal, campoData, valorMin, valorMax, documento, situacao } = filtrosAplicados;
+    const {
+      nome, dataInicial, dataFinal, campoData, valorMin, valorMax, documento, situacao,
+      secretariasIds, tipo, tributarios, banco, agencia, conta, documentacao,
+    } = filtrosAplicados;
 
     const nomeBusca = normalizarTexto(nome);
     const docDigitos = somenteDigitos(documento);
@@ -415,7 +587,15 @@ export default function Fornecedores() {
     // Valor, situação e período (exceto cadastro) precisam bater todos no mesmo lançamento.
     const filtraLancamentos = Boolean(situacao) || minimo !== null || maximo !== null || periodoNoLancamento;
 
-    return fornecedores.filter((f) => {
+    const bancoBusca = normalizarTexto(banco);
+    const agenciaBusca = normalizarTexto(agencia);
+    const contaBusca = normalizarTexto(conta);
+    const regrasTributarias = TRIBUTARIOS.filter((t) => tributarios.includes(t.value));
+
+    const lista = [];
+    let total = 0;
+
+    fornecedores.forEach((f) => {
       const digitosDoc = somenteDigitos(f.cpf_cnpj);
       const nomes = normalizarTexto(`${f.razao_social ?? ""} ${f.nome_fantasia ?? ""}`);
 
@@ -423,36 +603,61 @@ export default function Fornecedores() {
         const buscaDigitos = somenteDigitos(busca);
         const achouTexto = `${nomes} ${normalizarTexto(f.cpf_cnpj)}`.includes(busca);
         const achouDoc = buscaDigitos !== "" && digitosDoc.includes(buscaDigitos);
-        if (!achouTexto && !achouDoc) return false;
+        if (!achouTexto && !achouDoc) return;
       }
 
-      if (nomeBusca && !nomes.includes(nomeBusca)) return false;
+      if (nomeBusca && !nomes.includes(nomeBusca)) return;
 
       if (documento.trim()) {
         // Aceita com ou sem pontuação: compara só os dígitos quando o filtro tiver algum.
         const combina = docDigitos ? digitosDoc.includes(docDigitos) : normalizarTexto(f.cpf_cnpj).includes(docTexto);
-        if (!combina) return false;
+        if (!combina) return;
       }
 
-      if (temPeriodo && campoData === "cadastro" && !dentroDoPeriodo(f.created_at, dataInicial, dataFinal)) return false;
+      if (temPeriodo && campoData === "cadastro" && !dentroDoPeriodo(f.created_at, dataInicial, dataFinal)) return;
 
-      if (!filtraLancamentos) return true;
+      if (secretariasIds.length > 0 && !secretariasIds.includes(String(f.secretaria_id ?? ""))) return;
 
-      return f.valores.some((v) => {
-        if (situacao && v.situacao !== situacao) return false;
+      if (tipo && tipoDoFornecedor(f, campoTipo) !== tipo) return;
 
-        const valorLiquido = v.valor ?? 0;
-        if (minimo !== null && valorLiquido < minimo) return false;
-        if (maximo !== null && valorLiquido > maximo) return false;
+      if (regrasTributarias.length > 0) {
+        const perfil = perfilTributario(f);
+        if (!regrasTributarias.every((regra) => regra.testa(perfil))) return;
+      }
 
-        if (periodoNoLancamento) {
-          const datas = dataDoLancamento(v, campoData);
-          if (!datas.some((d) => dentroDoPeriodo(d, dataInicial, dataFinal))) return false;
-        }
-        return true;
-      });
+      if (bancoBusca && !normalizarTexto(textoBancario(f, "banco")).includes(bancoBusca)) return;
+      if (agenciaBusca && !normalizarTexto(textoBancario(f, "agencia")).includes(agenciaBusca)) return;
+      if (contaBusca && !normalizarTexto(textoBancario(f, "conta")).includes(contaBusca)) return;
+
+      if (documentacao && !combinaDocumentacao(f, documentacao)) return;
+
+      const correspondentes = !filtraLancamentos
+        ? f.valores
+        : f.valores.filter((v) => {
+            if (situacao && v.situacao !== situacao) return false;
+
+            const valorLiquido = v.valor ?? 0;
+            if (minimo !== null && valorLiquido < minimo) return false;
+            if (maximo !== null && valorLiquido > maximo) return false;
+
+            if (periodoNoLancamento) {
+              const datas = dataDoLancamento(v, campoData);
+              if (!datas.some((d) => dentroDoPeriodo(d, dataInicial, dataFinal))) return false;
+            }
+            return true;
+          });
+
+      if (filtraLancamentos && correspondentes.length === 0) return;
+
+      lista.push(f);
+      // Soma só o que sobrou do filtro, no mesmo critério do total em aberto da tela.
+      total += correspondentes
+        .filter((v) => v.situacao !== "pago" && v.situacao !== "cancelado")
+        .reduce((acc, v) => acc + (v.valor - (v.valor_pago ?? 0)), 0);
     });
-  }, [fornecedores, buscaRapida, filtrosAplicados, datasPagamento]);
+
+    return { fornecedoresFiltrados: lista, totalFiltrado: total };
+  }, [fornecedores, buscaRapida, filtrosAplicados, datasPagamento, campoTipo]);
 
   const filtrandoAlgo = buscaRapida.trim() !== "" || filtroPreenchido(filtrosAplicados);
 
@@ -464,6 +669,106 @@ export default function Fornecedores() {
     setFiltrosAplicados(FILTROS_VAZIOS);
     setBuscaRapida("");
   }
+  // Tira um filtro específico já aplicado, mantendo todos os outros.
+  function removerFiltro(alteracao) {
+    setFiltros((atuais) => ({ ...atuais, ...alteracao }));
+    setFiltrosAplicados({ ...filtrosAplicados, ...alteracao });
+  }
+  function alternarSecretaria(id) {
+    const atuais = filtros.secretariasIds;
+    setFiltros({
+      ...filtros,
+      secretariasIds: atuais.includes(id) ? atuais.filter((s) => s !== id) : [...atuais, id],
+    });
+  }
+  function alternarTributario(valor) {
+    const opcao = TRIBUTARIOS.find((t) => t.value === valor);
+    const atuais = filtros.tributarios;
+    setFiltros({
+      ...filtros,
+      tributarios: atuais.includes(valor)
+        ? atuais.filter((t) => t !== valor)
+        : [...atuais.filter((t) => t !== opcao.oposto), valor],
+    });
+  }
+
+  const nomeSecretaria = (id) => secretarias.find((s) => String(s.id) === String(id))?.nome ?? "Secretaria";
+
+  // Um chip por critério aplicado; cada um sai sozinho, sem mexer nos demais.
+  const chipsAtivos = React.useMemo(() => {
+    const f = filtrosAplicados;
+    const chips = [];
+
+    if (buscaRapida.trim()) {
+      chips.push({ chave: "busca", rotulo: `Busca: ${buscaRapida.trim()}`, remover: () => setBuscaRapida("") });
+    }
+    if (f.nome.trim()) {
+      chips.push({ chave: "nome", rotulo: `Nome: ${f.nome.trim()}`, remover: () => removerFiltro({ nome: "" }) });
+    }
+    if (f.dataInicial || f.dataFinal) {
+      const campo = CAMPOS_DATA.find((c) => c.value === f.campoData)?.label ?? "Período";
+      const inicio = f.dataInicial ? formatarData(f.dataInicial) : "...";
+      const fim = f.dataFinal ? formatarData(f.dataFinal) : "...";
+      chips.push({
+        chave: "periodo",
+        rotulo: `${campo}: ${inicio} a ${fim}`,
+        remover: () => removerFiltro({ dataInicial: "", dataFinal: "" }),
+      });
+    }
+    if (f.valorMin || f.valorMax) {
+      const min = f.valorMin ? formatBRL(paraNumero(f.valorMin)) : "...";
+      const max = f.valorMax ? formatBRL(paraNumero(f.valorMax)) : "...";
+      chips.push({
+        chave: "valor",
+        rotulo: `Valor: ${min} a ${max}`,
+        remover: () => removerFiltro({ valorMin: "", valorMax: "" }),
+      });
+    }
+    if (f.documento.trim()) {
+      chips.push({
+        chave: "documento",
+        rotulo: `CNPJ/CPF: ${f.documento.trim()}`,
+        remover: () => removerFiltro({ documento: "" }),
+      });
+    }
+    if (f.situacao) {
+      const label = SITUACOES.find((s) => s.value === f.situacao)?.label ?? f.situacao;
+      chips.push({ chave: "situacao", rotulo: label, remover: () => removerFiltro({ situacao: "" }) });
+    }
+    f.secretariasIds.forEach((id) => {
+      chips.push({
+        chave: `secretaria-${id}`,
+        rotulo: nomeSecretaria(id),
+        remover: () => removerFiltro({ secretariasIds: f.secretariasIds.filter((s) => s !== id) }),
+      });
+    });
+    if (f.tipo) {
+      chips.push({ chave: "tipo", rotulo: f.tipo, remover: () => removerFiltro({ tipo: "" }) });
+    }
+    f.tributarios.forEach((valor) => {
+      const opcao = TRIBUTARIOS.find((t) => t.value === valor);
+      chips.push({
+        chave: `tributario-${valor}`,
+        rotulo: opcao?.label ?? valor,
+        remover: () => removerFiltro({ tributarios: f.tributarios.filter((t) => t !== valor) }),
+      });
+    });
+    ["banco", "agencia", "conta"].forEach((campo) => {
+      if (!f[campo].trim()) return;
+      const rotulos = { banco: "Banco", agencia: "Agência", conta: "Conta" };
+      chips.push({
+        chave: campo,
+        rotulo: `${rotulos[campo]}: ${f[campo].trim()}`,
+        remover: () => removerFiltro({ [campo]: "" }),
+      });
+    });
+    if (f.documentacao) {
+      const label = DOCUMENTACOES.find((d) => d.value === f.documentacao)?.label ?? f.documentacao;
+      chips.push({ chave: "documentacao", rotulo: label, remover: () => removerFiltro({ documentacao: "" }) });
+    }
+    return chips;
+  }, [filtrosAplicados, buscaRapida, secretarias]);
+
   function aplicarFaixa(faixa) {
     const jaAtiva = filtros.valorMin === faixa.min && filtros.valorMax === faixa.max;
     const novos = jaAtiva
@@ -656,6 +961,120 @@ export default function Fornecedores() {
                 </div>
               </div>
 
+              <div className="pt-1 border-t border-black/5">
+                <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria / Setor</label>
+                <div className="mt-1 rounded-lg border border-black/10 p-2 max-h-36 overflow-y-auto space-y-1">
+                  <label className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                    <input
+                      type="checkbox"
+                      checked={filtros.secretariasIds.length === 0}
+                      onChange={() => setFiltros({ ...filtros, secretariasIds: [] })}
+                      className="w-3.5 h-3.5 accent-[#0F2A44]"
+                    />
+                    Todas as secretarias
+                  </label>
+                  {secretarias.map((s) => (
+                    <label key={s.id} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                      <input
+                        type="checkbox"
+                        checked={filtros.secretariasIds.includes(String(s.id))}
+                        onChange={() => alternarSecretaria(String(s.id))}
+                        className="w-3.5 h-3.5 accent-[#0F2A44]"
+                      />
+                      {s.nome}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                  Marque uma ou várias secretarias ao mesmo tempo; sem marcação, considera todas.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Tipo de fornecedor</label>
+                  <select
+                    value={filtros.tipo}
+                    onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {tiposDisponiveis.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Lista montada com os tipos dos fornecedores já cadastrados.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Documentação</label>
+                  <select
+                    value={filtros.documentacao}
+                    onChange={(e) => setFiltros({ ...filtros, documentacao: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Todas</option>
+                    {documentacoesDisponiveis.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                    Considera os campos preenchidos no cadastro
+                    {temValidadeDocumentos ? " e as datas de validade registradas." : "; datas de validade ainda não existem no cadastro."}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Situação tributária</label>
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5">
+                  {TRIBUTARIOS.map((t) => (
+                    <label key={t.value} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                      <input
+                        type="checkbox"
+                        checked={filtros.tributarios.includes(t.value)}
+                        onChange={() => alternarTributario(t.value)}
+                        className="w-3.5 h-3.5 accent-[#0F2A44]"
+                      />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                  Usa as alíquotas fixas do fornecedor e as retenções já lançadas. Pendência tributária: lançamento
+                  fora do Simples com alíquota informada e nenhuma retenção aplicada.
+                </p>
+              </div>
+
+              {temDadosBancarios && (
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Dados bancários</label>
+                  <div className="grid grid-cols-3 gap-4">
+                    <input
+                      type="text"
+                      value={filtros.banco}
+                      onChange={(e) => setFiltros({ ...filtros, banco: e.target.value })}
+                      placeholder="Banco"
+                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={filtros.agencia}
+                      onChange={(e) => setFiltros({ ...filtros, agencia: e.target.value })}
+                      placeholder="Agência"
+                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={filtros.conta}
+                      onChange={(e) => setFiltros({ ...filtros, conta: e.target.value })}
+                      placeholder="Número da conta"
+                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Busca nos dados bancários gravados no cadastro do fornecedor.</p>
+                </div>
+              )}
+
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
@@ -677,6 +1096,51 @@ export default function Fornecedores() {
                   </span>
                 )}
               </div>
+            </div>
+          )}
+          {chipsAtivos.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-black/5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-[#0F2A44]/70 mr-1">
+                  {chipsAtivos.length} {chipsAtivos.length === 1 ? "filtro ativo" : "filtros ativos"}
+                </span>
+                {chipsAtivos.map((chip) => (
+                  <span
+                    key={chip.chave}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-[#EAF1FF] text-[#0F2A44]"
+                  >
+                    {chip.rotulo}
+                    <button
+                      type="button"
+                      onClick={chip.remover}
+                      title={`Remover filtro: ${chip.rotulo}`}
+                      className="text-[#0F2A44]/40 hover:text-red-500"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={limparFiltros}
+                  className="text-xs text-[#0F2A44]/50 hover:text-[#0F2A44] underline ml-1"
+                >
+                  Limpar todos
+                </button>
+              </div>
+            </div>
+          )}
+
+          {filtrandoAlgo && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-[#0F2A44]/70">
+              <span>
+                Quantidade encontrada: <span className="font-semibold text-[#0F2A44]">{fornecedoresFiltrados.length} fornecedores</span>
+              </span>
+              {totalFiltrado > 0 && (
+                <span>
+                  Valor total filtrado: <span className="font-semibold text-[#0F2A44]">{formatBRL(totalFiltrado)}</span>
+                </span>
+              )}
             </div>
           )}
         </div>
