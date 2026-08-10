@@ -4,6 +4,8 @@ import { supabase } from "../../lib/supabaseClient";
 import { usePermissaoModulo } from "../../lib/permissoes";
 import Layout from "../../components/Layout";
 import AcessoNegado from "../../components/AcessoNegado";
+import ModalNovoUsuario from "../../components/equipe/ModalNovoUsuario";
+import ModalEditarUsuario from "../../components/equipe/ModalEditarUsuario";
 
 const MODULO = "administracao";
 
@@ -93,7 +95,16 @@ export default function Usuarios() {
   const [filtroPerfil, setFiltroPerfil] = React.useState("todos");
   const [filtroStatus, setFiltroStatus] = React.useState("todos");
 
+  // Telas de cadastro e edição
+  const [perfisAcesso, setPerfisAcesso] = React.useState([]);
+  const [abrirNovo, setAbrirNovo] = React.useState(false);
+  const [usuarioEmEdicao, setUsuarioEmEdicao] = React.useState(null);
+  const [recarga, setRecarga] = React.useState(0);
+  const recarregar = React.useCallback(() => setRecarga((n) => n + 1), []);
+
   const podeVisualizar = permissao?.pode_visualizar === true;
+  const podeCadastrar = permissao?.pode_cadastrar === true;
+  const podeEditar = permissao?.pode_editar === true;
 
   React.useEffect(() => {
     if (!podeVisualizar) return;
@@ -129,6 +140,24 @@ export default function Usuarios() {
     }
 
     carregarUsuarios();
+    return () => {
+      ativo = false;
+    };
+  }, [podeVisualizar, recarga]);
+
+  // Lista completa de perfis para os selects das telas de cadastro/edição.
+  React.useEffect(() => {
+    if (!podeVisualizar) return undefined;
+    let ativo = true;
+
+    supabase
+      .from("perfis_acesso")
+      .select("id, nome, descricao")
+      .order("nome", { ascending: true })
+      .then(({ data }) => {
+        if (ativo && data) setPerfisAcesso(data);
+      });
+
     return () => {
       ativo = false;
     };
@@ -204,7 +233,10 @@ export default function Usuarios() {
           </div>
           <button
             type="button"
-            className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+            onClick={() => setAbrirNovo(true)}
+            disabled={!podeCadastrar}
+            title={podeCadastrar ? undefined : "Você não tem permissão para cadastrar usuários."}
+            className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-40 disabled:hover:bg-[#0F2A44]"
           >
             <Plus size={16} />
             Novo Usuário
@@ -305,7 +337,11 @@ export default function Usuarios() {
                 </thead>
                 <tbody>
                   {filtrados.map((u) => (
-                    <tr key={u.id} className="border-t border-black/5 hover:bg-black/[0.02]">
+                    <tr
+                      key={u.id}
+                      onClick={() => setUsuarioEmEdicao(u.id)}
+                      className="border-t border-black/5 hover:bg-black/[0.02] cursor-pointer"
+                    >
                       <td className="py-3 pl-5 pr-3">
                         <div className="flex items-center gap-3">
                           <Avatar nome={u.nome_completo} foto={u.foto_url} />
@@ -329,7 +365,11 @@ export default function Usuarios() {
             {/* Cards — telas pequenas */}
             <div className="md:hidden space-y-3">
               {filtrados.map((u) => (
-                <div key={u.id} className="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
+                <div
+                  key={u.id}
+                  onClick={() => setUsuarioEmEdicao(u.id)}
+                  className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 cursor-pointer"
+                >
                   <div className="flex items-start gap-3">
                     <Avatar nome={u.nome_completo} foto={u.foto_url} />
                     <div className="flex-1 min-w-0">
@@ -348,6 +388,24 @@ export default function Usuarios() {
           </>
         )}
       </div>
+
+      {abrirNovo && (
+        <ModalNovoUsuario
+          perfis={perfisAcesso}
+          onFechar={() => setAbrirNovo(false)}
+          onCriado={recarregar}
+        />
+      )}
+
+      {usuarioEmEdicao && (
+        <ModalEditarUsuario
+          usuarioId={usuarioEmEdicao}
+          perfis={perfisAcesso}
+          podeEditar={podeEditar}
+          onFechar={() => setUsuarioEmEdicao(null)}
+          onAtualizado={recarregar}
+        />
+      )}
     </Layout>
   );
 }
