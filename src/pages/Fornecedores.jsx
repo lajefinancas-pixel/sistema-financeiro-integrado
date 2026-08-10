@@ -1,8 +1,11 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
+import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
 import Layout from "../components/Layout";
+import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
+import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
 
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -73,6 +76,24 @@ const CHAVES_BANCARIAS = {
 
 const DIAS_PROXIMO_VENCIMENTO = 30;
 
+// Ordenação dos resultados da listagem. Não muda nenhum filtro: só a sequência
+// em que os fornecedores encontrados aparecem (e saem nas exportações).
+const ORDENACOES = [
+  { value: "nome_az", label: "Nome (A-Z)" },
+  { value: "nome_za", label: "Nome (Z-A)" },
+  { value: "valor_menor", label: "Menor valor" },
+  { value: "valor_maior", label: "Maior valor" },
+  { value: "recente", label: "Mais recente" },
+  { value: "antigo", label: "Mais antigo" },
+  { value: "vencimento", label: "Data de vencimento" },
+  { value: "situacao", label: "Situação" },
+];
+const ORDENACAO_PADRAO = "nome_az";
+
+// Filtros e ordenação continuam valendo ao sair da listagem e voltar; some ao
+// fechar a aba, por isso sessionStorage e não banco.
+const CHAVE_SESSAO = "sfi-fornecedores-filtros";
+
 const FILTROS_VAZIOS = {
   nome: "",
   dataInicial: "",
@@ -135,6 +156,89 @@ function formatarData(iso) {
   const data = soData(iso);
   return data ? new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR") : "";
 }
+
+// Filtros vindos da sessão ou de um filtro salvo podem estar incompletos ou com
+// tipos trocados; aqui eles voltam ao formato que a tela espera.
+function normalizarFiltros(bruto) {
+  const origem = bruto && typeof bruto === "object" ? bruto : {};
+  const limpos = { ...FILTROS_VAZIOS };
+  Object.keys(FILTROS_VAZIOS).forEach((chave) => {
+    const valor = origem[chave];
+    if (Array.isArray(FILTROS_VAZIOS[chave])) {
+      limpos[chave] = Array.isArray(valor) ? valor.map(String) : [];
+    } else if (typeof valor === "string") {
+      limpos[chave] = valor;
+    }
+  });
+  limpos.tributarios = limpos.tributarios.filter((t) => TRIBUTARIOS.some((opcao) => opcao.value === t));
+  if (!CAMPOS_DATA.some((c) => c.value === limpos.campoData)) limpos.campoData = FILTROS_VAZIOS.campoData;
+  if (!DOCUMENTACOES.some((d) => d.value === limpos.documentacao)) limpos.documentacao = "";
+  return limpos;
+}
+function ordenacaoValida(valor) {
+  return ORDENACOES.some((o) => o.value === valor) ? valor : ORDENACAO_PADRAO;
+}
+
+function lerEstadoSalvo() {
+  try {
+    const bruto = window.sessionStorage.getItem(CHAVE_SESSAO);
+    const salvo = bruto ? JSON.parse(bruto) : null;
+    return salvo && typeof salvo === "object" ? salvo : null;
+  } catch {
+    return null;
+  }
+}
+function gravarEstadoSalvo(estado) {
+  try {
+    window.sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify(estado));
+  } catch {
+    // Sessão sem armazenamento disponível: a tela segue funcionando sem lembrar os filtros.
+  }
+}
+
+function nomeDoFornecedor(f) {
+  return String(f.razao_social || f.nome_fantasia || "");
+}
+// Vencimento mais próximo entre os lançamentos que ainda estão por resolver.
+function vencimentoDeReferencia(f) {
+  return f.valores
+    .filter((v) => v.situacao !== "pago" && v.situacao !== "cancelado")
+    .map((v) => soData(v.data_vencimento))
+    .filter(Boolean)
+    .sort()[0] ?? "";
+}
+// Situação mais adiantada na lista de SITUACOES entre os lançamentos do fornecedor.
+function situacaoDeReferencia(f) {
+  const indices = f.valores
+    .map((v) => SITUACOES.findIndex((s) => s.value === v.situacao))
+    .filter((i) => i >= 0);
+  return indices.length > 0 ? Math.min(...indices) : SITUACOES.length;
+}
+function compararFornecedores(a, b, ordenacao) {
+  const porNome = () => nomeDoFornecedor(a).localeCompare(nomeDoFornecedor(b), "pt-BR", { sensitivity: "base" });
+  const porCadastro = () => String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
+
+  if (ordenacao === "nome_za") return -porNome();
+  if (ordenacao === "valor_menor") return (a.totalAberto ?? 0) - (b.totalAberto ?? 0) || porNome();
+  if (ordenacao === "valor_maior") return (b.totalAberto ?? 0) - (a.totalAberto ?? 0) || porNome();
+  if (ordenacao === "recente") return -porCadastro() || porNome();
+  if (ordenacao === "antigo") return porCadastro() || porNome();
+  if (ordenacao === "vencimento") {
+    const va = vencimentoDeReferencia(a);
+    const vb = vencimentoDeReferencia(b);
+    // Fornecedor sem vencimento em aberto fica no fim da lista.
+    if (!va && !vb) return porNome();
+    if (!va) return 1;
+    if (!vb) return -1;
+    return va.localeCompare(vb) || porNome();
+  }
+  if (ordenacao === "situacao") return situacaoDeReferencia(a) - situacaoDeReferencia(b) || porNome();
+  return porNome();
+}
+function ordenarFornecedores(lista, ordenacao) {
+  return [...lista].sort((a, b) => compararFornecedores(a, b, ordenacao));
+}
+
 function chaveSimples(v) {
   return normalizarTexto(v).replace(/[^a-z0-9]/g, "");
 }
@@ -239,11 +343,14 @@ const FORM_VALOR_VAZIO = {
 };
 
 export default function Fornecedores() {
+  // Estado da sessão anterior desta aba (filtros, ordenação e fornecedor aberto).
+  const salvoNaSessao = React.useMemo(lerEstadoSalvo, []);
+
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
   const [secretarias, setSecretarias] = React.useState([]);
   const [fornecedores, setFornecedores] = React.useState([]);
-  const [expandido, setExpandido] = React.useState(null);
+  const [expandido, setExpandido] = React.useState(salvoNaSessao?.expandido ?? null);
 
   const [mostrarForm, setMostrarForm] = React.useState(false);
   const [mostrarFormValor, setMostrarFormValor] = React.useState(false);
@@ -264,17 +371,62 @@ export default function Fornecedores() {
   const [fixarIr, setFixarIr] = React.useState(false);
 
   // Filtros avançados: a busca rápida vale na hora; os demais só ao clicar em "Aplicar Filtros".
-  const [buscaRapida, setBuscaRapida] = React.useState("");
-  const [filtros, setFiltros] = React.useState(FILTROS_VAZIOS);
-  const [filtrosAplicados, setFiltrosAplicados] = React.useState(FILTROS_VAZIOS);
-  const [mostrarFiltros, setMostrarFiltros] = React.useState(false);
+  const [buscaRapida, setBuscaRapida] = React.useState(salvoNaSessao?.buscaRapida ?? "");
+  const [filtros, setFiltros] = React.useState(() => normalizarFiltros(salvoNaSessao?.filtros));
+  const [filtrosAplicados, setFiltrosAplicados] = React.useState(() => normalizarFiltros(salvoNaSessao?.filtrosAplicados));
+  const [mostrarFiltros, setMostrarFiltros] = React.useState(salvoNaSessao?.mostrarFiltros ?? false);
+  const [ordenacao, setOrdenacao] = React.useState(() => ordenacaoValida(salvoNaSessao?.ordenacao));
+  // Em telas estreitas toda a área de filtros fica dentro do botão "⚙️ Filtros".
+  const [painelAberto, setPainelAberto] = React.useState(false);
+
+  // Filtros favoritos do usuário logado.
+  const [favoritos, setFavoritos] = React.useState([]);
+  const [carregandoFavoritos, setCarregandoFavoritos] = React.useState(true);
+  const [erroFavoritos, setErroFavoritos] = React.useState(null);
+  const [nomeNovoFiltro, setNomeNovoFiltro] = React.useState(null); // null = campo de nome fechado
+  const [salvandoFiltro, setSalvandoFiltro] = React.useState(false);
+
+  // Exportações: com filtros ativos, o escopo é perguntado antes de gerar o arquivo.
+  const [exportacaoPendente, setExportacaoPendente] = React.useState(null);
+  const [imprimindoTodos, setImprimindoTodos] = React.useState(false);
+
   // Datas de pagamento (data da programação em que o valor foi pago), por valor em aberto.
   const [datasPagamento, setDatasPagamento] = React.useState({});
 
   React.useEffect(() => {
     carregarDados();
     carregarDatasPagamento();
+    carregarFavoritos();
   }, []);
+
+  React.useEffect(() => {
+    gravarEstadoSalvo({ buscaRapida, filtros, filtrosAplicados, mostrarFiltros, ordenacao, expandido });
+  }, [buscaRapida, filtros, filtrosAplicados, mostrarFiltros, ordenacao, expandido]);
+
+  // Impressão de "todos os fornecedores": espera a listagem completa aparecer na
+  // tela antes de abrir a janela de impressão.
+  React.useEffect(() => {
+    if (!imprimindoTodos) return;
+    const id = window.setTimeout(() => {
+      window.print();
+      setImprimindoTodos(false);
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [imprimindoTodos]);
+
+  // Consulta isolada: se a tabela de favoritos falhar, o resto da tela continua igual.
+  async function carregarFavoritos() {
+    setCarregandoFavoritos(true);
+    try {
+      setFavoritos(await listarFiltrosFavoritos());
+      setErroFavoritos(null);
+    } catch (e) {
+      setFavoritos([]);
+      setErroFavoritos(e.message ?? "Não foi possível carregar os filtros salvos.");
+    } finally {
+      setCarregandoFavoritos(false);
+    }
+  }
 
   // Consulta isolada: se falhar, só o filtro por data de pagamento fica sem base, sem afetar a tela.
   async function carregarDatasPagamento() {
@@ -494,9 +646,9 @@ export default function Fornecedores() {
     }
   }
 
-  function exportarExcel() {
+  function exportarExcel(lista) {
     const linhas = [];
-    fornecedores.forEach((f) => {
+    lista.forEach((f) => {
       if (f.valores.length === 0) {
         linhas.push({ Fornecedor: f.razao_social, CPF_CNPJ: f.cpf_cnpj, NF: "", Bruto: "", ISS: "", IR: "", Liquido: "", Situacao: "" });
       }
@@ -661,6 +813,35 @@ export default function Fornecedores() {
 
   const filtrandoAlgo = buscaRapida.trim() !== "" || filtroPreenchido(filtrosAplicados);
 
+  // A ordenação escolhida vale para a listagem e para o que sai nas exportações.
+  const fornecedoresVisiveis = React.useMemo(
+    () => ordenarFornecedores(fornecedoresFiltrados, ordenacao),
+    [fornecedoresFiltrados, ordenacao]
+  );
+  const todosOrdenados = React.useMemo(
+    () => ordenarFornecedores(fornecedores, ordenacao),
+    [fornecedores, ordenacao]
+  );
+  // Ao imprimir "todos", a listagem completa aparece na tela só durante a impressão.
+  const listaExibida = imprimindoTodos ? todosOrdenados : fornecedoresVisiveis;
+
+  // Sem filtros ativos, cada botão exporta tudo como já funcionava; com filtros,
+  // pergunta antes se o arquivo leva só os resultados filtrados.
+  function pedirExportacao(tipo) {
+    if (!filtrandoAlgo) return executarExportacao(tipo, "todos");
+    setExportacaoPendente(tipo);
+  }
+  function executarExportacao(tipo, escopo) {
+    setExportacaoPendente(null);
+    if (tipo === "excel") {
+      exportarExcel(escopo === "filtrados" ? fornecedoresVisiveis : todosOrdenados);
+      return;
+    }
+    if (escopo === "todos" && filtrandoAlgo) setImprimindoTodos(true);
+    // Espera a tela atualizar sem o modal antes de abrir a janela de impressão.
+    else window.setTimeout(() => window.print(), 60);
+  }
+
   function aplicarFiltros() {
     setFiltrosAplicados(filtros);
   }
@@ -668,6 +849,41 @@ export default function Fornecedores() {
     setFiltros(FILTROS_VAZIOS);
     setFiltrosAplicados(FILTROS_VAZIOS);
     setBuscaRapida("");
+  }
+
+  // Guarda a combinação que está na tela (filtros, busca rápida e ordenação).
+  async function confirmarSalvarFiltro(e) {
+    e.preventDefault();
+    setSalvandoFiltro(true);
+    setErroFavoritos(null);
+    try {
+      const criterios = { versao: 1, buscaRapida, filtros, ordenacao };
+      const novo = await salvarFiltroFavorito(nomeNovoFiltro, criterios);
+      setFavoritos((atuais) => [novo, ...atuais]);
+      setNomeNovoFiltro(null);
+    } catch (erroSalvar) {
+      setErroFavoritos(erroSalvar.message ?? "Não foi possível salvar o filtro.");
+    } finally {
+      setSalvandoFiltro(false);
+    }
+  }
+  function aplicarFavorito(favorito) {
+    const criterios = favorito.criterios ?? {};
+    const escolhidos = normalizarFiltros(criterios.filtros);
+    setFiltros(escolhidos);
+    setFiltrosAplicados(escolhidos);
+    setBuscaRapida(typeof criterios.buscaRapida === "string" ? criterios.buscaRapida : "");
+    setOrdenacao(ordenacaoValida(criterios.ordenacao));
+  }
+  async function excluirFavorito(favorito) {
+    if (!confirm(`Excluir o filtro salvo "${favorito.nome}"?`)) return;
+    setErroFavoritos(null);
+    try {
+      await excluirFiltroFavorito(favorito.id);
+      setFavoritos((atuais) => atuais.filter((f) => f.id !== favorito.id));
+    } catch (erroExcluir) {
+      setErroFavoritos(erroExcluir.message ?? "Não foi possível excluir o filtro salvo.");
+    }
   }
   // Tira um filtro específico já aplicado, mantendo todos os outros.
   function removerFiltro(alteracao) {
@@ -782,21 +998,21 @@ export default function Fornecedores() {
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
-        <div className="flex items-start justify-between mb-6 print:mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6 print:mb-4 print:flex-row">
           <div>
             <h1 className="text-2xl font-semibold text-[#0F2A44]">Fornecedores</h1>
             <p className="text-sm text-[#0F2A44]/60 mt-0.5">
               Total em aberto: <span className="font-semibold">{formatBRL(totalGeralAberto)}</span>
             </p>
           </div>
-          <div className="flex items-center gap-2 print:hidden">
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <button onClick={() => pedirExportacao("imprimir")} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <Printer size={14} /> Imprimir
             </button>
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+            <button onClick={() => pedirExportacao("pdf")} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileText size={14} /> PDF
             </button>
-            <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+            <button onClick={() => pedirExportacao("excel")} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileSpreadsheet size={14} /> Excel
             </button>
             <button
@@ -823,7 +1039,22 @@ export default function Fornecedores() {
         )}
 
         <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6 print:hidden">
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPainelAberto((v) => !v)}
+            className="md:hidden w-full flex items-center justify-between text-sm px-3 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]"
+          >
+            <span className="flex items-center gap-2">
+              ⚙️ Filtros
+              {chipsAtivos.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-[#0F2A44] text-white text-[10px]">{chipsAtivos.length}</span>
+              )}
+            </span>
+            {painelAberto ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+
+          <div className={`${painelAberto ? "block mt-3" : "hidden"} md:block md:mt-0`}>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <input
               type="text"
               value={buscaRapida}
@@ -831,10 +1062,23 @@ export default function Fornecedores() {
               placeholder="🔎 Buscar fornecedor..."
               className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
             />
+            <div className="flex items-center gap-1.5 rounded-lg border border-black/10 px-2.5">
+              <ArrowUpDown size={14} className="text-[#0F2A44]/40 shrink-0" />
+              <select
+                value={ordenacao}
+                onChange={(e) => setOrdenacao(e.target.value)}
+                title="Ordenar resultados"
+                className="w-full py-2.5 text-sm bg-transparent text-[#0F2A44]/80 outline-none"
+              >
+                {ORDENACOES.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => setMostrarFiltros((v) => !v)}
-              className={`flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border ${
+              className={`flex items-center justify-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border ${
                 mostrarFiltros || filtroPreenchido(filtrosAplicados)
                   ? "bg-[#0F2A44] text-white border-[#0F2A44]"
                   : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
@@ -849,6 +1093,14 @@ export default function Fornecedores() {
             A busca rápida procura ao mesmo tempo em nome, razão social, nome fantasia, CPF e CNPJ.
           </p>
 
+          <FiltrosSalvos
+            favoritos={favoritos}
+            carregando={carregandoFavoritos}
+            erro={erroFavoritos}
+            onAplicar={aplicarFavorito}
+            onExcluir={excluirFavorito}
+          />
+
           {mostrarFiltros && (
             <div className="mt-4 pt-4 border-t border-black/5 space-y-4">
               <div>
@@ -862,7 +1114,7 @@ export default function Fornecedores() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">Data inicial</label>
                   <input
@@ -896,7 +1148,7 @@ export default function Fornecedores() {
               </div>
 
               <div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-medium text-[#0F2A44]/70">Valor mínimo</label>
                     <input
@@ -935,7 +1187,7 @@ export default function Fornecedores() {
                 <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Considera o valor líquido de cada lançamento do fornecedor.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">CNPJ / CPF</label>
                   <input
@@ -990,7 +1242,7 @@ export default function Fornecedores() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">Tipo de fornecedor</label>
                   <select
@@ -1026,7 +1278,7 @@ export default function Fornecedores() {
 
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Situação tributária</label>
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
                   {TRIBUTARIOS.map((t) => (
                     <label key={t.value} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
                       <input
@@ -1048,7 +1300,7 @@ export default function Fornecedores() {
               {temDadosBancarios && (
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Dados bancários</label>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <input
                       type="text"
                       value={filtros.banco}
@@ -1075,7 +1327,7 @@ export default function Fornecedores() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={aplicarFiltros}
@@ -1090,12 +1342,49 @@ export default function Fornecedores() {
                 >
                   <Eraser size={15} /> Limpar Filtros
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setNomeNovoFiltro((atual) => (atual === null ? "" : null))}
+                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                >
+                  <Star size={15} /> Salvar filtro
+                </button>
                 {filtrandoAlgo && (
                   <span className="text-xs text-[#0F2A44]/50 ml-1">
                     {fornecedoresFiltrados.length} de {fornecedores.length} fornecedores
                   </span>
                 )}
               </div>
+
+              {nomeNovoFiltro !== null && (
+                <form onSubmit={confirmarSalvarFiltro} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={nomeNovoFiltro}
+                    onChange={(e) => setNomeNovoFiltro(e.target.value)}
+                    placeholder='Nome do filtro, ex: "Fornecedores Saúde — Pendências"'
+                    className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={salvandoFiltro || nomeNovoFiltro.trim() === ""}
+                      className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
+                    >
+                      <Save size={15} />
+                      {salvandoFiltro ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNomeNovoFiltro(null)}
+                      className="text-sm px-4 py-2.5 rounded-lg text-[#0F2A44]/60 hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
           {chipsAtivos.length > 0 && (
@@ -1143,6 +1432,7 @@ export default function Fornecedores() {
               )}
             </div>
           )}
+          </div>
         </div>
 
         {mostrarFormValor && (
@@ -1468,13 +1758,13 @@ export default function Fornecedores() {
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
             Nenhum fornecedor cadastrado ainda.
           </div>
-        ) : fornecedoresFiltrados.length === 0 ? (
+        ) : listaExibida.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
             Nenhum fornecedor encontrado com os filtros aplicados.
           </div>
         ) : (
           <div className="space-y-3">
-            {fornecedoresFiltrados.map((f) => (
+            {listaExibida.map((f) => (
               <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
                 <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
                   <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="flex-1 text-left">
@@ -1572,6 +1862,16 @@ export default function Fornecedores() {
           </div>
         )}
       </div>
+
+      {exportacaoPendente && (
+        <ModalEscopoExportacao
+          tipo={exportacaoPendente}
+          quantidadeFiltrada={fornecedoresVisiveis.length}
+          quantidadeTotal={fornecedores.length}
+          onEscolher={(escopo) => executarExportacao(exportacaoPendente, escopo)}
+          onCancelar={() => setExportacaoPendente(null)}
+        />
+      )}
     </Layout>
   );
 }
