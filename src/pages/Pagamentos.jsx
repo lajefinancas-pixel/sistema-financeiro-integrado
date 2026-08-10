@@ -1,14 +1,38 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy, Lock, Unlock } from "lucide-react";
+import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy, Lock, Unlock, Scale } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
-import { mensagemAmigavel } from "../lib/erros";
+import { mensagemAmigavel, erroAmigavel } from "../lib/erros";
+import {
+  TOLERANCIA,
+  emCentavos,
+  somar,
+  rateioFecha,
+  ratearAutomaticamente,
+  textoSaldoInsuficiente,
+  textoRateioDivergente,
+  textoDoMotivo,
+} from "../lib/rateioPagamentos";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Aviso usado quando o banco deste ambiente ainda não recebeu a estrutura de
+// rateio (coluna valor_rateado, razão de movimentações e função de efetivação).
+const AVISO_RATEIO_INDISPONIVEL =
+  "O rateio entre contas ainda não está disponível neste ambiente. " +
+  "Peça ao administrador para aplicar a atualização do banco de dados antes de efetivar pagamentos.";
+
+// Falhas que significam "a estrutura de rateio ainda não existe no banco",
+// e não um erro do usuário.
+function estruturaDeRateioAusente(erro) {
+  const codigo = String(erro?.code ?? "");
+  if (["42P01", "42703", "PGRST202", "PGRST204", "PGRST205"].includes(codigo)) return true;
+  return /schema cache/i.test(String(erro?.message ?? ""));
 }
 
 export default function Pagamentos() {
@@ -32,7 +56,18 @@ export default function Pagamentos() {
   const [pagamentos, setPagamentos] = React.useState([]);
   const [fechado, setFechado] = React.useState(false);
 
-  const [comprometidoPorConta, setComprometidoPorConta] = React.useState({});
+  // Contas desta programação na ordem em que foram escolhidas, com o rateio
+  // gravado no banco; `rateioLocal` é o que está na tela agora.
+  const [contasDaProgramacao, setContasDaProgramacao] = React.useState([]);
+  const [rateioLocal, setRateioLocal] = React.useState({});
+  const [rateioSalvo, setRateioSalvo] = React.useState({});
+  const [salvandoRateio, setSalvandoRateio] = React.useState(false);
+  const [rateioIndisponivel, setRateioIndisponivel] = React.useState(false);
+  const [efetivandoId, setEfetivandoId] = React.useState(null);
+
+  // Por conta: quanto outras programações do dia reservaram e quanto esta
+  // programação já debitou de verdade.
+  const [reservaPorConta, setReservaPorConta] = React.useState({});
 
   const [mostrarAddCadastrado, setMostrarAddCadastrado] = React.useState(false);
   const [mostrarAddAvulso, setMostrarAddAvulso] = React.useState(false);
@@ -47,6 +82,8 @@ export default function Pagamentos() {
   const [programacaoParaCopiarId, setProgramacaoParaCopiarId] = React.useState("");
 
   const timersRef = React.useRef({});
+  // Trava síncrona contra duplo clique em "Marcar como pago".
+  const efetivandoRef = React.useRef(null);
 
   React.useEffect(() => {
     carregarSecretarias();
@@ -72,6 +109,9 @@ export default function Pagamentos() {
       carregarProgramacaoAtual();
     } else {
       setContasSelecionadas(new Set());
+      setContasDaProgramacao([]);
+      setRateioLocal({});
+      setRateioSalvo({});
       setPagamentos([]);
       setFechado(false);
       setContasFinalizadas(false);
@@ -167,15 +207,20 @@ export default function Pagamentos() {
         setProgramacaoAtualId(null);
       }
 
-      await calcularComprometidoPorConta(progs ?? []);
+      await calcularReservasDoDia(progs ?? []);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível carregar as programações deste dia."));
     }
   }
 
-  async function calcularComprometidoPorConta(progs) {
+  /**
+   * Reserva por conta: o que cada programação do dia rateou para a conta e
+   * ainda não virou débito. É esse valor que sai do saldo disponível das outras
+   * programações -- nunca o valor total do pagamento repetido em cada conta.
+   */
+  async function calcularReservasDoDia(progs) {
     if (!progs || progs.length === 0) {
-      setComprometidoPorConta({});
+      setReservaPorConta({});
       return;
     }
     try {
@@ -183,42 +228,47 @@ export default function Pagamentos() {
 
       const { data: pc, error: ePc } = await supabase
         .from("programacao_contas")
-        .select("programacao_id, conta_id")
+        .select("programacao_id, conta_id, valor_rateado")
         .in("programacao_id", ids);
-      if (ePc) throw ePc;
-
-      const { data: pgs, error: ePgs } = await supabase
-        .from("pagamentos")
-        .select("programacao_id, valor_a_pagar")
-        .in("programacao_id", ids)
-        .neq("situacao", "cancelado");
-      if (ePgs) throw ePgs;
-
-      const totalPorProgramacao = {};
-      for (const p of pgs ?? []) {
-        totalPorProgramacao[p.programacao_id] =
-          (totalPorProgramacao[p.programacao_id] ?? 0) + paraNumeroMoeda(p.valor_a_pagar);
-      }
-
-      const contasPorProgramacao = {};
-      for (const r of pc ?? []) {
-        if (!contasPorProgramacao[r.programacao_id]) contasPorProgramacao[r.programacao_id] = [];
-        contasPorProgramacao[r.programacao_id].push(r.conta_id);
-      }
-
-      const comprometido = {};
-      for (const progId of ids) {
-        const contasDaProg = contasPorProgramacao[progId] ?? [];
-        const totalDaProg = totalPorProgramacao[progId] ?? 0;
-        if (contasDaProg.length === 0 || totalDaProg === 0) continue;
-        const porConta = totalDaProg / contasDaProg.length;
-        for (const contaId of contasDaProg) {
-          comprometido[contaId] = { total: (comprometido[contaId]?.total ?? 0) + porConta };
-          if (!comprometido[contaId].porProgramacao) comprometido[contaId].porProgramacao = {};
-          comprometido[contaId].porProgramacao[progId] = porConta;
+      if (ePc) {
+        if (estruturaDeRateioAusente(ePc)) {
+          setRateioIndisponivel(true);
+          setReservaPorConta({});
+          return;
         }
+        throw ePc;
       }
-      setComprometidoPorConta(comprometido);
+
+      const { data: movimentos, error: eMov } = await supabase
+        .from("pagamento_movimentacoes")
+        .select("programacao_id, conta_id, valor")
+        .in("programacao_id", ids);
+      if (eMov) {
+        if (estruturaDeRateioAusente(eMov)) {
+          setRateioIndisponivel(true);
+          setReservaPorConta({});
+          return;
+        }
+        throw eMov;
+      }
+
+      setRateioIndisponivel(false);
+
+      const debitado = {};
+      for (const m of movimentos ?? []) {
+        const chave = `${m.programacao_id}|${m.conta_id}`;
+        debitado[chave] = emCentavos((debitado[chave] ?? 0) + paraNumeroMoeda(m.valor));
+      }
+
+      const reserva = {};
+      for (const r of pc ?? []) {
+        const jaDebitado = debitado[`${r.programacao_id}|${r.conta_id}`] ?? 0;
+        const aindaReservado = Math.max(0, emCentavos(paraNumeroMoeda(r.valor_rateado) - jaDebitado));
+        if (!reserva[r.conta_id]) reserva[r.conta_id] = { porProgramacao: {}, debitadoPorProgramacao: {} };
+        reserva[r.conta_id].porProgramacao[String(r.programacao_id)] = aindaReservado;
+        reserva[r.conta_id].debitadoPorProgramacao[String(r.programacao_id)] = jaDebitado;
+      }
+      setReservaPorConta(reserva);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível calcular o saldo já reservado por outras programações."));
     }
@@ -238,10 +288,35 @@ export default function Pagamentos() {
 
       const { data: pc, error: ePc } = await supabase
         .from("programacao_contas")
-        .select("conta_id")
+        .select("conta_id, valor_rateado, ordem")
         .eq("programacao_id", programacaoAtualId);
-      if (ePc) throw ePc;
-      const setContas = new Set((pc ?? []).map((r) => r.conta_id));
+
+      let linhasDeContas = pc;
+      if (ePc) {
+        if (!estruturaDeRateioAusente(ePc)) throw ePc;
+        // Banco sem a estrutura de rateio: a tela ainda abre, só não rateia.
+        setRateioIndisponivel(true);
+        const { data: simples, error: eSimples } = await supabase
+          .from("programacao_contas")
+          .select("conta_id")
+          .eq("programacao_id", programacaoAtualId);
+        if (eSimples) throw eSimples;
+        linhasDeContas = (simples ?? []).map((r) => ({ ...r, valor_rateado: 0, ordem: null }));
+      }
+
+      const ordenadas = [...(linhasDeContas ?? [])].sort(
+        (a, b) =>
+          (a.ordem ?? Number.MAX_SAFE_INTEGER) - (b.ordem ?? Number.MAX_SAFE_INTEGER) ||
+          String(a.conta_id).localeCompare(String(b.conta_id))
+      );
+      setContasDaProgramacao(ordenadas);
+
+      const rateio = {};
+      for (const r of ordenadas) rateio[r.conta_id] = emCentavos(paraNumeroMoeda(r.valor_rateado));
+      setRateioLocal(rateio);
+      setRateioSalvo(rateio);
+
+      const setContas = new Set(ordenadas.map((r) => r.conta_id));
       setContasSelecionadas(setContas);
       setContasFinalizadas(setContas.size > 0);
 
@@ -258,10 +333,25 @@ export default function Pagamentos() {
   }
 
   async function fecharMovimento() {
+    setErro(null);
+
+    // Só fecha quando as contas, o rateio e o saldo estão coerentes.
+    if (contasSelecionadas.size === 0) {
+      setErro("Escolha as contas bancárias desta programação antes de fechar o movimento.");
+      return;
+    }
+    if (saldoInsuficiente) {
+      setErro(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
+      return;
+    }
+    if (!rateioIndisponivel && !rateioConfere) {
+      setErro(textoRateioDivergente(somaDoRateio, totalProgramado));
+      return;
+    }
     if (!confirm("Fechar o movimento deste dia? A programação ficará somente para leitura até ser reaberta.")) return;
     setSalvando(true);
-    setErro(null);
     try {
+      if (temRateioNaoSalvo) await salvarRateio();
       const { error } = await supabase
         .from("programacoes_pagamento")
         .update({ fechado: true })
@@ -330,6 +420,21 @@ export default function Pagamentos() {
     if (!confirm("Excluir esta programação e todos os pagamentos lançados nela?")) return;
     setErro(null);
     try {
+      // Pagamento já efetivado saiu do saldo da conta: apagar aqui deixaria o
+      // débito sem origem, então a exclusão é barrada.
+      const { data: pagos, error: ePagos } = await supabase
+        .from("pagamentos")
+        .select("id")
+        .eq("programacao_id", progId)
+        .eq("situacao", "pago")
+        .limit(1);
+      if (ePagos) throw ePagos;
+      if (pagos && pagos.length > 0) {
+        throw erroAmigavel(
+          "Esta programação já tem pagamento efetivado e debitado em conta. Não é possível excluí-la."
+        );
+      }
+
       await supabase.from("pagamentos").delete().eq("programacao_id", progId);
       await supabase.from("programacao_contas").delete().eq("programacao_id", progId);
       const { error } = await supabase.from("programacoes_pagamento").delete().eq("id", progId);
@@ -387,14 +492,27 @@ export default function Pagamentos() {
 
       const { data: contasOrigem, error: eContasOrigem } = await supabase
         .from("programacao_contas")
-        .select("conta_id")
+        .select("conta_id, ordem")
         .eq("programacao_id", programacaoParaCopiarId);
-      if (eContasOrigem) throw eContasOrigem;
+      if (eContasOrigem && !estruturaDeRateioAusente(eContasOrigem)) throw eContasOrigem;
 
-      if (contasOrigem && contasOrigem.length > 0) {
-        const novasContas = contasOrigem.map((c) => ({
+      let contasParaCopiar = contasOrigem;
+      if (eContasOrigem) {
+        const { data: simples, error: eSimples } = await supabase
+          .from("programacao_contas")
+          .select("conta_id")
+          .eq("programacao_id", programacaoParaCopiarId);
+        if (eSimples) throw eSimples;
+        contasParaCopiar = simples;
+      }
+
+      if (contasParaCopiar && contasParaCopiar.length > 0) {
+        // O rateio não é copiado: a programação nova começa com tudo pendente,
+        // e o valor de cada conta é definido (ou rateado) de novo.
+        const novasContas = contasParaCopiar.map((c, i) => ({
           programacao_id: nova.id,
           conta_id: c.conta_id,
+          ...(eContasOrigem ? {} : { ordem: c.ordem ?? i + 1, valor_rateado: 0 }),
         }));
         const { error: eInsContas } = await supabase.from("programacao_contas").insert(novasContas);
         if (eInsContas) throw eInsContas;
@@ -438,24 +556,33 @@ export default function Pagamentos() {
       const jaSelecionada = contasSelecionadas.has(contaId);
 
       if (jaSelecionada) {
+        const jaDebitado =
+          reservaPorConta[contaId]?.debitadoPorProgramacao?.[String(programacaoAtualId)] ?? 0;
+        if (jaDebitado > 0) {
+          throw erroAmigavel(
+            "Esta conta já foi debitada por um pagamento efetivado desta programação e não pode ser retirada."
+          );
+        }
+
         const { error } = await supabase
           .from("programacao_contas")
           .delete()
           .eq("programacao_id", programacaoAtualId)
           .eq("conta_id", contaId);
         if (error) throw error;
-        const novas = new Set(contasSelecionadas);
-        novas.delete(contaId);
-        setContasSelecionadas(novas);
       } else {
-        const { error } = await supabase
-          .from("programacao_contas")
-          .insert({ programacao_id: programacaoAtualId, conta_id: contaId });
+        const proximaOrdem =
+          contasDaProgramacao.reduce((maior, c) => Math.max(maior, c.ordem ?? 0), 0) + 1;
+        const { error } = await supabase.from("programacao_contas").insert({
+          programacao_id: programacaoAtualId,
+          conta_id: contaId,
+          ...(rateioIndisponivel ? {} : { ordem: proximaOrdem, valor_rateado: 0 }),
+        });
         if (error) throw error;
-        const novas = new Set(contasSelecionadas);
-        novas.add(contaId);
-        setContasSelecionadas(novas);
       }
+
+      // Recarrega para manter contas, ordem e rateio em sincronia com o banco.
+      await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível alterar as contas desta programação."));
@@ -554,6 +681,12 @@ export default function Pagamentos() {
   async function removerPagamento(pagamentoId) {
     setErro(null);
     try {
+      const pagamento = pagamentos.find((p) => p.id === pagamentoId);
+      if (pagamento?.situacao === "pago") {
+        throw erroAmigavel(
+          "Este pagamento já foi efetivado e debitado nas contas. Não é possível removê-lo."
+        );
+      }
       const { error } = await supabase.from("pagamentos").delete().eq("id", pagamentoId);
       if (error) throw error;
       await carregarProgramacaoAtual();
@@ -563,18 +696,135 @@ export default function Pagamentos() {
     }
   }
 
-  async function marcarPago(pagamentoId) {
+  function editarRateioLocal(contaId, novoValor) {
+    setRateioLocal((atual) => ({ ...atual, [contaId]: emCentavos(novoValor) }));
+  }
+
+  /** Grava no banco o rateio informado (uma linha de programacao_contas por conta). */
+  async function persistirRateio(valores) {
+    if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
+
+    const alteradas = Object.entries(valores).filter(
+      ([contaId, valor]) => emCentavos(valor) !== emCentavos(rateioSalvo[contaId])
+    );
+
+    for (const [contaId, valor] of alteradas) {
+      const { error } = await supabase
+        .from("programacao_contas")
+        .update({ valor_rateado: emCentavos(valor) })
+        .eq("programacao_id", programacaoAtualId)
+        .eq("conta_id", contaId);
+      if (error) throw error;
+    }
+
+    setRateioSalvo((atual) => ({ ...atual, ...valores }));
+    setContasDaProgramacao((atual) =>
+      atual.map((c) =>
+        c.conta_id in valores ? { ...c, valor_rateado: emCentavos(valores[c.conta_id]) } : c
+      )
+    );
+    await carregarProgramacoesDoDia();
+  }
+
+  async function salvarRateio() {
+    await persistirRateio(rateioLocal);
+  }
+
+  async function salvarRateioNaTela() {
+    setSalvandoRateio(true);
     setErro(null);
     try {
-      const { error } = await supabase
-        .from("pagamentos")
-        .update({ situacao: "pago" })
-        .eq("id", pagamentoId);
-      if (error) throw error;
+      await salvarRateio();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível salvar o rateio entre as contas."));
+    } finally {
+      setSalvandoRateio(false);
+    }
+  }
+
+  /**
+   * Rateio automático: usa as contas na ordem em que foram escolhidas e enche
+   * uma até esgotar o saldo disponível antes de passar para a próxima.
+   */
+  async function ratearAutomaticamenteNaTela() {
+    setSalvandoRateio(true);
+    setErro(null);
+    try {
+      if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
+      if (contasSelecionadasComSaldo.length === 0) {
+        throw erroAmigavel("Escolha as contas bancárias desta programação antes de ratear.");
+      }
+
+      const { rateio, faltante } = ratearAutomaticamente(
+        contasSelecionadasComSaldo.map((c) => ({
+          id: c.id,
+          disponivel: c.saldoHoje,
+          minimo: c.debitadoNestaProgramacao,
+        })),
+        totalProgramado
+      );
+
+      setRateioLocal((atual) => ({ ...atual, ...rateio }));
+      await persistirRateio(rateio);
+
+      if (faltante > 0) {
+        throw erroAmigavel(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
+      }
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível ratear automaticamente entre as contas."));
+    } finally {
+      setSalvandoRateio(false);
+    }
+  }
+
+  /**
+   * Efetivação do pagamento: valida rateio e saldo, debita de cada conta apenas
+   * o valor rateado para ela e muda a situação -- tudo numa única transação no
+   * banco. Um segundo clique não gera novo débito.
+   */
+  async function marcarPago(pagamento) {
+    // Duplo clique: o pedido só sai uma vez (e o banco também é idempotente).
+    if (pagamento.situacao === "pago" || efetivandoRef.current) return;
+    efetivandoRef.current = pagamento.id;
+    setErro(null);
+    setEfetivandoId(pagamento.id);
+    try {
+      if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
+      if (contasSelecionadas.size === 0) {
+        throw erroAmigavel("Escolha as contas bancárias desta programação antes de efetivar o pagamento.");
+      }
+      if (saldoInsuficiente) {
+        throw erroAmigavel(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
+      }
+      if (temRateioNaoSalvo) await salvarRateio();
+      if (!rateioConfere) {
+        throw erroAmigavel(textoRateioDivergente(somaDoRateio, totalProgramado));
+      }
+
+      const { data: resultado, error } = await supabase.rpc("marcar_pagamento_pago", {
+        p_pagamento_id: String(pagamento.id),
+      });
+      if (error) {
+        throw estruturaDeRateioAusente(error) ? erroAmigavel(AVISO_RATEIO_INDISPONIVEL) : error;
+      }
+      if (resultado && resultado.ok === false) {
+        throw erroAmigavel(textoDoMotivo(resultado, nomeDaConta(resultado.conta_id)));
+      }
+
+      await carregarContasEFornecedores(secretariaId);
       await carregarProgramacaoAtual();
+      await carregarProgramacoesDoDia();
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível marcar este pagamento como pago."));
+    } finally {
+      efetivandoRef.current = null;
+      setEfetivandoId(null);
     }
+  }
+
+  function nomeDaConta(contaId) {
+    const conta = contasDaSecretaria.find((c) => String(c.id) === String(contaId));
+    return conta ? `${conta.banco} · ${conta.nome_conta}` : "";
   }
 
   function exportarExcel() {
@@ -586,6 +836,16 @@ export default function Pagamentos() {
     linhas.push({ Fornecedor: "TOTAL PROGRAMADO", "Valor a pagar": totalProgramado, Situação: "" });
     linhas.push({ Fornecedor: "SALDO DISPONÍVEL", "Valor a pagar": saldoDisponivel, Situação: "" });
     linhas.push({ Fornecedor: "RESTA", "Valor a pagar": saldoRestante, Situação: "" });
+
+    // Rateio: quanto sai de cada conta escolhida (a soma fecha com o total).
+    contasSelecionadasComSaldo.forEach((c) => {
+      linhas.push({
+        Fornecedor: `RATEIO -- ${c.banco} · ${c.nome_conta}`,
+        "Valor a pagar": emCentavos(rateioLocal[c.id] ?? 0),
+        Situação: "",
+      });
+    });
+    linhas.push({ Fornecedor: "SOMA DO RATEIO", "Valor a pagar": somaDoRateio, Situação: "" });
 
     const ws = XLSX.utils.json_to_sheet(linhas);
 
@@ -602,31 +862,70 @@ export default function Pagamentos() {
     XLSX.writeFile(wb, `pagamentos-${data}.xlsx`);
   }
 
+  /**
+   * Saldo de cada conta para esta programação: saldo contábil da conta, menos o
+   * que outras programações do dia reservaram, mais o que esta programação já
+   * debitou (o débito próprio já saiu do saldo contábil, então volta aqui para
+   * que "Saldo disponível" e "Resta" não mudem quando um pagamento é efetivado).
+   */
   const contasComSaldoDisponivelHoje = React.useMemo(() => {
+    const progAtual = String(programacaoAtualId ?? "");
     return contasDaSecretaria.map((c) => {
-      const comprometidoOutras = Object.entries(
-        comprometidoPorConta[c.id]?.porProgramacao ?? {}
-      ).reduce((acc, [progId, valor]) => {
-        if (progId === programacaoAtualId) return acc;
-        return acc + valor;
-      }, 0);
-      return { ...c, saldoHoje: c.saldo - comprometidoOutras };
+      const dados = reservaPorConta[c.id];
+      const reservadoOutras = Object.entries(dados?.porProgramacao ?? {}).reduce(
+        (acc, [progId, valor]) => (progId === progAtual ? acc : acc + valor),
+        0
+      );
+      const debitadoNestaProgramacao = dados?.debitadoPorProgramacao?.[progAtual] ?? 0;
+      return {
+        ...c,
+        reservadoOutras: emCentavos(reservadoOutras),
+        debitadoNestaProgramacao: emCentavos(debitadoNestaProgramacao),
+        saldoHoje: emCentavos(c.saldo + debitadoNestaProgramacao - reservadoOutras),
+      };
     });
-  }, [contasDaSecretaria, comprometidoPorConta, programacaoAtualId]);
+  }, [contasDaSecretaria, reservaPorConta, programacaoAtualId]);
 
+  // As contas ficam na ordem em que foram escolhidas (a mesma do rateio automático).
   const contasSelecionadasComSaldo = React.useMemo(() => {
-    return contasComSaldoDisponivelHoje.filter((c) => contasSelecionadas.has(c.id));
-  }, [contasComSaldoDisponivelHoje, contasSelecionadas]);
+    const posicao = new Map(contasDaProgramacao.map((c, i) => [String(c.conta_id), i]));
+    return contasComSaldoDisponivelHoje
+      .filter((c) => contasSelecionadas.has(c.id))
+      .sort(
+        (a, b) =>
+          (posicao.get(String(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+          (posicao.get(String(b.id)) ?? Number.MAX_SAFE_INTEGER)
+      );
+  }, [contasComSaldoDisponivelHoje, contasSelecionadas, contasDaProgramacao]);
 
+  // Item 1: o saldo disponível da programação é a SOMA dos saldos das contas escolhidas.
   const saldoDisponivel = React.useMemo(() => {
-    return contasSelecionadasComSaldo.reduce((acc, c) => acc + c.saldoHoje, 0);
+    return somar(contasSelecionadasComSaldo.map((c) => c.saldoHoje));
   }, [contasSelecionadasComSaldo]);
 
   const totalProgramado = React.useMemo(() => {
-    return pagamentos.reduce((acc, p) => acc + paraNumeroMoeda(p.valor_a_pagar), 0);
+    return somar(pagamentos.map((p) => p.valor_a_pagar));
   }, [pagamentos]);
 
-  const saldoRestante = saldoDisponivel - totalProgramado;
+  // Item 6: resta = saldo disponível das contas desta programação - total dela.
+  const saldoRestante = emCentavos(saldoDisponivel - totalProgramado);
+
+  // Soma sobre todas as contas da programação (é essa soma que o banco valida).
+  const somaDoRateio = React.useMemo(() => {
+    return somar(contasDaProgramacao.map((c) => rateioLocal[c.conta_id] ?? 0));
+  }, [contasDaProgramacao, rateioLocal]);
+
+  const rateioConfere = rateioFecha(somaDoRateio, totalProgramado);
+  const saldoInsuficiente = totalProgramado - saldoDisponivel > TOLERANCIA;
+
+  const temRateioNaoSalvo = React.useMemo(() => {
+    return contasDaProgramacao.some(
+      (c) => emCentavos(rateioLocal[c.conta_id]) !== emCentavos(rateioSalvo[c.conta_id])
+    );
+  }, [contasDaProgramacao, rateioLocal, rateioSalvo]);
+
+  const podeEfetivar =
+    !rateioIndisponivel && contasSelecionadas.size > 0 && !saldoInsuficiente && rateioConfere;
 
   const todosValoresEmAberto = React.useMemo(() => {
     const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
@@ -839,18 +1138,41 @@ export default function Pagamentos() {
                           <Check size={13} /> Finalizar escolha
                         </button>
                       ) : (
-                        <button
-                          onClick={() => setContasFinalizadas(false)}
-                          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] print:hidden"
-                        >
-                          <Pencil size={13} /> Editar contas
-                        </button>
+                        <div className="flex items-center gap-2 print:hidden">
+                          <button
+                            onClick={ratearAutomaticamenteNaTela}
+                            disabled={salvandoRateio || rateioIndisponivel}
+                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] disabled:opacity-40"
+                          >
+                            <Scale size={13} /> Ratear automaticamente
+                          </button>
+                          <button
+                            onClick={salvarRateioNaTela}
+                            disabled={salvandoRateio || rateioIndisponivel || !temRateioNaoSalvo}
+                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40"
+                          >
+                            <Check size={13} /> {salvandoRateio ? "Salvando..." : "Salvar rateio"}
+                          </button>
+                          <button
+                            onClick={() => setContasFinalizadas(false)}
+                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]"
+                          >
+                            <Pencil size={13} /> Editar contas
+                          </button>
+                        </div>
                       )
                     )}
                   </div>
                   <p className="text-xs text-[#0F2A44]/50 mb-3 print:hidden">
                     O saldo já considera o que outras programações de hoje reservaram nas mesmas contas.
+                    Cada conta é debitada apenas pelo valor rateado para ela, e só quando o pagamento é marcado como pago.
                   </p>
+
+                  {rateioIndisponivel && (
+                    <div className="bg-[#FFF6E5] border border-[#EA9A1E]/30 text-[#8A5B00] text-xs rounded-lg px-3 py-2.5 mb-3 print:hidden">
+                      {AVISO_RATEIO_INDISPONIVEL}
+                    </div>
+                  )}
 
                   {!contasFinalizadas ? (
                     contasComSaldoDisponivelHoje.length === 0 ? (
@@ -885,6 +1207,7 @@ export default function Pagamentos() {
                           <th className="py-2 font-medium">Conta Nº</th>
                           <th className="py-2 font-medium">Objeto</th>
                           <th className="py-2 font-medium text-right">Saldo</th>
+                          <th className="py-2 font-medium text-right">Rateio (débito desta conta)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -894,6 +1217,22 @@ export default function Pagamentos() {
                             <td className="py-2 text-[#0F2A44]/70">{c.numero_conta || "--"}</td>
                             <td className="py-2">{c.nome_conta}</td>
                             <td className="py-2 text-right tabular-nums">{formatBRL(c.saldoHoje)}</td>
+                            <td className="py-2 text-right">
+                              {fechado || rateioIndisponivel ? (
+                                <span className="tabular-nums">{formatBRL(rateioLocal[c.id] ?? 0)}</span>
+                              ) : (
+                                <CampoMoeda
+                                  valor={rateioLocal[c.id] ?? 0}
+                                  onValorChange={(numero) => editarRateioLocal(c.id, numero)}
+                                  className="w-36 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
+                                />
+                              )}
+                              {c.debitadoNestaProgramacao > 0 && (
+                                <div className="text-[10px] text-[#16A34A] mt-0.5 print:hidden">
+                                  já debitado: {formatBRL(c.debitadoNestaProgramacao)}
+                                </div>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -901,11 +1240,56 @@ export default function Pagamentos() {
                         <tr className="bg-[#0F2A44]/[0.03]">
                           <td colSpan={3} className="py-2.5 font-semibold text-[#0F2A44]">TOTAL SALDO</td>
                           <td className="py-2.5 text-right font-semibold text-[#0F2A44]">{formatBRL(saldoDisponivel)}</td>
+                          <td
+                            className="py-2.5 text-right font-semibold tabular-nums"
+                            style={{ color: rateioConfere ? "#0F2A44" : "#DC2626" }}
+                          >
+                            {formatBRL(somaDoRateio)}
+                          </td>
                         </tr>
                       </tfoot>
                     </table>
                   )}
+
+                  {contasFinalizadas && !rateioIndisponivel && (
+                    <div className="mt-3 text-xs print:hidden">
+                      {rateioConfere ? (
+                        <div className="flex items-center gap-1.5 text-[#16A34A]">
+                          <Check size={13} />
+                          Rateio conferido: a soma do rateio é igual ao total dos pagamentos desta programação.
+                        </div>
+                      ) : (
+                        <div className="bg-[#FFF1F1] border border-red-200 text-red-700 rounded-lg px-3 py-2.5">
+                          {textoRateioDivergente(somaDoRateio, totalProgramado)}
+                          {temRateioNaoSalvo && " Salve o rateio para concluir."}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {saldoInsuficiente && contasSelecionadas.size > 0 && (
+                  <div className="bg-[#FFF1F1] border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-6 print:hidden">
+                    <div className="font-semibold mb-1">Saldo insuficiente nas contas selecionadas</div>
+                    <div className="grid grid-cols-3 gap-3 text-xs tabular-nums">
+                      <div>
+                        <div className="opacity-70">Saldo disponível</div>
+                        <div className="font-semibold">{formatBRL(saldoDisponivel)}</div>
+                      </div>
+                      <div>
+                        <div className="opacity-70">Valor programado</div>
+                        <div className="font-semibold">{formatBRL(totalProgramado)}</div>
+                      </div>
+                      <div>
+                        <div className="opacity-70">Diferença</div>
+                        <div className="font-semibold">{formatBRL(totalProgramado - saldoDisponivel)}</div>
+                      </div>
+                    </div>
+                    <div className="text-xs mt-2 opacity-80">
+                      Nenhuma conta é debitada enquanto o valor programado for maior que o saldo disponível.
+                    </div>
+                  </div>
+                )}
                 {!fechado && (
                   <div className="flex items-center gap-2 mb-4 print:hidden">
                     <button
@@ -1042,16 +1426,37 @@ export default function Pagamentos() {
                                 <span className="text-xs font-medium text-[#0F2A44]/50">Pendente</span>
                               ) : (
                                 <button
-                                  onClick={() => marcarPago(p.id)}
-                                  className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md print:hidden"
+                                  onClick={() => marcarPago(p)}
+                                  disabled={!podeEfetivar || efetivandoId !== null}
+                                  title={
+                                    rateioIndisponivel
+                                      ? AVISO_RATEIO_INDISPONIVEL
+                                      : contasSelecionadas.size === 0
+                                        ? "Escolha as contas bancárias desta programação."
+                                        : saldoInsuficiente
+                                          ? textoSaldoInsuficiente(saldoDisponivel, totalProgramado)
+                                          : !rateioConfere
+                                            ? textoRateioDivergente(somaDoRateio, totalProgramado)
+                                            : "Debita de cada conta o valor rateado para ela."
+                                  }
+                                  className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md disabled:opacity-40 disabled:hover:text-[#0F2A44]/60 print:hidden"
                                 >
-                                  Marcar como pago
+                                  {efetivandoId === p.id ? "Efetivando..." : "Marcar como pago"}
                                 </button>
                               )}
                             </td>
                             {!fechado && (
                               <td className="px-5 py-2.5 text-right print:hidden">
-                                <button onClick={() => removerPagamento(p.id)} className="text-[#0F2A44]/30 hover:text-red-500">
+                                <button
+                                  onClick={() => removerPagamento(p.id)}
+                                  disabled={p.situacao === "pago"}
+                                  title={
+                                    p.situacao === "pago"
+                                      ? "Pagamento já efetivado e debitado nas contas."
+                                      : "Remover pagamento"
+                                  }
+                                  className="text-[#0F2A44]/30 hover:text-red-500 disabled:opacity-30 disabled:hover:text-[#0F2A44]/30"
+                                >
                                   <Trash2 size={15} />
                                 </button>
                               </td>
