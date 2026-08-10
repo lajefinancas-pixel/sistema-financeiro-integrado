@@ -75,13 +75,13 @@ function blocoHtml(sec, faixa) {
     .join("");
 
   return `<section class="bloco">
-    <div class="bloco-titulo">
-      <span>${esc(sec.nome)}</span>
-      <span>Total: ${esc(formatBRL(totalDaSecao(sec)))}</span>
-    </div>
     <table>
       <colgroup><col class="c-banco"><col class="c-numero"><col class="c-saldo"><col class="c-nome"></colgroup>
       <thead>
+        <tr class="linha-titulo">
+          <th colspan="3">${esc(sec.nome)}</th>
+          <th class="saldo">Total: ${esc(formatBRL(totalDaSecao(sec)))}</th>
+        </tr>
         <tr>
           <th>Banco</th><th>Número da Conta</th><th class="saldo">Saldo</th><th>Nome da Conta</th>
         </tr>
@@ -119,14 +119,15 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   }
   .cabecalho h1 { margin: 0; font-size: ${faixa.fonte + 3}px; font-weight: 600; }
   .cabecalho .quando { font-size: ${faixa.fonte}px; color: #44586C; }
-  /* Mantém o título da secretaria colado à sua tabela na quebra de página. */
-  .bloco { page-break-inside: avoid; break-inside: avoid; margin-bottom: ${faixa.gap}px; }
-  .bloco-titulo {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #EEF1F5; border-left: 3px solid #0F2A44;
-    padding: ${faixa.pad}px 5px; font-weight: 700; font-size: ${faixa.fonte + 1}px; text-transform: uppercase;
-  }
+  /* As secretarias fluem uma abaixo da outra: nada força uma nova página entre elas.
+     A quebra só acontece quando acaba o espaço da folha. */
+  .bloco { margin-bottom: ${faixa.gap}px; break-inside: auto; page-break-inside: auto; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  /* O nome da secretaria e o cabeçalho das colunas ficam no <thead>: se a tabela
+     continuar na página seguinte, os dois se repetem e nada fica órfão. */
+  thead { display: table-header-group; break-inside: avoid; page-break-inside: avoid; break-after: avoid; }
+  tfoot { display: table-row-group; } /* o total da secretaria aparece uma única vez, no fim */
+  tr { break-inside: avoid; page-break-inside: avoid; }
   th {
     text-align: left; font-weight: 600; font-size: ${Math.max(faixa.fonte - 1, 7)}px;
     text-transform: uppercase; color: #5A6B7C; border-bottom: 1px solid #C9CFD6;
@@ -139,6 +140,12 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   .c-banco { width: 28%; } .c-numero { width: 20%; } .c-saldo { width: 22%; } .c-nome { width: 30%; }
   th.saldo, td.saldo { text-align: right; }
   td.saldo { font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* Faixa com o nome da secretaria: mesmo visual da versão anterior, agora dentro da tabela. */
+  .linha-titulo th {
+    background: #EEF1F5; color: #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
+    text-transform: uppercase; border-bottom: 0; padding: ${faixa.pad}px 5px;
+  }
+  .linha-titulo th:first-child { border-left: 3px solid #0F2A44; }
   tfoot td { border-top: 1.2px solid #0F2A44; border-bottom: 0; font-weight: 700; }
   .total-geral {
     margin-top: ${faixa.gap}px; padding-top: 3px; text-align: right;
@@ -280,6 +287,9 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
       // O título repete no topo de cada página, então nunca fica órfão da tabela.
       showHead: "everyPage",
       rowPageBreak: "avoid",
+      // Cada secretaria começa logo abaixo da anterior; só vai para a próxima página
+      // quando não sobra espaço nenhum na atual.
+      pageBreak: "auto",
       head: [
         [
           {
@@ -314,6 +324,13 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
 
   if (lista.length > 1) {
     const totalGeral = lista.reduce((acc, s) => acc + totalDaSecao(s), 0);
+    const alturaPagina = doc.internal.pageSize.getHeight();
+    // Só abre uma página nova se o total geral realmente não couber no rodapé da atual.
+    if (posicao + faixa.fonte + margem > alturaPagina) {
+      doc.addPage();
+      desenharCabecalho();
+      posicao = margem + 20;
+    }
     doc.setFontSize(faixa.fonte + 1);
     doc.setFont("helvetica", "bold");
     doc.text(

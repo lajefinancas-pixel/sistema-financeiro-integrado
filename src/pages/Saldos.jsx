@@ -121,20 +121,15 @@ export default function Saldos() {
   const [ordemSecretarias, setOrdemSecretarias] = React.useState([]);
   const [arrastandoId, setArrastandoId] = React.useState(null);
   const [sobreId, setSobreId] = React.useState(null);
-  const [podeArrastarId, setPodeArrastarId] = React.useState(null);
+  // Espelho do card em arraste: os eventos de dragover/drop leem o ref, que já está
+  // atualizado no mesmo instante do dragstart (o estado serve só para o destaque visual).
+  const arrastandoRef = React.useRef(null);
+  const refsCards = React.useRef(new Map());
 
   React.useEffect(() => {
     carregarDados();
     carregarOrdem();
   }, []);
-
-  // Solta a "trava" de arrastar caso o clique na alça termine fora do card.
-  React.useEffect(() => {
-    if (!podeArrastarId) return;
-    const soltar = () => setPodeArrastarId(null);
-    window.addEventListener("mouseup", soltar);
-    return () => window.removeEventListener("mouseup", soltar);
-  }, [podeArrastarId]);
 
   React.useEffect(() => {
     if (modoVisualizacao === "historico") {
@@ -258,36 +253,59 @@ export default function Saldos() {
     salvarOrdem(nova);
   }
 
-  function propsArraste(secId) {
+  function encerrarArraste() {
+    arrastandoRef.current = null;
+    setArrastandoId(null);
+    setSobreId(null);
+  }
+
+  // A alça é o único elemento arrastável: o navegador decide isso já no mousedown,
+  // então o atributo precisa estar sempre presente (ligar via estado não funciona).
+  function propsAlca(secId) {
     return {
-      draggable: podeArrastarId === secId,
+      draggable: true,
       onDragStart: (e) => {
+        arrastandoRef.current = secId;
         setArrastandoId(secId);
         e.dataTransfer.effectAllowed = "move";
         try {
-          e.dataTransfer.setData("text/plain", secId);
+          e.dataTransfer.setData("text/plain", String(secId));
         } catch {
           /* alguns navegadores bloqueiam setData: o estado local já basta */
         }
+        // Mostra o card inteiro como prévia do arraste, e não apenas o ícone da alça.
+        const card = refsCards.current.get(secId);
+        if (card && typeof e.dataTransfer.setDragImage === "function") {
+          e.dataTransfer.setDragImage(card, 24, 20);
+        }
       },
-      onDragEnd: () => {
-        setArrastandoId(null);
-        setSobreId(null);
-        setPodeArrastarId(null);
+      onDragEnd: encerrarArraste,
+    };
+  }
+
+  // O card inteiro continua sendo alvo de soltura, mesmo sem ser arrastável.
+  function propsCard(secId) {
+    return {
+      ref: (el) => {
+        if (el) refsCards.current.set(secId, el);
+        else refsCards.current.delete(secId);
       },
       onDragOver: (e) => {
-        if (!arrastandoId || arrastandoId === secId) return;
+        const origem = arrastandoRef.current;
+        if (!origem || origem === secId) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
         if (sobreId !== secId) setSobreId(secId);
       },
-      onDragLeave: () => setSobreId((atual) => (atual === secId ? null : atual)),
+      onDragLeave: (e) => {
+        // Ignora a saída para elementos internos do próprio card (evita piscar o destaque).
+        if (e.currentTarget.contains(e.relatedTarget)) return;
+        setSobreId((atual) => (atual === secId ? null : atual));
+      },
       onDrop: (e) => {
         e.preventDefault();
-        reordenar(arrastandoId, secId);
-        setArrastandoId(null);
-        setSobreId(null);
-        setPodeArrastarId(null);
+        reordenar(arrastandoRef.current, secId);
+        encerrarArraste();
       },
     };
   }
@@ -937,7 +955,7 @@ export default function Saldos() {
                 return (
                   <div
                     key={sec.id}
-                    {...propsArraste(sec.id)}
+                    {...propsCard(sec.id)}
                     className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
                       arrastandoId === sec.id ? "opacity-50" : ""
                     } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
@@ -948,8 +966,7 @@ export default function Saldos() {
                     >
                       <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: sec.cor }}>
                         <span
-                          onMouseDown={() => setPodeArrastarId(sec.id)}
-                          onMouseUp={() => setPodeArrastarId(null)}
+                          {...propsAlca(sec.id)}
                           className="cursor-grab active:cursor-grabbing text-[#0F2A44]/25 hover:text-[#0F2A44]/60 print:hidden"
                           title="Arraste para reordenar as secretarias"
                         >
@@ -1190,7 +1207,7 @@ export default function Saldos() {
                   {secretariasHistorico.map((sec) => (
                     <div
                       key={sec.id}
-                      {...propsArraste(sec.id)}
+                      {...propsCard(sec.id)}
                       className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
                         arrastandoId === sec.id ? "opacity-50" : ""
                       } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
@@ -1201,8 +1218,7 @@ export default function Saldos() {
                       >
                         <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: sec.cor }}>
                           <span
-                            onMouseDown={() => setPodeArrastarId(sec.id)}
-                            onMouseUp={() => setPodeArrastarId(null)}
+                            {...propsAlca(sec.id)}
                             className="cursor-grab active:cursor-grabbing text-[#0F2A44]/25 hover:text-[#0F2A44]/60 print:hidden"
                             title="Arraste para reordenar as secretarias"
                           >
