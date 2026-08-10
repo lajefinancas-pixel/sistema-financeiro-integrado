@@ -9,6 +9,7 @@ import {
 } from "../../lib/usuariosEquipe";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell, PainelSenha, SeletorFoto } from "./comuns";
 import AbaPermissoes from "./AbaPermissoes";
+import { mensagemAmigavel } from "../../lib/erros";
 
 const ABAS = [
   { id: "dados", label: "Dados" },
@@ -50,7 +51,7 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
           perfil_id: data.perfil_id ?? "",
         });
       } catch (e) {
-        if (ativo) setErro(e.message ?? "Não foi possível carregar o usuário.");
+        if (ativo) setErro(mensagemAmigavel(e, "Não foi possível carregar o usuário."));
       } finally {
         if (ativo) setCarregando(false);
       }
@@ -79,7 +80,7 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
       onAtualizado?.();
     } catch (e) {
       setForm((atual) => ({ ...atual, status: anterior }));
-      setErro(e.message ?? "Não foi possível atualizar o status.");
+      setErro(mensagemAmigavel(e, "Não foi possível atualizar o status."));
     } finally {
       setSalvandoStatus(false);
     }
@@ -116,7 +117,7 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
       setAviso("Alterações salvas.");
       onAtualizado?.();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível salvar as alterações.");
+      setErro(mensagemAmigavel(e, "Não foi possível salvar as alterações."));
     } finally {
       setSalvando(false);
     }
@@ -131,7 +132,7 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
       const senha = await redefinirSenhaDeUsuario(usuarioId);
       setSenhaNova(senha);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível redefinir a senha.");
+      setErro(mensagemAmigavel(e, "Não foi possível redefinir a senha."));
     } finally {
       setRedefinindo(false);
     }

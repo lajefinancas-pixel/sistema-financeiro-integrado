@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Alerta } from "../equipe/comuns";
 import { enviarAnexo, excluirAnexo, formatarDataHora, listarAnexos } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 const ICONES = {
   imagem: FileImage,
@@ -47,7 +48,7 @@ export default function PainelAnexos({ tarefaId, usuarioId, podeAnexar, podeExcl
     setCarregando(true);
     listarAnexos(tarefaId)
       .then((lista) => ativo && setAnexos(lista))
-      .catch((e) => ativo && setErro(e.message ?? "Não foi possível carregar os anexos."))
+      .catch((e) => ativo && setErro(mensagemAmigavel(e, "Não foi possível carregar os anexos.")))
       .finally(() => ativo && setCarregando(false));
     return () => {
       ativo = false;
@@ -61,7 +62,7 @@ export default function PainelAnexos({ tarefaId, usuarioId, podeAnexar, podeExcl
       const anexo = await enviarAnexo(tarefaId, arquivo, usuarioId);
       setAnexos((atual) => [anexo, ...atual]);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível anexar o arquivo.");
+      setErro(mensagemAmigavel(e, "Não foi possível anexar o arquivo."));
     } finally {
       setEnviando(false);
     }
@@ -73,7 +74,7 @@ export default function PainelAnexos({ tarefaId, usuarioId, podeAnexar, podeExcl
       await excluirAnexo(anexo);
       setAnexos((atual) => atual.filter((a) => a.id !== anexo.id));
     } catch (e) {
-      setErro(e.message ?? "Não foi possível excluir o anexo.");
+      setErro(mensagemAmigavel(e, "Não foi possível excluir o anexo."));
     }
   }
 

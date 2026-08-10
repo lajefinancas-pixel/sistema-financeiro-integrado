@@ -1,6 +1,7 @@
 import React from "react";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell } from "../equipe/comuns";
 import { CATEGORIAS, PRIORIDADES, RECORRENCIAS, criarTarefa, temColuna } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /** Formulário de cadastro de tarefa. Grava com status "nova" e registra o histórico. */
 export default function ModalNovaTarefa({ usuarios, secretarias, usuarioId, onFechar, onCriada }) {
@@ -40,7 +41,7 @@ export default function ModalNovaTarefa({ usuarios, secretarias, usuarioId, onFe
       onCriada?.(tarefa, avisoHistorico);
       onFechar();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível criar a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível criar a tarefa."));
       setSalvando(false);
     }
   }

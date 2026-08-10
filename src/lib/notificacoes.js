@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { mensagemAmigavel } from "./erros";
 
 /**
  * Camada de dados das notificações (tabela "notificacoes").
@@ -84,7 +85,7 @@ export async function notificar(linhas) {
   if (registros.length === 0) return null;
 
   const { error } = await supabase.from("notificacoes").insert(registros);
-  return error?.message ?? null;
+  return error ? mensagemAmigavel(error, "Alguns avisos da equipe não foram gerados agora.") : null;
 }
 
 /** Início do dia de hoje no fuso local, no formato aceito pelo filtro de criado_em. */
@@ -118,7 +119,7 @@ export async function sincronizarNotificacoesDePrazo(usuarioId, tarefas, hoje) {
     .select("tarefa_id, tipo")
     .eq("usuario_id", usuarioId)
     .gte("criado_em", inicioDeHoje());
-  if (error) return error.message;
+  if (error) return mensagemAmigavel(error, "Não foi possível verificar os avisos de prazo agora.");
 
   const jaAvisado = new Set((data ?? []).map((n) => `${n.tarefa_id}|${n.tipo}`));
   const novas = [];

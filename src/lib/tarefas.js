@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { notificar } from "./notificacoes";
+import { erroAmigavel, mensagemAmigavel } from "./erros";
 
 /**
  * Camada de dados da página "Tarefas".
@@ -187,7 +188,7 @@ async function comColunasDisponiveis(construir) {
     if (!ausente) throw error;
     colunasPresentes.delete(ausente);
   }
-  throw new Error("Não foi possível montar a consulta de tarefas.");
+  throw erroAmigavel("Não foi possível montar a consulta de tarefas.");
 }
 
 /** Tarefas ordenadas por prazo (mais próximo primeiro; sem prazo por último). */
@@ -262,7 +263,12 @@ export async function criarTarefa(campos, usuarioId) {
 
   await notificarAtribuicao(data, usuarioId);
 
-  return { tarefa: data, avisoHistorico: erroHistorico?.message ?? null };
+  return {
+    tarefa: data,
+    avisoHistorico: erroHistorico
+      ? mensagemAmigavel(erroHistorico, "A tarefa foi criada, mas o histórico dela não pôde ser registrado.")
+      : null,
+  };
 }
 
 /** Aviso de "esta tarefa é sua" — só quando o responsável é outra pessoa. */
@@ -445,7 +451,7 @@ async function gerarProximaOcorrencia(tarefa, usuarioId) {
 
     return { ocorrencia: nova, aviso: null };
   } catch (e) {
-    return { ocorrencia: null, aviso: e.message ?? "Não foi possível gerar a próxima ocorrência." };
+    return { ocorrencia: null, aviso: mensagemAmigavel(e, "Não foi possível gerar a próxima ocorrência.") };
   }
 }
 
@@ -476,7 +482,7 @@ export async function registrarHistorico(tarefaId, usuarioId, acao, detalhes) {
   const { error } = await supabase
     .from("tarefas_historico")
     .insert({ tarefa_id: tarefaId, usuario_id: usuarioId, acao, detalhes: detalhes ?? {} });
-  return error?.message ?? null;
+  return error ? mensagemAmigavel(error, "Esta ação não pôde ser registrada no histórico da tarefa.") : null;
 }
 
 /** Frase da linha do tempo, no formato "<nome> <texto>". */
@@ -639,7 +645,7 @@ async function avisarAprovadores(tarefa, usuarioId) {
         })),
     );
   } catch (e) {
-    return e.message ?? null;
+    return mensagemAmigavel(e, "Os avisos de aprovação não foram enviados para a equipe.");
   }
 }
 
@@ -686,7 +692,7 @@ export async function aprovarTarefa(tarefa, usuarioId) {
  */
 export async function devolverTarefa(tarefa, usuarioId, motivo) {
   const texto = motivo?.trim();
-  if (!texto) throw new Error("Informe o motivo da devolução.");
+  if (!texto) throw erroAmigavel("Informe o motivo da devolução.");
 
   const alteracao = {
     status: "em_andamento",

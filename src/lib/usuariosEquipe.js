@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { erroAmigavel, mensagemAmigavel } from "./erros";
 
 // Bucket público das fotos de perfil da equipe (criado pela migration
 // 20260810130000_usuarios_telefone_e_bucket_avatares.sql).
@@ -25,7 +26,7 @@ export async function enviarFotoUsuario(arquivo) {
     upsert: false,
     contentType: arquivo.type || undefined,
   });
-  if (error) throw new Error(`Não foi possível enviar a foto: ${error.message}`);
+  if (error) throw erroAmigavel(mensagemAmigavel(error, "Não foi possível enviar a foto. Tente outra imagem."));
 
   const { data } = supabase.storage.from(BUCKET_FOTOS).getPublicUrl(caminho);
   return data.publicUrl;
@@ -39,7 +40,7 @@ export async function enviarFotoUsuario(arquivo) {
 export async function redefinirSenhaDeUsuario(usuarioId) {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
-  if (!token) throw new Error("Sessão expirada. Entre novamente para redefinir a senha.");
+  if (!token) throw erroAmigavel("Sessão expirada. Entre novamente para redefinir a senha.");
 
   const resposta = await fetch("/api/equipe/redefinir-senha", {
     method: "POST",
@@ -48,6 +49,6 @@ export async function redefinirSenhaDeUsuario(usuarioId) {
   });
 
   const corpo = await resposta.json().catch(() => ({}));
-  if (!resposta.ok) throw new Error(corpo.erro || "Não foi possível redefinir a senha.");
+  if (!resposta.ok) throw erroAmigavel(corpo.erro || "Não foi possível redefinir a senha.");
   return corpo.senha;
 }

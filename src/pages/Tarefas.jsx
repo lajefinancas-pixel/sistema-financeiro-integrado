@@ -27,6 +27,7 @@ import {
   statusVisual,
   textoPrazo,
 } from "../lib/tarefas";
+import { mensagemAmigavel } from "../lib/erros";
 
 // Os contadores do topo. "atrasada" não é um status gravado: vem do prazo vencido.
 const CONTADORES = [
@@ -167,7 +168,7 @@ export default function Tarefas() {
             .catch(() => {});
         }
       } catch (e) {
-        if (ativo) setErro(e.message ?? "Erro ao carregar as tarefas.");
+        if (ativo) setErro(mensagemAmigavel(e, "Erro ao carregar as tarefas."));
       } finally {
         if (ativo) setCarregando(false);
       }
@@ -267,7 +268,7 @@ export default function Tarefas() {
       );
       if (resultado.ocorrencia) setRecarga((n) => n + 1);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível mudar o status da tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível mudar o status da tarefa."));
     } finally {
       setMovendoId(null);
     }

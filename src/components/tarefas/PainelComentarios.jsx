@@ -7,6 +7,7 @@ import {
   listarComentarios,
   notificarComentario,
 } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /** Iniciais do nome, usadas no círculo que identifica quem comentou. */
 function iniciais(nome) {
@@ -33,7 +34,7 @@ export default function PainelComentarios({ tarefaId, usuarioId, tarefa, nomeUsu
     setCarregando(true);
     listarComentarios(tarefaId)
       .then((lista) => ativo && setComentarios(lista))
-      .catch((e) => ativo && setErro(e.message ?? "Não foi possível carregar os comentários."))
+      .catch((e) => ativo && setErro(mensagemAmigavel(e, "Não foi possível carregar os comentários.")))
       .finally(() => ativo && setCarregando(false));
     return () => {
       ativo = false;
@@ -52,7 +53,7 @@ export default function PainelComentarios({ tarefaId, usuarioId, tarefa, nomeUsu
       // Aviso aos envolvidos: nunca impede o comentário de ser publicado.
       if (tarefa) await notificarComentario(tarefa, usuarioId, nomeUsuario);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível enviar o comentário.");
+      setErro(mensagemAmigavel(e, "Não foi possível enviar o comentário."));
     } finally {
       setEnviando(false);
     }

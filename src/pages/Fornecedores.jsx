@@ -6,6 +6,7 @@ import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } f
 import Layout from "../components/Layout";
 import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
 import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
+import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -417,15 +418,13 @@ export default function Fornecedores() {
   // Consulta isolada: se a tabela de favoritos falhar, o resto da tela continua igual.
   async function carregarFavoritos() {
     setCarregandoFavoritos(true);
-    try {
-      setFavoritos(await listarFiltrosFavoritos());
-      setErroFavoritos(null);
-    } catch (e) {
-      setFavoritos([]);
-      setErroFavoritos(e.message ?? "Não foi possível carregar os filtros salvos.");
-    } finally {
-      setCarregandoFavoritos(false);
-    }
+    const { dados, erro: falha } = await comTratamento(
+      listarFiltrosFavoritos,
+      "Não foi possível carregar seus filtros salvos. Os demais filtros continuam disponíveis."
+    );
+    setFavoritos(dados ?? []);
+    setErroFavoritos(falha);
+    setCarregandoFavoritos(false);
   }
 
   // Consulta isolada: se falhar, só o filtro por data de pagamento fica sem base, sem afetar a tela.
@@ -482,7 +481,7 @@ export default function Fornecedores() {
       setSecretarias(secs ?? []);
       setFornecedores(comValores);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar dados.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar dados."));
     } finally {
       setCarregando(false);
     }
@@ -493,7 +492,7 @@ export default function Fornecedores() {
     setErro(null);
     try {
       if (!form.razao_social || !form.cpf_cnpj || !form.secretaria_id) {
-        throw new Error("Preencha razão social, CPF/CNPJ e secretaria.");
+        throw erroAmigavel("Preencha razão social, CPF/CNPJ e secretaria.");
       }
       const { error } = await supabase.from("fornecedores").insert({
         razao_social: form.razao_social,
@@ -513,7 +512,7 @@ export default function Fornecedores() {
       setMostrarForm(false);
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao cadastrar fornecedor.");
+      setErro(mensagemAmigavel(e, "Erro ao cadastrar fornecedor."));
     } finally {
       setSalvando(false);
     }
@@ -528,7 +527,7 @@ export default function Fornecedores() {
       if (expandido === id) setExpandido(null);
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao excluir fornecedor.");
+      setErro(mensagemAmigavel(e, "Erro ao excluir fornecedor."));
     }
   }
 
@@ -571,8 +570,8 @@ export default function Fornecedores() {
     setSalvando(true);
     setErro(null);
     try {
-      if (!formValor.fornecedor_id) throw new Error("Selecione o fornecedor.");
-      if (!formValor.valor_bruto) throw new Error("Informe o valor da nota.");
+      if (!formValor.fornecedor_id) throw erroAmigavel("Selecione o fornecedor.");
+      if (!formValor.valor_bruto) throw erroAmigavel("Informe o valor da nota.");
 
       const bruto = parseFloat(formValor.valor_bruto);
       const base = parseFloat(formValor.base_calculo || formValor.valor_bruto);
@@ -617,7 +616,7 @@ export default function Fornecedores() {
       setMostrarFormValor(false);
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao adicionar valor.");
+      setErro(mensagemAmigavel(e, "Erro ao adicionar valor."));
     } finally {
       setSalvando(false);
     }
@@ -631,7 +630,7 @@ export default function Fornecedores() {
       if (error) throw error;
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao excluir valor.");
+      setErro(mensagemAmigavel(e, "Erro ao excluir valor."));
     }
   }
 
@@ -642,7 +641,7 @@ export default function Fornecedores() {
       if (error) throw error;
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao atualizar situação.");
+      setErro(mensagemAmigavel(e, "Erro ao atualizar situação."));
     }
   }
 
@@ -862,7 +861,7 @@ export default function Fornecedores() {
       setFavoritos((atuais) => [novo, ...atuais]);
       setNomeNovoFiltro(null);
     } catch (erroSalvar) {
-      setErroFavoritos(erroSalvar.message ?? "Não foi possível salvar o filtro.");
+      setErroFavoritos(mensagemAmigavel(erroSalvar, "Não foi possível salvar o filtro."));
     } finally {
       setSalvandoFiltro(false);
     }
@@ -882,7 +881,7 @@ export default function Fornecedores() {
       await excluirFiltroFavorito(favorito.id);
       setFavoritos((atuais) => atuais.filter((f) => f.id !== favorito.id));
     } catch (erroExcluir) {
-      setErroFavoritos(erroExcluir.message ?? "Não foi possível excluir o filtro salvo.");
+      setErroFavoritos(mensagemAmigavel(erroExcluir, "Não foi possível excluir o filtro salvo."));
     }
   }
   // Tira um filtro específico já aplicado, mantendo todos os outros.

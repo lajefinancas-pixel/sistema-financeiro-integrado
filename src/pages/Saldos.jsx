@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { imprimirSaldos, gerarPdfSaldos, agoraBR } from "../lib/saldosDocumento";
 import Layout from "../components/Layout";
+import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -189,7 +190,7 @@ export default function Saldos() {
       setBancos(bcs ?? []);
       setContasPorSecretaria(agrupado);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar dados.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar dados."));
     } finally {
       setCarregando(false);
     }
@@ -238,7 +239,7 @@ export default function Saldos() {
       .from(TABELA_ORDEM)
       .upsert({ usuario_id: usuarioId, ordem: novaOrdem, atualizado_em: new Date().toISOString() },
         { onConflict: "usuario_id" });
-    if (error) setErro(`Não foi possível salvar a ordem das secretarias: ${error.message}`);
+    if (error) setErro(mensagemAmigavel(error, "Não foi possível salvar a ordem das secretarias."));
   }
 
   function reordenar(origemId, destinoId) {
@@ -322,7 +323,7 @@ export default function Saldos() {
       if (error) throw error;
       setDatasComSaldo(new Set((data ?? []).map((r) => r.data_saldo)));
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar calendário.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar calendário."));
     }
   }
 
@@ -370,7 +371,7 @@ export default function Saldos() {
 
       setContasPorSecretariaNaData(agrupado);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar saldos da data.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar saldos da data."));
     } finally {
       setCarregandoHistorico(false);
     }
@@ -411,7 +412,7 @@ export default function Saldos() {
       setSaldosLote({});
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao salvar saldos em lote.");
+      setErro(mensagemAmigavel(e, "Erro ao salvar saldos em lote."));
     } finally {
       setSalvando(false);
     }
@@ -425,7 +426,7 @@ export default function Saldos() {
       if (error) throw error;
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao excluir conta.");
+      setErro(mensagemAmigavel(e, "Erro ao excluir conta."));
     }
   }
 
@@ -437,7 +438,7 @@ export default function Saldos() {
       if (error) throw error;
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao excluir secretaria.");
+      setErro(mensagemAmigavel(e, "Erro ao excluir secretaria."));
     }
   }
 
@@ -464,7 +465,7 @@ export default function Saldos() {
       }
 
       if (!secretariaId || !bancoId || !form.nome_conta) {
-        throw new Error("Preencha secretaria, banco e nome da conta.");
+        throw erroAmigavel("Preencha secretaria, banco e nome da conta.");
       }
 
       const { data: contaData, error: eConta } = await supabase
@@ -490,7 +491,7 @@ export default function Saldos() {
       setMostrarForm(false);
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao criar conta.");
+      setErro(mensagemAmigavel(e, "Erro ao criar conta."));
     } finally {
       setSalvando(false);
     }
@@ -510,7 +511,7 @@ export default function Saldos() {
       setNovoSaldo({ valor: "", data: hojeISO() });
       await carregarDados();
     } catch (e) {
-      setErro(e.message ?? "Erro ao atualizar saldo.");
+      setErro(mensagemAmigavel(e, "Erro ao atualizar saldo."));
     } finally {
       setSalvando(false);
     }
@@ -664,7 +665,7 @@ export default function Saldos() {
 
           criadas++;
         } catch (e) {
-          erros.push(`Erro na linha "${linha}": ${e.message}`);
+          erros.push(`Linha "${linha}": ${mensagemAmigavel(e, "não foi possível importar esta linha.")}`);
         }
       }
 
@@ -674,7 +675,7 @@ export default function Saldos() {
         await carregarDados();
       }
     } catch (e) {
-      setErro(e.message ?? "Erro ao importar.");
+      setErro(mensagemAmigavel(e, "Erro ao importar."));
     } finally {
       setImportando(false);
     }
