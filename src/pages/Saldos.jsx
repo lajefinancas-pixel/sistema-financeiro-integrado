@@ -1,10 +1,11 @@
 import React from "react";
 import {
   Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet, Upload,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, GripVertical,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
+import { imprimirSaldos, gerarPdfSaldos, agoraBR } from "../lib/saldosDocumento";
 import Layout from "../components/Layout";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
@@ -34,6 +35,32 @@ function gerarDiasDoMes(ano, mes) {
   for (let i = 0; i < diasAntes; i++) dias.push(null);
   for (let d = 1; d <= ultimoDia.getDate(); d++) dias.push(d);
   return dias;
+}
+
+const TABELA_ORDEM = "preferencias_ordem_secretarias";
+const CHAVE_ORDEM_LOCAL = "saldos:ordem-secretarias";
+
+// Mantém a ordem escolhida pelo usuário; secretarias novas entram no fim da lista.
+function ordenarPorPreferencia(lista, ordem) {
+  const posicao = new Map((ordem ?? []).map((id, i) => [id, i]));
+  return [...lista].sort(
+    (a, b) => (posicao.has(a.id) ? posicao.get(a.id) : 1e9) - (posicao.has(b.id) ? posicao.get(b.id) : 1e9)
+  );
+}
+
+function montarSecoes(lista) {
+  return lista
+    .filter((sec) => sec.contas.length > 0)
+    .map((sec) => ({
+      nome: sec.nome,
+      total: sec.total ?? sec.contas.reduce((acc, c) => acc + (c.saldo ?? 0), 0),
+      contas: sec.contas.map((c) => ({
+        banco: c.banco,
+        numero_conta: c.numero_conta,
+        saldo: c.saldo,
+        nome_conta: c.nome_conta,
+      })),
+    }));
 }
 
 export default function Saldos() {
@@ -82,9 +109,24 @@ export default function Saldos() {
   const [contasPorSecretariaNaData, setContasPorSecretariaNaData] = React.useState([]);
   const [carregandoHistorico, setCarregandoHistorico] = React.useState(true);
 
+  const [usuarioId, setUsuarioId] = React.useState(null);
+  const [ordemSecretarias, setOrdemSecretarias] = React.useState([]);
+  const [arrastandoId, setArrastandoId] = React.useState(null);
+  const [sobreId, setSobreId] = React.useState(null);
+  const [podeArrastarId, setPodeArrastarId] = React.useState(null);
+
   React.useEffect(() => {
     carregarDados();
+    carregarOrdem();
   }, []);
+
+  // Solta a "trava" de arrastar caso o clique na alça termine fora do card.
+  React.useEffect(() => {
+    if (!podeArrastarId) return;
+    const soltar = () => setPodeArrastarId(null);
+    window.addEventListener("mouseup", soltar);
+    return () => window.removeEventListener("mouseup", soltar);
+  }, [podeArrastarId]);
 
   React.useEffect(() => {
     if (modoVisualizacao === "historico") {
@@ -136,7 +178,8 @@ export default function Saldos() {
             numero_conta: c.numero_conta,
             saldo: ultimoSaldo[c.id]?.valor_saldo ?? 0,
           }));
-        return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec };
+        const total = contasDaSec.reduce((acc, c) => acc + (c.saldo ?? 0), 0);
+        return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
       });
 
       setSecretarias(secs ?? []);
@@ -147,6 +190,98 @@ export default function Saldos() {
     } finally {
       setCarregando(false);
     }
+  }
+
+  // A ordem dos cards fica guardada por usuário no Supabase; o cache local só evita
+  // que a tela "pisque" na ordem antiga enquanto a preferência é buscada.
+  async function carregarOrdem() {
+    try {
+      const { data: dadosUsuario } = await supabase.auth.getUser();
+      const id = dadosUsuario?.user?.id ?? null;
+      setUsuarioId(id);
+      if (!id) return;
+
+      const local = localStorage.getItem(`${CHAVE_ORDEM_LOCAL}:${id}`);
+      if (local) {
+        try {
+          const salvo = JSON.parse(local);
+          if (Array.isArray(salvo)) setOrdemSecretarias(salvo);
+        } catch {
+          /* cache inválido: ignora */
+        }
+      }
+
+      const { data, error } = await supabase
+        .from(TABELA_ORDEM)
+        .select("ordem")
+        .eq("usuario_id", id)
+        .maybeSingle();
+      if (error) return; // sem preferência salva ainda: mantém a ordem alfabética
+      if (Array.isArray(data?.ordem)) setOrdemSecretarias(data.ordem);
+    } catch {
+      /* a ordenação é um complemento: nunca deve impedir a página de carregar */
+    }
+  }
+
+  async function salvarOrdem(novaOrdem) {
+    setOrdemSecretarias(novaOrdem);
+    if (!usuarioId) return;
+    try {
+      localStorage.setItem(`${CHAVE_ORDEM_LOCAL}:${usuarioId}`, JSON.stringify(novaOrdem));
+    } catch {
+      /* armazenamento local indisponível: segue apenas com o Supabase */
+    }
+    const { error } = await supabase
+      .from(TABELA_ORDEM)
+      .upsert({ usuario_id: usuarioId, ordem: novaOrdem, atualizado_em: new Date().toISOString() },
+        { onConflict: "usuario_id" });
+    if (error) setErro(`Não foi possível salvar a ordem das secretarias: ${error.message}`);
+  }
+
+  function reordenar(origemId, destinoId) {
+    if (!origemId || !destinoId || origemId === destinoId) return;
+    const base = idsOrdenados;
+    const de = base.indexOf(origemId);
+    const para = base.indexOf(destinoId);
+    if (de < 0 || para < 0) return;
+    const nova = [...base];
+    nova.splice(de, 1);
+    nova.splice(para, 0, origemId);
+    salvarOrdem(nova);
+  }
+
+  function propsArraste(secId) {
+    return {
+      draggable: podeArrastarId === secId,
+      onDragStart: (e) => {
+        setArrastandoId(secId);
+        e.dataTransfer.effectAllowed = "move";
+        try {
+          e.dataTransfer.setData("text/plain", secId);
+        } catch {
+          /* alguns navegadores bloqueiam setData: o estado local já basta */
+        }
+      },
+      onDragEnd: () => {
+        setArrastandoId(null);
+        setSobreId(null);
+        setPodeArrastarId(null);
+      },
+      onDragOver: (e) => {
+        if (!arrastandoId || arrastandoId === secId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (sobreId !== secId) setSobreId(secId);
+      },
+      onDragLeave: () => setSobreId((atual) => (atual === secId ? null : atual)),
+      onDrop: (e) => {
+        e.preventDefault();
+        reordenar(arrastandoId, secId);
+        setArrastandoId(null);
+        setSobreId(null);
+        setPodeArrastarId(null);
+      },
+    };
   }
 
   async function carregarDatasComSaldo() {
@@ -356,18 +491,74 @@ export default function Saldos() {
   }
 
   function exportarExcel() {
-    const fonte = modoVisualizacao === "historico" ? contasPorSecretariaNaData : contasPorSecretaria;
+    const fonte = modoVisualizacao === "historico" ? secretariasHistorico : secretariasAtual;
     const linhas = [];
     fonte.forEach((sec) => {
       sec.contas.forEach((c) => {
-        linhas.push({ Secretaria: sec.nome, Banco: c.banco, Numero: c.numero_conta, Conta: c.nome_conta, Saldo: c.saldo });
+        // Ordem fixa das colunas: Banco | Número da Conta | Saldo | Nome da Conta
+        linhas.push({
+          Secretaria: sec.nome,
+          Banco: c.banco,
+          "Número da Conta": c.numero_conta,
+          Saldo: c.saldo,
+          "Nome da Conta": c.nome_conta,
+        });
       });
     });
-    const ws = XLSX.utils.json_to_sheet(linhas);
+    const ws = XLSX.utils.json_to_sheet(linhas, {
+      header: ["Secretaria", "Banco", "Número da Conta", "Saldo", "Nome da Conta"],
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Saldos");
     XLSX.writeFile(wb, `saldos-${modoVisualizacao === "historico" ? dataSelecionada : hojeISO()}.xlsx`);
   }
+
+  function tituloDocumento() {
+    return modoVisualizacao === "historico"
+      ? `Saldos das Contas — ${dataSelecionadaBR}`
+      : "Saldos das Contas";
+  }
+
+  function imprimirGeral() {
+    const fonte = modoVisualizacao === "historico" ? secretariasHistorico : secretariasAtual;
+    const secoes = montarSecoes(fonte);
+    if (secoes.length === 0) {
+      setErro("Não há contas com saldo para imprimir.");
+      return;
+    }
+    imprimirSaldos({
+      titulo: tituloDocumento(),
+      subtitulo: `Emitido em ${agoraBR()}`,
+      secoes,
+      maxPaginas: 2,
+    });
+  }
+
+  function gerarPdfGeral() {
+    const fonte = modoVisualizacao === "historico" ? secretariasHistorico : secretariasAtual;
+    const secoes = montarSecoes(fonte);
+    if (secoes.length === 0) {
+      setErro("Não há contas com saldo para gerar o PDF.");
+      return;
+    }
+    gerarPdfSaldos({
+      titulo: tituloDocumento(),
+      subtitulo: `Emitido em ${agoraBR()}`,
+      secoes,
+      arquivo: `saldos-${modoVisualizacao === "historico" ? dataSelecionada : hojeISO()}.pdf`,
+      maxPaginas: 2,
+    });
+  }
+
+  function imprimirSecretaria(sec) {
+    imprimirSaldos({
+      titulo: sec.nome,
+      subtitulo: `Emitido em ${agoraBR()}`,
+      secoes: montarSecoes([sec]),
+      maxPaginas: 1,
+    });
+  }
+
   async function importarLote() {
     setImportando(true);
     setErro(null);
@@ -468,6 +659,28 @@ export default function Saldos() {
     day: "2-digit", month: "long", year: "numeric",
   });
   const totalGeralHistorico = contasPorSecretariaNaData.reduce((acc, s) => acc + s.total, 0);
+
+  const secretariasAtual = React.useMemo(
+    () => ordenarPorPreferencia(contasPorSecretaria, ordemSecretarias),
+    [contasPorSecretaria, ordemSecretarias]
+  );
+  const secretariasHistorico = React.useMemo(
+    () => ordenarPorPreferencia(contasPorSecretariaNaData, ordemSecretarias),
+    [contasPorSecretariaNaData, ordemSecretarias]
+  );
+  // Ordem completa (inclusive secretarias sem saldo na data escolhida), usada ao arrastar.
+  const idsOrdenados = React.useMemo(() => {
+    const vistos = new Set();
+    const lista = [];
+    [...secretariasAtual, ...secretariasHistorico].forEach((sec) => {
+      if (!vistos.has(sec.id)) {
+        vistos.add(sec.id);
+        lista.push(sec.id);
+      }
+    });
+    return lista;
+  }, [secretariasAtual, secretariasHistorico]);
+
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
@@ -479,10 +692,10 @@ export default function Saldos() {
         <div className="flex items-start justify-between mb-4 print:mb-4">
           <h1 className="text-2xl font-semibold text-[#0F2A44]">Saldos das Contas</h1>
           <div className="flex items-center gap-2 print:hidden">
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+            <button onClick={imprimirGeral} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <Printer size={14} /> Imprimir
             </button>
-            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
+            <button onClick={gerarPdfGeral} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileText size={14} /> PDF
             </button>
             <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
@@ -706,19 +919,41 @@ export default function Saldos() {
           carregando ? (
             <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
           ) : (
-            <div className="space-y-4 print:space-y-2 print:print-2col">
-              {contasPorSecretaria.map((sec) => {
+            <div className="space-y-4">
+              <p className="text-xs text-[#0F2A44]/45 print:hidden">
+                Arraste os cards pela alça <GripVertical size={11} className="inline align-[-2px]" /> para definir a
+                ordem das secretarias. A ordem fica salva na sua conta.
+              </p>
+              {secretariasAtual.map((sec) => {
                 const emLote = editandoSecretariaId === sec.id;
                 return (
-                  <div key={sec.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
+                  <div
+                    key={sec.id}
+                    {...propsArraste(sec.id)}
+                    className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
+                      arrastandoId === sec.id ? "opacity-50" : ""
+                    } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
+                  >
                     <div
                       className="flex items-center justify-between px-4 py-2.5"
                       style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
                     >
-                      <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                      <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: sec.cor }}>
+                        <span
+                          onMouseDown={() => setPodeArrastarId(sec.id)}
+                          onMouseUp={() => setPodeArrastarId(null)}
+                          className="cursor-grab active:cursor-grabbing text-[#0F2A44]/25 hover:text-[#0F2A44]/60 print:hidden"
+                          title="Arraste para reordenar as secretarias"
+                        >
+                          <GripVertical size={15} />
+                        </span>
                         {sec.nome.toUpperCase()}
                       </span>
-                      <div className="flex items-center gap-3 print:hidden">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                          Total: {formatBRL(sec.total)}
+                        </span>
+                        <div className="flex items-center gap-3 print:hidden">
                         {emLote ? (
                           <>
                             <input
@@ -744,14 +979,24 @@ export default function Saldos() {
                         ) : (
                           <>
                             {sec.contas.length > 0 && (
-                              <button
-                                onClick={() => iniciarEdicaoLote(sec)}
-                                className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10"
-                                style={{ color: sec.cor }}
-                                title="Editar todos os saldos desta secretaria"
-                              >
-                                <Pencil size={12} /> Editar saldos
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => imprimirSecretaria(sec)}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10"
+                                  style={{ color: sec.cor }}
+                                  title={`Imprimir apenas ${sec.nome}`}
+                                >
+                                  <Printer size={12} /> Imprimir
+                                </button>
+                                <button
+                                  onClick={() => iniciarEdicaoLote(sec)}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10"
+                                  style={{ color: sec.cor }}
+                                  title="Editar todos os saldos desta secretaria"
+                                >
+                                  <Pencil size={12} /> Editar saldos
+                                </button>
+                              </>
                             )}
                             <button
                               onClick={() => excluirSecretaria(sec.id, sec.nome)}
@@ -762,6 +1007,7 @@ export default function Saldos() {
                             </button>
                           </>
                         )}
+                        </div>
                       </div>
                     </div>
 
@@ -774,9 +1020,9 @@ export default function Saldos() {
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                             <th className="px-4 py-2 font-medium">Banco</th>
-                            <th className="px-4 py-2 font-medium">Conta</th>
-                            <th className="px-4 py-2 font-medium">Número</th>
+                            <th className="px-4 py-2 font-medium">Número da Conta</th>
                             <th className="px-4 py-2 font-medium text-center">Saldo</th>
+                            <th className="px-4 py-2 font-medium">Nome da Conta</th>
                             <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
                           </tr>
                         </thead>
@@ -784,9 +1030,8 @@ export default function Saldos() {
                           {sec.contas.map((c) => (
                             <tr key={c.id} className="border-t border-black/5">
                               <td className="px-4 py-2.5">{c.banco}</td>
-                              <td className="px-4 py-2.5">{c.nome_conta}</td>
                               <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
-                              <td className="px-4 py-2.5 text-center tabular-nums">
+                              <td className="px-4 py-2.5 text-center tabular-nums font-bold">
                                 {emLote ? (
                                   <input
                                     type="number" step="0.01"
@@ -813,6 +1058,7 @@ export default function Saldos() {
                                   formatBRL(c.saldo)
                                 )}
                               </td>
+                              <td className="px-4 py-2.5">{c.nome_conta}</td>
                               <td className="px-4 py-2.5 print:hidden">
                                 {!emLote && (
                                   <div className="flex items-center justify-end gap-2">
@@ -930,40 +1176,66 @@ export default function Saldos() {
                   Nenhum saldo registrado até esta data.
                 </div>
               ) : (
-                <div className="space-y-4 print:space-y-2 print:print-2col">
-                  {contasPorSecretariaNaData.map((sec) => (
-                    <div key={sec.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
+                <div className="space-y-4">
+                  {secretariasHistorico.map((sec) => (
+                    <div
+                      key={sec.id}
+                      {...propsArraste(sec.id)}
+                      className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
+                        arrastandoId === sec.id ? "opacity-50" : ""
+                      } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
+                    >
                       <div
                         className="flex items-center justify-between px-4 py-2.5"
                         style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
                       >
-                        <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: sec.cor }}>
+                          <span
+                            onMouseDown={() => setPodeArrastarId(sec.id)}
+                            onMouseUp={() => setPodeArrastarId(null)}
+                            className="cursor-grab active:cursor-grabbing text-[#0F2A44]/25 hover:text-[#0F2A44]/60 print:hidden"
+                            title="Arraste para reordenar as secretarias"
+                          >
+                            <GripVertical size={15} />
+                          </span>
                           {sec.nome.toUpperCase()}
                         </span>
-                        <span className="text-sm font-semibold" style={{ color: sec.cor }}>
-                          Total: {formatBRL(sec.total)}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-semibold" style={{ color: sec.cor }}>
+                            Total: {formatBRL(sec.total)}
+                          </span>
+                          <button
+                            onClick={() => imprimirSecretaria(sec)}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10 print:hidden"
+                            style={{ color: sec.cor }}
+                            title={`Imprimir apenas ${sec.nome}`}
+                          >
+                            <Printer size={12} /> Imprimir
+                          </button>
+                        </div>
                       </div>
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                             <th className="px-4 py-2 font-medium">Banco</th>
-                            <th className="px-4 py-2 font-medium">Conta</th>
-                            <th className="px-4 py-2 font-medium">Saldo registrado em</th>
+                            <th className="px-4 py-2 font-medium">Número da Conta</th>
                             <th className="px-4 py-2 font-medium text-right">Saldo</th>
+                            <th className="px-4 py-2 font-medium">Nome da Conta</th>
+                            <th className="px-4 py-2 font-medium">Saldo registrado em</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sec.contas.map((c) => (
                             <tr key={c.id} className="border-t border-black/5">
                               <td className="px-4 py-2.5">{c.banco}</td>
+                              <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
+                              <td className="px-4 py-2.5 text-right tabular-nums font-bold">{formatBRL(c.saldo)}</td>
                               <td className="px-4 py-2.5">{c.nome_conta}</td>
                               <td className="px-4 py-2.5 text-xs text-[#0F2A44]/50">
                                 {c.dataDoSaldo === dataSelecionada
                                   ? "Neste dia"
                                   : new Date(c.dataDoSaldo + "T00:00:00").toLocaleDateString("pt-BR")}
                               </td>
-                              <td className="px-4 py-2.5 text-right tabular-nums">{formatBRL(c.saldo)}</td>
                             </tr>
                           ))}
                         </tbody>
