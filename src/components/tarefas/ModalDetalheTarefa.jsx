@@ -42,6 +42,7 @@ import {
   temColuna,
   textoPrazo,
 } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 function Linha({ icone: Icone, rotulo, children }) {
   return (
@@ -169,7 +170,7 @@ export default function ModalDetalheTarefa({
       );
       if (resultado.ocorrencia) onListaMudou?.();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível concluir a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível concluir a tarefa."));
     } finally {
       setConcluindo(false);
     }
@@ -190,7 +191,7 @@ export default function ModalDetalheTarefa({
       );
       if (resultado.ocorrencia) onListaMudou?.();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível aprovar a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível aprovar a tarefa."));
     } finally {
       setSalvandoAval(false);
     }
@@ -208,7 +209,7 @@ export default function ModalDetalheTarefa({
         avisoHistorico ? `A tarefa foi devolvida, mas o registro no histórico falhou: ${avisoHistorico}` : null,
       );
     } catch (e) {
-      setErro(e.message ?? "Não foi possível devolver a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível devolver a tarefa."));
     } finally {
       setSalvandoAval(false);
     }
@@ -232,7 +233,7 @@ export default function ModalDetalheTarefa({
       );
       onListaMudou?.();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível delegar a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível delegar a tarefa."));
     } finally {
       setDelegando(false);
     }
@@ -256,7 +257,7 @@ export default function ModalDetalheTarefa({
         avisoHistorico ? `A tarefa foi compartilhada, mas o registro no histórico falhou: ${avisoHistorico}` : null,
       );
     } catch (e) {
-      setErro(e.message ?? "Não foi possível compartilhar a tarefa.");
+      setErro(mensagemAmigavel(e, "Não foi possível compartilhar a tarefa."));
     } finally {
       setCompartilhando(false);
     }
@@ -273,7 +274,7 @@ export default function ModalDetalheTarefa({
       setCompartilhamentos((lista) => lista.filter((c) => c.id !== compartilhamento.id));
       setRecargaHistorico((n) => n + 1);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível remover o compartilhamento.");
+      setErro(mensagemAmigavel(e, "Não foi possível remover o compartilhamento."));
     }
   }
 

@@ -6,6 +6,7 @@ import {
   marcarTodasComoLidas,
   tipoInfo,
 } from "../../lib/notificacoes";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /** "agora", "há 12 min", "há 3 h", "há 2 dias" — texto curto do momento do aviso. */
 function tempoRelativo(valor) {
@@ -42,7 +43,7 @@ export default function SinoNotificacoes({ usuarioId, recarga = 0, onAbrirTarefa
     try {
       setNotificacoes(await listarNotificacoes(usuarioId));
     } catch (e) {
-      setErro(e.message ?? "Não foi possível carregar as notificações.");
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as notificações."));
     } finally {
       setCarregando(false);
     }
@@ -78,7 +79,7 @@ export default function SinoNotificacoes({ usuarioId, recarga = 0, onAbrirTarefa
     try {
       await marcarComoLida(notificacao.id);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível marcar a notificação como lida.");
+      setErro(mensagemAmigavel(e, "Não foi possível marcar a notificação como lida."));
       carregar();
     }
   }
@@ -88,7 +89,7 @@ export default function SinoNotificacoes({ usuarioId, recarga = 0, onAbrirTarefa
     try {
       await marcarTodasComoLidas(usuarioId);
     } catch (e) {
-      setErro(e.message ?? "Não foi possível marcar as notificações como lidas.");
+      setErro(mensagemAmigavel(e, "Não foi possível marcar as notificações como lidas."));
       carregar();
     }
   }

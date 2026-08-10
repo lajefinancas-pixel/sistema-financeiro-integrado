@@ -8,6 +8,7 @@ import {
   marcarSubtarefa,
   progressoChecklist,
 } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /**
  * Checklist da tarefa (tabela "subtarefas"): marca etapas, adiciona novas e
@@ -25,7 +26,7 @@ export default function PainelChecklist({ tarefaId, podeEditar, podeExcluir }) {
     setCarregando(true);
     listarSubtarefas(tarefaId)
       .then((lista) => ativo && setItens(lista))
-      .catch((e) => ativo && setErro(e.message ?? "Não foi possível carregar o checklist."))
+      .catch((e) => ativo && setErro(mensagemAmigavel(e, "Não foi possível carregar o checklist.")))
       .finally(() => ativo && setCarregando(false));
     return () => {
       ativo = false;
@@ -42,7 +43,7 @@ export default function PainelChecklist({ tarefaId, podeEditar, podeExcluir }) {
       await marcarSubtarefa(item.id, !item.concluida);
     } catch (e) {
       setItens((atual) => atual.map((i) => (i.id === item.id ? { ...i, concluida: item.concluida } : i)));
-      setErro(e.message ?? "Não foi possível atualizar a etapa.");
+      setErro(mensagemAmigavel(e, "Não foi possível atualizar a etapa."));
     }
   }
 
@@ -56,7 +57,7 @@ export default function PainelChecklist({ tarefaId, podeEditar, podeExcluir }) {
       setItens((atual) => [...atual, item]);
       setNovo("");
     } catch (e) {
-      setErro(e.message ?? "Não foi possível adicionar a etapa.");
+      setErro(mensagemAmigavel(e, "Não foi possível adicionar a etapa."));
     } finally {
       setSalvando(false);
     }
@@ -68,7 +69,7 @@ export default function PainelChecklist({ tarefaId, podeEditar, podeExcluir }) {
       await excluirSubtarefa(item.id);
       setItens((atual) => atual.filter((i) => i.id !== item.id));
     } catch (e) {
-      setErro(e.message ?? "Não foi possível excluir a etapa.");
+      setErro(mensagemAmigavel(e, "Não foi possível excluir a etapa."));
     }
   }
 

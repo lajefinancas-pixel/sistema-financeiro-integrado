@@ -6,11 +6,28 @@ import "./index.css";
 
 const rootEl = document.getElementById("root");
 
-window.addEventListener("error", (e) => {
+// Tela de falha do último recurso: o usuário vê um recado claro e o detalhe
+// técnico (mensagem original e stack) fica só no console, para investigação.
+function mostrarFalha(titulo, detalhe) {
+  if (detalhe) console.error(titulo, detalhe);
   rootEl.innerHTML =
-    '<pre style="padding:20px;color:red;white-space:pre-wrap;font-size:14px;">Erro: ' +
-    e.message + '\n' + (e.error && e.error.stack ? e.error.stack : '') +
-    '</pre>';
+    '<div style="padding:40px;max-width:520px;margin:0 auto;font-family:system-ui,sans-serif;color:#0F2A44;">' +
+    '<h1 style="font-size:18px;font-weight:600;margin:0 0 8px;">' + titulo + "</h1>" +
+    '<p style="font-size:14px;line-height:1.5;opacity:.7;margin:0 0 20px;">' +
+    "Recarregue a página para continuar. Se a mensagem voltar a aparecer, avise o responsável pelo sistema." +
+    "</p>" +
+    '<button onclick="window.location.reload()" style="font-size:14px;padding:10px 16px;border-radius:8px;border:none;background:#0F2A44;color:#fff;cursor:pointer;">' +
+    "Recarregar" +
+    "</button>" +
+    "</div>";
+}
+
+window.addEventListener("error", (e) => {
+  mostrarFalha("Algo não funcionou como esperado nesta tela.", e.error ?? e.message);
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("Falha não tratada", e.reason);
 });
 
 try {
@@ -22,9 +39,5 @@ try {
     </React.StrictMode>
   );
 } catch (err) {
-  rootEl.innerHTML =
-    '<pre style="padding:20px;color:red;white-space:pre-wrap;font-size:14px;">Erro ao iniciar: ' +
-    err.message + '\n' + err.stack +
-    '</pre>';
+  mostrarFalha("Não foi possível abrir o sistema agora.", err);
 }
-

@@ -1,5 +1,6 @@
 import React from "react";
 import { supabase } from "./supabaseClient";
+import { erroAmigavel, mensagemAmigavel } from "./erros";
 
 /**
  * Carrega o usuário logado (tabela "usuarios", ligada ao auth pelo auth_id)
@@ -26,7 +27,7 @@ export function usePermissaoModulo(modulo) {
       try {
         const { data: auth, error: erroAuth } = await supabase.auth.getUser();
         if (erroAuth) throw erroAuth;
-        if (!auth?.user) throw new Error("Sessão não encontrada.");
+        if (!auth?.user) throw erroAmigavel("Sessão não encontrada.");
 
         const { data: usuarios, error: erroUsuario } = await supabase
           .from("usuarios")
@@ -63,7 +64,7 @@ export function usePermissaoModulo(modulo) {
             carregando: false,
             usuario: null,
             permissao: null,
-            erro: e.message ?? "Não foi possível verificar suas permissões.",
+            erro: mensagemAmigavel(e, "Não foi possível verificar suas permissões."),
           });
         }
       }

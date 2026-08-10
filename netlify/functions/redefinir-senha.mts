@@ -20,11 +20,12 @@ export default async (req: Request) => {
   const chaveServico = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !chaveServico) {
+    console.error("Redefinição de senha sem configuração: falta SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY.");
     return json(
       {
         erro:
-          "Redefinição de senha indisponível: defina as variáveis de ambiente SUPABASE_URL e " +
-          "SUPABASE_SERVICE_ROLE_KEY no site para habilitar esta ação.",
+          "A redefinição de senha não está disponível neste momento. " +
+          "Procure o responsável pelo sistema.",
       },
       503
     );
@@ -82,7 +83,11 @@ export default async (req: Request) => {
 
   const senha = gerarSenhaProvisoria();
   const { error: erroSenha } = await admin.auth.admin.updateUserById(alvo.auth_id, { password: senha });
-  if (erroSenha) return json({ erro: `Não foi possível redefinir a senha: ${erroSenha.message}` }, 500);
+  if (erroSenha) {
+    // O detalhe técnico fica no log da função; o usuário recebe só o recado.
+    console.error("Falha ao redefinir senha:", erroSenha);
+    return json({ erro: "Não foi possível redefinir a senha agora. Tente novamente em alguns instantes." }, 500);
+  }
 
   return json({ senha, email: alvo.email });
 };

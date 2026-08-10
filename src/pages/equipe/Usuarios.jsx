@@ -6,6 +6,7 @@ import Layout from "../../components/Layout";
 import AcessoNegado from "../../components/AcessoNegado";
 import ModalNovoUsuario from "../../components/equipe/ModalNovoUsuario";
 import ModalEditarUsuario from "../../components/equipe/ModalEditarUsuario";
+import { mensagemAmigavel } from "../../lib/erros";
 
 const MODULO = "administracao";
 
@@ -133,7 +134,7 @@ export default function Usuarios() {
           setPerfis(perfisUnicos);
         }
       } catch (e) {
-        if (ativo) setErro(e.message ?? "Erro ao carregar os usuários.");
+        if (ativo) setErro(mensagemAmigavel(e, "Erro ao carregar os usuários."));
       } finally {
         if (ativo) setCarregando(false);
       }

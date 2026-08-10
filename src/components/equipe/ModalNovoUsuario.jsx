@@ -4,6 +4,7 @@ import { supabase, supabaseCadastro } from "../../lib/supabaseClient";
 import { gerarSenhaProvisoria } from "../../lib/senhaProvisoria";
 import { emailValido, enviarFotoUsuario, STATUS_USUARIO } from "../../lib/usuariosEquipe";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell, PainelSenha, SeletorFoto } from "./comuns";
+import { erroAmigavel, mensagemAmigavel } from "../../lib/erros";
 
 const FORM_VAZIO = {
   nome_completo: "",
@@ -47,10 +48,14 @@ export default function ModalNovoUsuario({ perfis, onFechar, onCriado }) {
         password: senha,
         options: { data: { nome_completo: nome } },
       });
-      if (erroAuth) throw new Error(`Não foi possível criar o acesso: ${erroAuth.message}`);
-      if (!cadastro?.user?.id) throw new Error("O Supabase Auth não retornou o usuário criado.");
+      if (erroAuth) {
+        throw erroAmigavel(
+          mensagemAmigavel(erroAuth, "Não foi possível criar o acesso deste usuário. Confira o e-mail e tente de novo.")
+        );
+      }
+      if (!cadastro?.user?.id) throw erroAmigavel("O cadastro do acesso não foi concluído. Tente novamente.");
       if (Array.isArray(cadastro.user.identities) && cadastro.user.identities.length === 0) {
-        throw new Error("Já existe uma conta de acesso com este e-mail.");
+        throw erroAmigavel("Já existe uma conta de acesso com este e-mail.");
       }
       await supabaseCadastro.auth.signOut({ scope: "local" }).catch(() => {});
 
@@ -66,17 +71,17 @@ export default function ModalNovoUsuario({ perfis, onFechar, onCriado }) {
       });
       if (erroInsert) {
         const duplicado = erroInsert.code === "23505";
-        throw new Error(
+        throw erroAmigavel(
           duplicado
             ? "Já existe um usuário cadastrado com este e-mail."
-            : `O acesso foi criado no Auth, mas o cadastro na tabela de usuários falhou: ${erroInsert.message}`
+            : "O acesso foi criado, mas o cadastro do usuário não foi concluído. Procure o responsável pelo sistema antes de tentar de novo."
         );
       }
 
       setCriado({ email, senha });
       onCriado?.();
     } catch (e) {
-      setErro(e.message ?? "Não foi possível criar o usuário.");
+      setErro(mensagemAmigavel(e, "Não foi possível criar o usuário."));
     } finally {
       setSalvando(false);
     }

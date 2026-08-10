@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Printer, FileText, FileSpreadsheet } from "l
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import { mensagemAmigavel } from "../lib/erros";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -63,7 +64,7 @@ export default function Historico() {
       if (error) throw error;
       setDatasComSaldo(new Set((data ?? []).map((r) => r.data_saldo)));
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar calendário.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar calendário."));
     }
   }
   async function carregarSaldosNaData() {
@@ -112,7 +113,7 @@ export default function Historico() {
 
       setContasPorSecretaria(agrupado);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar saldos da data.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar saldos da data."));
     } finally {
       setCarregando(false);
     }

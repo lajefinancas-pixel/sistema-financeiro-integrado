@@ -3,10 +3,10 @@ import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSp
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import CampoMoeda from "../components/CampoMoeda";
+import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
+import { mensagemAmigavel } from "../lib/erros";
 
-function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -88,7 +88,7 @@ export default function Pagamentos() {
         setSecretariaId(secs[0].id);
       }
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar secretarias.");
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as secretarias."));
     } finally {
       setCarregando(false);
     }
@@ -143,7 +143,7 @@ export default function Pagamentos() {
       }));
       setFornecedoresDaSecretaria(fornsComValores);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar contas e fornecedores.");
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as contas e os fornecedores desta secretaria."));
     }
   }
   async function carregarProgramacoesDoDia() {
@@ -169,7 +169,7 @@ export default function Pagamentos() {
 
       await calcularComprometidoPorConta(progs ?? []);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar programações do dia.");
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as programações deste dia."));
     }
   }
 
@@ -197,7 +197,7 @@ export default function Pagamentos() {
       const totalPorProgramacao = {};
       for (const p of pgs ?? []) {
         totalPorProgramacao[p.programacao_id] =
-          (totalPorProgramacao[p.programacao_id] ?? 0) + (parseFloat(p.valor_a_pagar) || 0);
+          (totalPorProgramacao[p.programacao_id] ?? 0) + paraNumeroMoeda(p.valor_a_pagar);
       }
 
       const contasPorProgramacao = {};
@@ -220,7 +220,7 @@ export default function Pagamentos() {
       }
       setComprometidoPorConta(comprometido);
     } catch (e) {
-      setErro(e.message ?? "Erro ao calcular saldos comprometidos.");
+      setErro(mensagemAmigavel(e, "Não foi possível calcular o saldo já reservado por outras programações."));
     }
   }
 
@@ -253,7 +253,7 @@ export default function Pagamentos() {
       if (ePgs) throw ePgs;
       setPagamentos(pgs ?? []);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar a programação selecionada.");
+      setErro(mensagemAmigavel(e, "Não foi possível abrir a programação selecionada."));
     }
   }
 
@@ -270,7 +270,7 @@ export default function Pagamentos() {
       setFechado(true);
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao fechar movimento.");
+      setErro(mensagemAmigavel(e, "Não foi possível fechar o movimento do dia."));
     } finally {
       setSalvando(false);
     }
@@ -289,7 +289,7 @@ export default function Pagamentos() {
       setFechado(false);
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao reabrir movimento.");
+      setErro(mensagemAmigavel(e, "Não foi possível reabrir esta programação."));
     } finally {
       setSalvando(false);
     }
@@ -320,7 +320,7 @@ export default function Pagamentos() {
       await carregarProgramacoesDoDia();
       setProgramacaoAtualId(nova.id);
     } catch (e) {
-      setErro(e.message ?? "Erro ao criar programação.");
+      setErro(mensagemAmigavel(e, "Não foi possível criar a programação."));
     } finally {
       setSalvando(false);
     }
@@ -337,7 +337,7 @@ export default function Pagamentos() {
       setProgramacaoAtualId(null);
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao excluir programação.");
+      setErro(mensagemAmigavel(e, "Não foi possível excluir a programação."));
     }
   }
 
@@ -355,7 +355,7 @@ export default function Pagamentos() {
         if (error) throw error;
         setProgramacoesParaCopiar(progs ?? []);
       } catch (e) {
-        setErro(e.message ?? "Erro ao buscar programações anteriores.");
+        setErro(mensagemAmigavel(e, "Não foi possível buscar as programações anteriores."));
       }
     }
   }
@@ -425,7 +425,7 @@ export default function Pagamentos() {
       await carregarProgramacoesDoDia();
       setProgramacaoAtualId(nova.id);
     } catch (e) {
-      setErro(e.message ?? "Erro ao copiar programação.");
+      setErro(mensagemAmigavel(e, "Não foi possível copiar a programação."));
     } finally {
       setSalvando(false);
     }
@@ -458,7 +458,7 @@ export default function Pagamentos() {
       }
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao selecionar conta.");
+      setErro(mensagemAmigavel(e, "Não foi possível alterar as contas desta programação."));
     }
   }
 
@@ -496,7 +496,7 @@ export default function Pagamentos() {
       await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao adicionar pagamento.");
+      setErro(mensagemAmigavel(e, "Não foi possível adicionar o pagamento."));
     } finally {
       setSalvando(false);
     }
@@ -514,7 +514,7 @@ export default function Pagamentos() {
         programacao_id: programacaoAtualId,
         nome_avulso: avulso.nome,
         descricao: avulso.descricao || null,
-        valor_a_pagar: parseFloat(avulso.valor),
+        valor_a_pagar: paraNumeroMoeda(avulso.valor),
         situacao: "pendente",
       });
       if (error) throw error;
@@ -524,29 +524,29 @@ export default function Pagamentos() {
       await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao adicionar pagamento avulso.");
+      setErro(mensagemAmigavel(e, "Não foi possível adicionar o pagamento."));
     } finally {
       setSalvando(false);
     }
   }
 
   function editarValorLocal(pagamentoId, novoValor) {
+    const numero = paraNumeroMoeda(novoValor);
     setPagamentos((atual) =>
-      atual.map((p) => (p.id === pagamentoId ? { ...p, valor_a_pagar: novoValor } : p))
+      atual.map((p) => (p.id === pagamentoId ? { ...p, valor_a_pagar: numero } : p))
     );
 
     clearTimeout(timersRef.current[pagamentoId]);
     timersRef.current[pagamentoId] = setTimeout(async () => {
       try {
-        const valor = parseFloat(novoValor || "0");
         const { error } = await supabase
           .from("pagamentos")
-          .update({ valor_a_pagar: valor })
+          .update({ valor_a_pagar: numero })
           .eq("id", pagamentoId);
         if (error) throw error;
         await carregarProgramacoesDoDia();
       } catch (e) {
-        setErro(e.message ?? "Erro ao salvar valor.");
+        setErro(mensagemAmigavel(e, "Não foi possível salvar o valor deste pagamento."));
       }
     }, 600);
   }
@@ -559,7 +559,7 @@ export default function Pagamentos() {
       await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
     } catch (e) {
-      setErro(e.message ?? "Erro ao remover pagamento.");
+      setErro(mensagemAmigavel(e, "Não foi possível remover o pagamento."));
     }
   }
 
@@ -573,17 +573,30 @@ export default function Pagamentos() {
       if (error) throw error;
       await carregarProgramacaoAtual();
     } catch (e) {
-      setErro(e.message ?? "Erro ao marcar como pago.");
+      setErro(mensagemAmigavel(e, "Não foi possível marcar este pagamento como pago."));
     }
   }
 
   function exportarExcel() {
     const linhas = pagamentos.map((p) => ({
       Fornecedor: p.fornecedores?.razao_social ?? p.nome_avulso,
-      Valor: p.valor_a_pagar,
-      Situacao: p.situacao,
+      "Valor a pagar": paraNumeroMoeda(p.valor_a_pagar),
+      Situação: p.situacao === "pago" ? "Pago" : "Pendente",
     }));
+    linhas.push({ Fornecedor: "TOTAL PROGRAMADO", "Valor a pagar": totalProgramado, Situação: "" });
+    linhas.push({ Fornecedor: "SALDO DISPONÍVEL", "Valor a pagar": saldoDisponivel, Situação: "" });
+    linhas.push({ Fornecedor: "RESTA", "Valor a pagar": saldoRestante, Situação: "" });
+
     const ws = XLSX.utils.json_to_sheet(linhas);
+
+    // A coluna de valores sai como número, mas exibida em R$ 1.000.000,00.
+    const alcance = XLSX.utils.decode_range(ws["!ref"]);
+    for (let linha = alcance.s.r + 1; linha <= alcance.e.r; linha++) {
+      const celula = ws[XLSX.utils.encode_cell({ r: linha, c: 1 })];
+      if (celula && celula.t === "n") celula.z = FORMATO_MOEDA_PLANILHA;
+    }
+    ws["!cols"] = [{ wch: 44 }, { wch: 18 }, { wch: 14 }];
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pagamentos");
     XLSX.writeFile(wb, `pagamentos-${data}.xlsx`);
@@ -610,7 +623,7 @@ export default function Pagamentos() {
   }, [contasSelecionadasComSaldo]);
 
   const totalProgramado = React.useMemo(() => {
-    return pagamentos.reduce((acc, p) => acc + (parseFloat(p.valor_a_pagar) || 0), 0);
+    return pagamentos.reduce((acc, p) => acc + paraNumeroMoeda(p.valor_a_pagar), 0);
   }, [pagamentos]);
 
   const saldoRestante = saldoDisponivel - totalProgramado;
@@ -963,11 +976,11 @@ export default function Pagamentos() {
                         onChange={(e) => setAvulso({ ...avulso, nome: e.target.value })}
                         className="px-3 py-2 rounded-lg border border-black/10 text-sm"
                       />
-                      <input
-                        type="number" step="0.01" placeholder="Valor"
-                        value={avulso.valor}
-                        onChange={(e) => setAvulso({ ...avulso, valor: e.target.value })}
-                        className="px-3 py-2 rounded-lg border border-black/10 text-sm"
+                      <CampoMoeda
+                        placeholder="Valor"
+                        valor={avulso.valor}
+                        onValorChange={(numero) => setAvulso({ ...avulso, valor: numero })}
+                        className="px-3 py-2 rounded-lg border border-black/10 text-sm text-right tabular-nums"
                       />
                     </div>
                     <button
@@ -1013,11 +1026,10 @@ export default function Pagamentos() {
                               {fechado ? (
                                 formatBRL(p.valor_a_pagar)
                               ) : (
-                                <input
-                                  type="number" step="0.01"
-                                  value={p.valor_a_pagar}
-                                  onChange={(e) => editarValorLocal(p.id, e.target.value)}
-                                  className="w-28 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
+                                <CampoMoeda
+                                  valor={p.valor_a_pagar}
+                                  onValorChange={(numero) => editarValorLocal(p.id, numero)}
+                                  className="w-36 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
                                 />
                               )}
                             </td>

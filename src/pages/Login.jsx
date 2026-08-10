@@ -5,6 +5,7 @@ import {
   ShieldCheck, RefreshCw, TrendingUp, Handshake,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { mensagemAmigavel } from "../lib/erros";
 
 function Shield() {
   return (
@@ -45,7 +46,7 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
     setCarregando(false);
     if (error) {
-      setErro(error.message === "Invalid login credentials" ? "Usuário ou senha inválidos." : error.message);
+      setErro(mensagemAmigavel(error, "Não foi possível entrar agora. Tente novamente em alguns instantes."));
       return;
     }
     navigate("/");

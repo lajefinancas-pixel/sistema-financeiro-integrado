@@ -9,6 +9,7 @@ import {
   salvarPermissoesDoUsuario,
 } from "../../lib/permissoesUsuario";
 import { Alerta } from "./comuns";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /** Ponto dourado que marca um valor diferente do padrão do perfil. */
 function MarcaExcecao({ titulo = "Diferente do padrão do perfil" }) {
@@ -62,7 +63,7 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
       setBase(resultado.valores);
       return resultado;
     } catch (e) {
-      setErro(e.message ?? "Não foi possível carregar as permissões deste usuário.");
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as permissões deste usuário."));
       return null;
     } finally {
       setCarregando(false);
@@ -106,7 +107,7 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
         setAviso("Permissões salvas.");
       }
     } catch (e) {
-      setErro(e.message ?? "Não foi possível salvar as permissões.");
+      setErro(mensagemAmigavel(e, "Não foi possível salvar as permissões."));
     } finally {
       setSalvando(false);
     }
@@ -125,7 +126,7 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
       setBase((atual) => ({ ...atual, [modulo]: padraoModulo }));
       setAviso("Módulo restaurado para o padrão do perfil.");
     } catch (e) {
-      setErro(e.message ?? "Não foi possível restaurar o padrão do perfil.");
+      setErro(mensagemAmigavel(e, "Não foi possível restaurar o padrão do perfil."));
     } finally {
       setRestaurando(null);
     }

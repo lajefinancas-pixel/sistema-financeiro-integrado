@@ -2,6 +2,7 @@ import React from "react";
 import { History } from "lucide-react";
 import { Alerta } from "../equipe/comuns";
 import { formatarDataHora, listarHistorico, textoHistorico } from "../../lib/tarefas";
+import { mensagemAmigavel } from "../../lib/erros";
 
 /**
  * Linha do tempo da tarefa (tabela "tarefas_historico"), em ordem cronológica.
@@ -18,7 +19,7 @@ export default function PainelHistorico({ tarefaId, recarga = 0 }) {
     setCarregando(true);
     listarHistorico(tarefaId)
       .then((lista) => ativo && setRegistros(lista))
-      .catch((e) => ativo && setErro(e.message ?? "Não foi possível carregar o histórico."))
+      .catch((e) => ativo && setErro(mensagemAmigavel(e, "Não foi possível carregar o histórico.")))
       .finally(() => ativo && setCarregando(false));
     return () => {
       ativo = false;

@@ -6,6 +6,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import { mensagemAmigavel } from "../lib/erros";
 
 const ICONES_SECRETARIA = {
   finan: Landmark,
@@ -127,7 +128,7 @@ export default function Dashboard() {
       }
       setTotalProgramadoHoje(totalProgramado);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar painel.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar painel."));
     } finally {
       setCarregando(false);
     }
@@ -246,7 +247,7 @@ export default function Dashboard() {
         }));
       setPagamentosProgramados(proximos);
     } catch (e) {
-      setErro(e.message ?? "Erro ao carregar pendências e registros.");
+      setErro(mensagemAmigavel(e, "Erro ao carregar pendências e registros."));
     }
   }
 
