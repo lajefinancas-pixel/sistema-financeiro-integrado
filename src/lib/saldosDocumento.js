@@ -130,7 +130,7 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   th {
     text-align: left; font-weight: 600; font-size: ${Math.max(faixa.fonte - 1, 7)}px;
     text-transform: uppercase; color: #5A6B7C; border-bottom: 1px solid #C9CFD6;
-    padding: ${faixa.pad}px 5px;
+    padding: ${faixa.pad}px 5px; white-space: nowrap;
   }
   td {
     padding: ${faixa.pad}px 5px; border-bottom: 1px solid #E7EAEE;

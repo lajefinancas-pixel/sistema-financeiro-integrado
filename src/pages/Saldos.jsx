@@ -18,6 +18,14 @@ const MESES = [
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+// Banco e Nome da Conta nunca quebram linha. Textos muito longos apenas encolhem
+// um pouco a fonte, mantendo a altura das linhas uniforme.
+function classeTextoLongo(texto) {
+  const n = String(texto ?? "").length;
+  if (n > 34) return "text-[11px]";
+  if (n > 24) return "text-xs";
+  return "";
+}
 function toISO(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -1016,22 +1024,23 @@ export default function Saldos() {
                         Nenhuma conta cadastrada nesta secretaria.
                       </div>
                     ) : (
+                      <div className="overflow-x-auto print:overflow-visible">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                            <th className="px-4 py-2 font-medium">Banco</th>
-                            <th className="px-4 py-2 font-medium">Número da Conta</th>
-                            <th className="px-4 py-2 font-medium text-center">Saldo</th>
-                            <th className="px-4 py-2 font-medium">Nome da Conta</th>
-                            <th className="px-4 py-2 font-medium text-right print:hidden">Ações</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Banco</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Número da Conta</th>
+                            <th className="px-4 py-2 font-medium text-center whitespace-nowrap">Saldo</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Nome da Conta</th>
+                            <th className="px-4 py-2 font-medium text-right whitespace-nowrap print:hidden">Ações</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sec.contas.map((c) => (
                             <tr key={c.id} className="border-t border-black/5">
-                              <td className="px-4 py-2.5">{c.banco}</td>
-                              <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
-                              <td className="px-4 py-2.5 text-center tabular-nums font-bold">
+                              <td className={`px-4 py-2.5 whitespace-nowrap ${classeTextoLongo(c.banco)}`}>{c.banco}</td>
+                              <td className="px-4 py-2.5 whitespace-nowrap text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
+                              <td className="px-4 py-2.5 text-center whitespace-nowrap tabular-nums font-bold">
                                 {emLote ? (
                                   <input
                                     type="number" step="0.01"
@@ -1058,7 +1067,7 @@ export default function Saldos() {
                                   formatBRL(c.saldo)
                                 )}
                               </td>
-                              <td className="px-4 py-2.5">{c.nome_conta}</td>
+                              <td className={`px-4 py-2.5 whitespace-nowrap ${classeTextoLongo(c.nome_conta)}`}>{c.nome_conta}</td>
                               <td className="px-4 py-2.5 print:hidden">
                                 {!emLote && (
                                   <div className="flex items-center justify-end gap-2">
@@ -1096,6 +1105,7 @@ export default function Saldos() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     )}
                   </div>
                 );
@@ -1214,24 +1224,25 @@ export default function Saldos() {
                           </button>
                         </div>
                       </div>
+                      <div className="overflow-x-auto print:overflow-visible">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                            <th className="px-4 py-2 font-medium">Banco</th>
-                            <th className="px-4 py-2 font-medium">Número da Conta</th>
-                            <th className="px-4 py-2 font-medium text-right">Saldo</th>
-                            <th className="px-4 py-2 font-medium">Nome da Conta</th>
-                            <th className="px-4 py-2 font-medium">Saldo registrado em</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Banco</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Número da Conta</th>
+                            <th className="px-4 py-2 font-medium text-right whitespace-nowrap">Saldo</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Nome da Conta</th>
+                            <th className="px-4 py-2 font-medium whitespace-nowrap">Saldo registrado em</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sec.contas.map((c) => (
                             <tr key={c.id} className="border-t border-black/5">
-                              <td className="px-4 py-2.5">{c.banco}</td>
-                              <td className="px-4 py-2.5 text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
-                              <td className="px-4 py-2.5 text-right tabular-nums font-bold">{formatBRL(c.saldo)}</td>
-                              <td className="px-4 py-2.5">{c.nome_conta}</td>
-                              <td className="px-4 py-2.5 text-xs text-[#0F2A44]/50">
+                              <td className={`px-4 py-2.5 whitespace-nowrap ${classeTextoLongo(c.banco)}`}>{c.banco}</td>
+                              <td className="px-4 py-2.5 whitespace-nowrap text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
+                              <td className="px-4 py-2.5 text-right whitespace-nowrap tabular-nums font-bold">{formatBRL(c.saldo)}</td>
+                              <td className={`px-4 py-2.5 whitespace-nowrap ${classeTextoLongo(c.nome_conta)}`}>{c.nome_conta}</td>
+                              <td className="px-4 py-2.5 text-xs whitespace-nowrap text-[#0F2A44]/50">
                                 {c.dataDoSaldo === dataSelecionada
                                   ? "Neste dia"
                                   : new Date(c.dataDoSaldo + "T00:00:00").toLocaleDateString("pt-BR")}
@@ -1240,6 +1251,7 @@ export default function Saldos() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   ))}
                 </div>
