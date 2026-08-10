@@ -1,9 +1,10 @@
 import React from "react";
-import { ClipboardList, Plus, Search, X } from "lucide-react";
+import { ClipboardList, Columns3, List, Plus, Search, X } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import ModalNovaTarefa from "../components/tarefas/ModalNovaTarefa";
 import ModalDetalheTarefa from "../components/tarefas/ModalDetalheTarefa";
+import QuadroTarefas from "../components/tarefas/QuadroTarefas";
 import { BadgePrioridade, BadgeStatus } from "../components/tarefas/badges";
 import { usePermissaoModulo } from "../lib/permissoes";
 import {
@@ -15,6 +16,7 @@ import {
   listarSecretarias,
   listarTarefas,
   listarUsuarios,
+  mudarStatusTarefa,
   statusInfo,
   statusVisual,
   textoPrazo,
@@ -101,6 +103,10 @@ export default function Tarefas() {
   const [tarefaAberta, setTarefaAberta] = React.useState(null);
   const [recarga, setRecarga] = React.useState(0);
 
+  // "lista" mantém a tabela já existente; "quadro" mostra o Kanban.
+  const [visao, setVisao] = React.useState("lista");
+  const [movendoId, setMovendoId] = React.useState(null);
+
   const podeVisualizar = permissao?.pode_visualizar === true;
   const podeCadastrar = permissao?.pode_cadastrar === true;
 
@@ -173,6 +179,41 @@ export default function Tarefas() {
     setEscopo("minhas");
   }
 
+  /** Mover no quadro é a mesma regra da política de update da tabela "tarefas". */
+  function podeMoverTarefa(tarefa) {
+    if (permissao?.pode_editar === true) return true;
+    return Boolean(usuarioLogado?.id) && tarefa.responsavel_id === usuarioLogado.id;
+  }
+
+  function aplicarAtualizacao(atualizada) {
+    setTarefas((atual) => atual.map((t) => (t.id === atualizada.id ? atualizada : t)));
+    setTarefaAberta((aberta) => (aberta?.id === atualizada.id ? atualizada : aberta));
+  }
+
+  /** Card solto em outra coluna: grava o novo status e a linha de histórico. */
+  async function moverTarefa(tarefa, novoStatus) {
+    setMovendoId(tarefa.id);
+    setErro(null);
+    setAviso(null);
+    try {
+      const { tarefa: atualizada, avisoHistorico } = await mudarStatusTarefa(
+        tarefa,
+        novoStatus,
+        usuarioLogado?.id,
+      );
+      aplicarAtualizacao(atualizada);
+      setAviso(
+        avisoHistorico
+          ? `O status foi alterado, mas o registro no histórico falhou: ${avisoHistorico}`
+          : null,
+      );
+    } catch (e) {
+      setErro(e.message ?? "Não foi possível mudar o status da tarefa.");
+    } finally {
+      setMovendoId(null);
+    }
+  }
+
   const infoLayout = usuarioLogado ? { nome: usuarioLogado.nome_completo } : undefined;
 
   if (verificando) {
@@ -214,16 +255,43 @@ export default function Tarefas() {
                   }`}
             </p>
           </div>
-          {podeCadastrar && (
-            <button
-              type="button"
-              onClick={() => setAbrirNova(true)}
-              className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
-            >
-              <Plus size={16} />
-              Nova Tarefa
-            </button>
-          )}
+          <div className="self-start flex flex-wrap items-center gap-3">
+            {/* Alternância de visualização: a lista já existente ou o quadro Kanban. */}
+            <div className="inline-flex rounded-lg border border-black/10 bg-white p-0.5" role="group" aria-label="Visualização">
+              {[
+                { id: "lista", label: "Lista", icone: List },
+                { id: "quadro", label: "Quadro", icone: Columns3 },
+              ].map((opcao) => {
+                const Icone = opcao.icone;
+                const ativa = visao === opcao.id;
+                return (
+                  <button
+                    key={opcao.id}
+                    type="button"
+                    onClick={() => setVisao(opcao.id)}
+                    aria-pressed={ativa}
+                    className={`flex items-center gap-1.5 text-sm px-3.5 py-2 rounded-[7px] transition-colors ${
+                      ativa ? "bg-[#0F2A44] text-white" : "text-[#0F2A44]/60 hover:bg-black/5"
+                    }`}
+                  >
+                    <Icone size={15} />
+                    {opcao.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {podeCadastrar && (
+              <button
+                type="button"
+                onClick={() => setAbrirNova(true)}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+              >
+                <Plus size={16} />
+                Nova Tarefa
+              </button>
+            )}
+          </div>
         </div>
 
         {erro && (
@@ -310,6 +378,14 @@ export default function Tarefas() {
 
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
+        ) : visao === "quadro" ? (
+          <QuadroTarefas
+            tarefas={filtradas}
+            podeMover={podeMoverTarefa}
+            tarefaSalvandoId={movendoId}
+            onAbrir={setTarefaAberta}
+            onMover={moverTarefa}
+          />
         ) : filtradas.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center">
             <ClipboardList size={26} className="text-[#0F2A44]/20 mx-auto mb-3" />
@@ -424,7 +500,15 @@ export default function Tarefas() {
         />
       )}
 
-      {tarefaAberta && <ModalDetalheTarefa tarefa={tarefaAberta} onFechar={() => setTarefaAberta(null)} />}
+      {tarefaAberta && (
+        <ModalDetalheTarefa
+          tarefa={tarefaAberta}
+          usuarioLogado={usuarioLogado}
+          permissao={permissao}
+          onFechar={() => setTarefaAberta(null)}
+          onAtualizada={aplicarAtualizacao}
+        />
+      )}
     </Layout>
   );
 }
