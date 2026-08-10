@@ -16,6 +16,12 @@ import {
   textoRateioDivergente,
   textoDoMotivo,
 } from "../lib/rateioPagamentos";
+import { montarSaldosDasContas } from "../lib/saldosContas";
+import {
+  buscarReservasPorConta,
+  buscarSaldoRealPorConta,
+  estruturaDeRateioAusente,
+} from "../lib/saldosContasDados";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -26,14 +32,6 @@ function hojeISO() {
 const AVISO_RATEIO_INDISPONIVEL =
   "O rateio entre contas ainda não está disponível neste ambiente. " +
   "Peça ao administrador para aplicar a atualização do banco de dados antes de efetivar pagamentos.";
-
-// Falhas que significam "a estrutura de rateio ainda não existe no banco",
-// e não um erro do usuário.
-function estruturaDeRateioAusente(erro) {
-  const codigo = String(erro?.code ?? "");
-  if (["42P01", "42703", "PGRST202", "PGRST204", "PGRST205"].includes(codigo)) return true;
-  return /schema cache/i.test(String(erro?.message ?? ""));
-}
 
 export default function Pagamentos() {
   const [carregando, setCarregando] = React.useState(true);
@@ -66,8 +64,8 @@ export default function Pagamentos() {
   const [efetivandoId, setEfetivandoId] = React.useState(null);
 
   // Por conta: quanto outras programações do dia reservaram e quanto esta
-  // programação já debitou de verdade.
-  const [reservaPorConta, setReservaPorConta] = React.useState({});
+  // programação já debitou de verdade (Map montado pela fonte única de saldo).
+  const [reservaPorConta, setReservaPorConta] = React.useState(new Map());
 
   const [mostrarAddCadastrado, setMostrarAddCadastrado] = React.useState(false);
   const [mostrarAddAvulso, setMostrarAddAvulso] = React.useState(false);
@@ -143,24 +141,19 @@ export default function Pagamentos() {
         .eq("ativo", true);
       if (eContas) throw eContas;
 
-      const { data: saldos, error: eSaldos } = await supabase
-        .from("saldos_historico")
-        .select("conta_id, valor_saldo, data_saldo")
-        .order("data_saldo", { ascending: false });
-      if (eSaldos) throw eSaldos;
+      // Saldo Real das contas pela fonte única (consulta paginada, um registro
+      // por conta): o mesmo número que o Painel Principal e Saldos das Contas.
+      const saldos = await buscarSaldoRealPorConta({ contaIds: (contas ?? []).map((c) => c.id) });
 
-      const ultimoSaldo = {};
-      for (const s of saldos ?? []) {
-        if (!(s.conta_id in ultimoSaldo)) ultimoSaldo[s.conta_id] = s.valor_saldo;
-      }
-
-      const contasComSaldo = (contas ?? []).map((c) => ({
-        id: c.id,
-        nome_conta: c.nome_conta,
-        numero_conta: c.numero_conta,
-        banco: c.bancos?.nome ?? "--",
-        saldo: ultimoSaldo[c.id] ?? 0,
-      }));
+      const contasComSaldo = montarSaldosDasContas(
+        (contas ?? []).map((c) => ({
+          id: c.id,
+          nome_conta: c.nome_conta,
+          numero_conta: c.numero_conta,
+          banco: c.bancos?.nome ?? "--",
+        })),
+        { saldos }
+      );
       setContasDaSecretaria(contasComSaldo);
 
       const { data: forns, error: eForns } = await supabase
@@ -220,55 +213,15 @@ export default function Pagamentos() {
    */
   async function calcularReservasDoDia(progs) {
     if (!progs || progs.length === 0) {
-      setReservaPorConta({});
+      setReservaPorConta(new Map());
       return;
     }
     try {
-      const ids = progs.map((p) => p.id);
-
-      const { data: pc, error: ePc } = await supabase
-        .from("programacao_contas")
-        .select("programacao_id, conta_id, valor_rateado")
-        .in("programacao_id", ids);
-      if (ePc) {
-        if (estruturaDeRateioAusente(ePc)) {
-          setRateioIndisponivel(true);
-          setReservaPorConta({});
-          return;
-        }
-        throw ePc;
-      }
-
-      const { data: movimentos, error: eMov } = await supabase
-        .from("pagamento_movimentacoes")
-        .select("programacao_id, conta_id, valor")
-        .in("programacao_id", ids);
-      if (eMov) {
-        if (estruturaDeRateioAusente(eMov)) {
-          setRateioIndisponivel(true);
-          setReservaPorConta({});
-          return;
-        }
-        throw eMov;
-      }
-
-      setRateioIndisponivel(false);
-
-      const debitado = {};
-      for (const m of movimentos ?? []) {
-        const chave = `${m.programacao_id}|${m.conta_id}`;
-        debitado[chave] = emCentavos((debitado[chave] ?? 0) + paraNumeroMoeda(m.valor));
-      }
-
-      const reserva = {};
-      for (const r of pc ?? []) {
-        const jaDebitado = debitado[`${r.programacao_id}|${r.conta_id}`] ?? 0;
-        const aindaReservado = Math.max(0, emCentavos(paraNumeroMoeda(r.valor_rateado) - jaDebitado));
-        if (!reserva[r.conta_id]) reserva[r.conta_id] = { porProgramacao: {}, debitadoPorProgramacao: {} };
-        reserva[r.conta_id].porProgramacao[String(r.programacao_id)] = aindaReservado;
-        reserva[r.conta_id].debitadoPorProgramacao[String(r.programacao_id)] = jaDebitado;
-      }
-      setReservaPorConta(reserva);
+      const { reservas, rateioIndisponivel: semRateio } = await buscarReservasPorConta({
+        programacaoIds: progs.map((p) => p.id),
+      });
+      setRateioIndisponivel(semRateio);
+      setReservaPorConta(reservas);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível calcular o saldo já reservado por outras programações."));
     }
@@ -557,7 +510,7 @@ export default function Pagamentos() {
 
       if (jaSelecionada) {
         const jaDebitado =
-          reservaPorConta[contaId]?.debitadoPorProgramacao?.[String(programacaoAtualId)] ?? 0;
+          reservaPorConta.get(String(contaId))?.debitadoPorProgramacao?.[String(programacaoAtualId)] ?? 0;
         if (jaDebitado > 0) {
           throw erroAmigavel(
             "Esta conta já foi debitada por um pagamento efetivado desta programação e não pode ser retirada."
@@ -863,27 +816,22 @@ export default function Pagamentos() {
   }
 
   /**
-   * Saldo de cada conta para esta programação: saldo contábil da conta, menos o
-   * que outras programações do dia reservaram, mais o que esta programação já
-   * debitou (o débito próprio já saiu do saldo contábil, então volta aqui para
-   * que "Saldo disponível" e "Resta" não mudem quando um pagamento é efetivado).
+   * Saldo de cada conta para esta programação, pela fonte única de verdade:
+   * Saldo Real da conta, menos o que outras programações do dia reservaram,
+   * mais o que esta programação já debitou (o débito próprio já saiu do Saldo
+   * Real, então volta aqui para que "Saldo disponível" e "Resta" não mudem
+   * quando um pagamento desta programação é efetivado).
    */
   const contasComSaldoDisponivelHoje = React.useMemo(() => {
-    const progAtual = String(programacaoAtualId ?? "");
-    return contasDaSecretaria.map((c) => {
-      const dados = reservaPorConta[c.id];
-      const reservadoOutras = Object.entries(dados?.porProgramacao ?? {}).reduce(
-        (acc, [progId, valor]) => (progId === progAtual ? acc : acc + valor),
-        0
-      );
-      const debitadoNestaProgramacao = dados?.debitadoPorProgramacao?.[progAtual] ?? 0;
-      return {
-        ...c,
-        reservadoOutras: emCentavos(reservadoOutras),
-        debitadoNestaProgramacao: emCentavos(debitadoNestaProgramacao),
-        saldoHoje: emCentavos(c.saldo + debitadoNestaProgramacao - reservadoOutras),
-      };
-    });
+    return montarSaldosDasContas(contasDaSecretaria, {
+      reservas: reservaPorConta,
+      programacaoAtualId,
+    }).map((c) => ({
+      ...c,
+      reservadoOutras: c.valorReservado,
+      debitadoNestaProgramacao: c.debitadoNaProgramacaoAtual,
+      saldoHoje: c.saldoDisponivel,
+    }));
   }, [contasDaSecretaria, reservaPorConta, programacaoAtualId]);
 
   // As contas ficam na ordem em que foram escolhidas (a mesma do rateio automático).

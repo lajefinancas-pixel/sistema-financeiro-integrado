@@ -7,6 +7,9 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import { mensagemAmigavel } from "../lib/erros";
+import { carregarSaldosDasContas } from "../lib/saldosContasDados";
+import { totalizarSaldos } from "../lib/saldosContas";
+import { emCentavos, somar } from "../lib/rateioPagamentos";
 
 const ICONES_SECRETARIA = {
   finan: Landmark,
@@ -59,8 +62,8 @@ export default function Dashboard() {
   const [busca, setBusca] = React.useState("");
 
   const [secretariasComSaldo, setSecretariasComSaldo] = React.useState([]);
-  const [saldoDisponivelTotal, setSaldoDisponivelTotal] = React.useState(0);
-  const [totalProgramadoHoje, setTotalProgramadoHoje] = React.useState(0);
+  const [saldoRealTotal, setSaldoRealTotal] = React.useState(0);
+  const [valorReservadoTotal, setValorReservadoTotal] = React.useState(0);
   const [pendencias, setPendencias] = React.useState([]);
   const [ultimosRegistros, setUltimosRegistros] = React.useState([]);
   const [pagamentosProgramados, setPagamentosProgramados] = React.useState([]);
@@ -85,48 +88,35 @@ export default function Dashboard() {
         .from("contas_bancarias").select("id, secretaria_id").eq("ativo", true);
       if (eContas) throw eContas;
 
-      const { data: saldos, error: eSaldos } = await supabase
-        .from("saldos_historico")
-        .select("conta_id, valor_saldo, data_saldo")
-        .order("data_saldo", { ascending: false });
-      if (eSaldos) throw eSaldos;
-
-      const ultimoSaldo = {};
-      const penultimoSaldo = {};
-      for (const s of saldos ?? []) {
-        if (!(s.conta_id in ultimoSaldo)) {
-          ultimoSaldo[s.conta_id] = s;
-        } else if (!(s.conta_id in penultimoSaldo)) {
-          penultimoSaldo[s.conta_id] = s;
-        }
-      }
+      // Fonte única de verdade: o Saldo Real, o Valor Reservado e o Saldo
+      // Disponível saem do mesmo cálculo usado em Saldos das Contas e em
+      // Pagamentos Diários. A agregação é por conta (id), então uma conta com
+      // vários pagamentos vinculados entra no total uma única vez.
+      const { contas: contasComSaldo } = await carregarSaldosDasContas({ contas: contas ?? [] });
 
       const secsComSaldo = (secs ?? []).map((sec) => {
-        const contasDaSec = (contas ?? []).filter((c) => c.secretaria_id === sec.id);
-        const total = contasDaSec.reduce((acc, c) => acc + (ultimoSaldo[c.id]?.valor_saldo ?? 0), 0);
-        const totalAnterior = contasDaSec.reduce((acc, c) => acc + (penultimoSaldo[c.id]?.valor_saldo ?? 0), 0);
-        const temHistorico = contasDaSec.some((c) => c.id in penultimoSaldo);
-        const variacao = temHistorico && totalAnterior !== 0 ? ((total - totalAnterior) / totalAnterior) * 100 : null;
-        return { id: sec.id, nome: sec.nome, total, variacao };
+        const contasDaSec = contasComSaldo.filter((c) => c.secretaria_id === sec.id);
+        const totais = totalizarSaldos(contasDaSec);
+        const totalAnterior = somar(contasDaSec.map((c) => c.saldoAnterior ?? 0));
+        const temHistorico = contasDaSec.some((c) => c.saldoAnterior !== null);
+        const variacao =
+          temHistorico && totalAnterior !== 0
+            ? ((totais.saldoReal - totalAnterior) / totalAnterior) * 100
+            : null;
+        return {
+          id: sec.id,
+          nome: sec.nome,
+          total: totais.saldoReal,
+          reservado: totais.valorReservado,
+          disponivel: totais.saldoDisponivel,
+          variacao,
+        };
       });
       setSecretariasComSaldo(secsComSaldo);
-      setSaldoDisponivelTotal(secsComSaldo.reduce((acc, s) => acc + s.total, 0));
 
-      const hojeStr = new Date().toISOString().slice(0, 10);
-      const { data: progsHoje, error: eProgs } = await supabase
-        .from("programacoes_pagamento").select("id").eq("data_programacao", hojeStr);
-      if (eProgs) throw eProgs;
-
-      let totalProgramado = 0;
-      if (progsHoje && progsHoje.length > 0) {
-        const { data: pgs } = await supabase
-          .from("pagamentos")
-          .select("valor_a_pagar, situacao")
-          .in("programacao_id", progsHoje.map((p) => p.id))
-          .neq("situacao", "cancelado");
-        totalProgramado = (pgs ?? []).reduce((acc, p) => acc + (parseFloat(p.valor_a_pagar) || 0), 0);
-      }
-      setTotalProgramadoHoje(totalProgramado);
+      const totalGeral = totalizarSaldos(contasComSaldo);
+      setSaldoRealTotal(totalGeral.saldoReal);
+      setValorReservadoTotal(totalGeral.valorReservado);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Erro ao carregar painel."));
     } finally {
@@ -251,7 +241,8 @@ export default function Dashboard() {
     }
   }
 
-  const saldoLiquido = saldoDisponivelTotal - totalProgramadoHoje;
+  // Saldo Disponível = Saldo Real - Valor Reservado (mesma regra das outras telas).
+  const saldoDisponivelTotal = emCentavos(saldoRealTotal - valorReservadoTotal);
 
   function handleBuscar(e) {
     e.preventDefault();
@@ -342,25 +333,27 @@ export default function Dashboard() {
 
             <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold text-[#0F2A44]">Saldo líquido de hoje</div>
-                <div className="text-xs text-[#0F2A44]/50 mt-0.5">Saldo disponível menos pagamentos programados para hoje</div>
+                <div className="text-sm font-semibold text-[#0F2A44]">Saldo consolidado das contas</div>
+                <div className="text-xs text-[#0F2A44]/50 mt-0.5">
+                  Saldo real das contas menos o valor reservado pelos pagamentos programados e ainda não pagos
+                </div>
               </div>
               <div className="flex items-center gap-8">
                 <div className="text-right">
-                  <div className="text-xs text-[#0F2A44]/50">Disponível</div>
-                  <div className="text-base font-semibold text-[#0F2A44]">{formatBRL(saldoDisponivelTotal)}</div>
+                  <div className="text-xs text-[#0F2A44]/50">Saldo real</div>
+                  <div className="text-base font-semibold text-[#0F2A44]">{formatBRL(saldoRealTotal)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-[#0F2A44]/50">Programado hoje</div>
-                  <div className="text-base font-semibold text-[#0F2A44]">{formatBRL(totalProgramadoHoje)}</div>
+                  <div className="text-xs text-[#0F2A44]/50">Valor reservado</div>
+                  <div className="text-base font-semibold text-[#0F2A44]">{formatBRL(valorReservadoTotal)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-[#0F2A44]/50">Líquido</div>
+                  <div className="text-xs text-[#0F2A44]/50">Saldo disponível</div>
                   <div
                     className="text-lg font-semibold"
-                    style={{ color: saldoLiquido < 0 ? "#DC2626" : "#0F2A44" }}
+                    style={{ color: saldoDisponivelTotal < 0 ? "#DC2626" : "#0F2A44" }}
                   >
-                    {formatBRL(saldoLiquido)}
+                    {formatBRL(saldoDisponivelTotal)}
                   </div>
                 </div>
               </div>
