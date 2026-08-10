@@ -10,6 +10,7 @@ import Historico from "./pages/Historico";
 import Relatorios from "./pages/Relatorios";
 import Auditoria from "./pages/Auditoria";
 import Configuracoes from "./pages/Configuracoes";
+import Usuarios from "./pages/equipe/Usuarios";
 
 function RotaProtegida({ children }) {
   const [sessao, setSessao] = React.useState(undefined);
@@ -33,6 +34,7 @@ export default function App() {
       <Route path="/saldos" element={<RotaProtegida><Saldos /></RotaProtegida>} />
       <Route path="/fornecedores" element={<RotaProtegida><Fornecedores /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
+      <Route path="/equipe/usuarios" element={<RotaProtegida><Usuarios /></RotaProtegida>} />
       <Route path="/historico" element={<RotaProtegida><Historico /></RotaProtegida>} />
       <Route path="/relatorios" element={<RotaProtegida><Relatorios /></RotaProtegida>} />
       <Route path="/auditoria" element={<RotaProtegida><Auditoria /></RotaProtegida>} />
