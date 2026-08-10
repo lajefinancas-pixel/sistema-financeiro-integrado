@@ -1,7 +1,12 @@
 import React from "react";
 import { MessageSquare, Send } from "lucide-react";
 import { Alerta } from "../equipe/comuns";
-import { criarComentario, formatarDataHora, listarComentarios } from "../../lib/tarefas";
+import {
+  criarComentario,
+  formatarDataHora,
+  listarComentarios,
+  notificarComentario,
+} from "../../lib/tarefas";
 
 /** Iniciais do nome, usadas no círculo que identifica quem comentou. */
 function iniciais(nome) {
@@ -10,8 +15,13 @@ function iniciais(nome) {
   return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
 }
 
-/** Comentários da tarefa (tabela "tarefas_comentarios"), do mais antigo ao mais novo. */
-export default function PainelComentarios({ tarefaId, usuarioId }) {
+/**
+ * Comentários da tarefa (tabela "tarefas_comentarios"), do mais antigo ao mais novo.
+ *
+ * Ao publicar, quem acompanha a tarefa (responsável, quem criou e quem recebeu
+ * o compartilhamento) recebe uma notificação — menos o próprio autor.
+ */
+export default function PainelComentarios({ tarefaId, usuarioId, tarefa, nomeUsuario }) {
   const [comentarios, setComentarios] = React.useState([]);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -39,6 +49,8 @@ export default function PainelComentarios({ tarefaId, usuarioId }) {
       const comentario = await criarComentario(tarefaId, usuarioId, texto);
       setComentarios((atual) => [...atual, comentario]);
       setTexto("");
+      // Aviso aos envolvidos: nunca impede o comentário de ser publicado.
+      if (tarefa) await notificarComentario(tarefa, usuarioId, nomeUsuario);
     } catch (e) {
       setErro(e.message ?? "Não foi possível enviar o comentário.");
     } finally {

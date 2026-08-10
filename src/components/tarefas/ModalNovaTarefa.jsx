@@ -1,6 +1,6 @@
 import React from "react";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell } from "../equipe/comuns";
-import { CATEGORIAS, PRIORIDADES, criarTarefa } from "../../lib/tarefas";
+import { CATEGORIAS, PRIORIDADES, RECORRENCIAS, criarTarefa, temColuna } from "../../lib/tarefas";
 
 /** Formulário de cadastro de tarefa. Grava com status "nova" e registra o histórico. */
 export default function ModalNovaTarefa({ usuarios, secretarias, usuarioId, onFechar, onCriada }) {
@@ -13,9 +13,14 @@ export default function ModalNovaTarefa({ usuarios, secretarias, usuarioId, onFe
     prioridade: "normal",
     categoria: "financeiro",
     secretaria_relacionada: "",
+    recorrencia: "nao_repete",
+    importante: false,
   });
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState(null);
+
+  // Repetição e aprovação dependem das colunas novas da tabela "tarefas".
+  const temRecursosFinais = temColuna("recorrencia") || temColuna("importante");
 
   function alterar(campo, valor) {
     setCampos((atual) => ({ ...atual, [campo]: valor }));
@@ -167,7 +172,43 @@ export default function ModalNovaTarefa({ usuarios, secretarias, usuarioId, onFe
               ))}
             </select>
           </Campo>
+
+          {temColuna("recorrencia") && (
+            <Campo
+              label="Repetir"
+              dica="Ao concluir, a próxima ocorrência é criada com o mesmo responsável e o novo prazo."
+            >
+              <select
+                value={campos.recorrencia}
+                onChange={(e) => alterar("recorrencia", e.target.value)}
+                className={CLASSE_ENTRADA}
+              >
+                {RECORRENCIAS.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+          )}
         </div>
+
+        {temRecursosFinais && temColuna("importante") && (
+          <label className="flex items-start gap-3 rounded-xl border border-black/10 px-4 py-3 cursor-pointer hover:bg-black/[0.02]">
+            <input
+              type="checkbox"
+              checked={campos.importante}
+              onChange={(e) => alterar("importante", e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-[#C9A227]"
+            />
+            <span>
+              <span className="text-sm font-medium text-[#0F2A44]">Tarefa importante</span>
+              <span className="block text-[11px] text-[#0F2A44]/50 mt-0.5">
+                Ao ser concluída pela responsável, fica em análise até a aprovação da gestora.
+              </span>
+            </span>
+          </label>
+        )}
       </form>
     </ModalShell>
   );

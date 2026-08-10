@@ -1,20 +1,26 @@
 import React from "react";
-import { ClipboardList, Columns3, List, Plus, Search, X } from "lucide-react";
+import { ClipboardList, Columns3, List, Plus, Search, UserRound, Users, X } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import ModalNovaTarefa from "../components/tarefas/ModalNovaTarefa";
 import ModalDetalheTarefa from "../components/tarefas/ModalDetalheTarefa";
 import QuadroTarefas from "../components/tarefas/QuadroTarefas";
+import MinhasTarefas from "../components/tarefas/MinhasTarefas";
+import PainelEquipe from "../components/tarefas/PainelEquipe";
+import SinoNotificacoes from "../components/tarefas/SinoNotificacoes";
 import { BadgePrioridade, BadgeStatus } from "../components/tarefas/badges";
 import { usePermissaoModulo } from "../lib/permissoes";
+import { sincronizarNotificacoesDePrazo } from "../lib/notificacoes";
 import {
   MODULO,
   categoriaLabel,
   estaAtrasada,
   formatarData,
   formatarHora,
+  hojeISO,
   listarSecretarias,
   listarTarefas,
+  listarTarefasCompartilhadasComigo,
   listarUsuarios,
   mudarStatusTarefa,
   statusInfo,
@@ -38,6 +44,13 @@ const ORDENACOES = [
 ];
 
 const PESO_PRIORIDADE = { urgente: 0, alta: 1, normal: 2, baixa: 3 };
+
+// Abas da página. "Equipe e tarefas" só aparece para quem aprova/administra.
+const ABAS_PAGINA = [
+  { id: "geral", label: "Visão geral", icone: ClipboardList },
+  { id: "minhas", label: "Minhas tarefas", icone: UserRound },
+  { id: "equipe", label: "Equipe e tarefas", icone: Users, somenteGestao: true },
+];
 
 function ordenar(lista, criterio) {
   const copia = [...lista];
@@ -86,6 +99,8 @@ function CardContador({ label, quantidade, chave, ativo, onClick }) {
 export default function Tarefas() {
   const { carregando: verificando, usuario: usuarioLogado, permissao, erro: erroPermissao } =
     usePermissaoModulo(MODULO);
+  // Só para saber se a pessoa administra o sistema — a regra do painel da gestora.
+  const { permissao: permissaoAdmin } = usePermissaoModulo("administracao");
 
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -93,6 +108,7 @@ export default function Tarefas() {
   const [tarefas, setTarefas] = React.useState([]);
   const [usuarios, setUsuarios] = React.useState([]);
   const [secretarias, setSecretarias] = React.useState([]);
+  const [idsCompartilhadas, setIdsCompartilhadas] = React.useState(() => new Set());
 
   const [busca, setBusca] = React.useState("");
   const [filtroStatus, setFiltroStatus] = React.useState(null);
@@ -102,6 +118,10 @@ export default function Tarefas() {
   const [abrirNova, setAbrirNova] = React.useState(false);
   const [tarefaAberta, setTarefaAberta] = React.useState(null);
   const [recarga, setRecarga] = React.useState(0);
+  const [recargaSino, setRecargaSino] = React.useState(0);
+
+  // Aba da página: a visão que já existia, as minhas tarefas ou o painel da equipe.
+  const [abaPagina, setAbaPagina] = React.useState("geral");
 
   // "lista" mantém a tabela já existente; "quadro" mostra o Kanban.
   const [visao, setVisao] = React.useState("lista");
@@ -109,6 +129,12 @@ export default function Tarefas() {
 
   const podeVisualizar = permissao?.pode_visualizar === true;
   const podeCadastrar = permissao?.pode_cadastrar === true;
+  // Painel da gestora: ver tarefas e ser quem aprova (ou administrar o sistema).
+  const podeVerEquipe =
+    podeVisualizar && (permissao?.pode_aprovar === true || permissaoAdmin?.pode_editar === true);
+
+  const abasVisiveis = ABAS_PAGINA.filter((a) => !a.somenteGestao || podeVerEquipe);
+  const abaAtiva = abasVisiveis.some((a) => a.id === abaPagina) ? abaPagina : "geral";
 
   React.useEffect(() => {
     if (!podeVisualizar) return undefined;
@@ -118,15 +144,28 @@ export default function Tarefas() {
       setCarregando(true);
       setErro(null);
       try {
-        const [listaTarefas, listaUsuarios, listaSecretarias] = await Promise.all([
+        const [listaTarefas, listaUsuarios, listaSecretarias, compartilhadas] = await Promise.all([
           listarTarefas(),
           listarUsuarios(),
           listarSecretarias().catch(() => []),
+          usuarioLogado?.id
+            ? listarTarefasCompartilhadasComigo(usuarioLogado.id).catch(() => [])
+            : Promise.resolve([]),
         ]);
         if (!ativo) return;
         setTarefas(listaTarefas);
         setUsuarios(listaUsuarios);
         setSecretarias(listaSecretarias);
+        setIdsCompartilhadas(new Set(compartilhadas));
+
+        // Avisos de prazo: no máximo um por tarefa por dia, gerados na abertura da tela.
+        if (usuarioLogado?.id) {
+          sincronizarNotificacoesDePrazo(usuarioLogado.id, listaTarefas, hojeISO())
+            .then(() => {
+              if (ativo) setRecargaSino((n) => n + 1);
+            })
+            .catch(() => {});
+        }
       } catch (e) {
         if (ativo) setErro(e.message ?? "Erro ao carregar as tarefas.");
       } finally {
@@ -138,12 +177,21 @@ export default function Tarefas() {
     return () => {
       ativo = false;
     };
-  }, [podeVisualizar, recarga]);
+  }, [podeVisualizar, usuarioLogado?.id, recarga]);
 
   // Os contadores olham sempre as tarefas de quem está logado.
   const minhasTarefas = React.useMemo(
     () => tarefas.filter((t) => t.responsavel_id === usuarioLogado?.id),
     [tarefas, usuarioLogado],
+  );
+
+  // Aba "Minhas tarefas": o que é meu como responsável mais o que dividiram comigo.
+  const tarefasDaPessoa = React.useMemo(
+    () =>
+      tarefas.filter(
+        (t) => t.responsavel_id === usuarioLogado?.id || idsCompartilhadas.has(t.id),
+      ),
+    [tarefas, usuarioLogado, idsCompartilhadas],
   );
 
   const contagens = React.useMemo(() => {
@@ -190,23 +238,34 @@ export default function Tarefas() {
     setTarefaAberta((aberta) => (aberta?.id === atualizada.id ? atualizada : aberta));
   }
 
+  /** Clique na notificação: abre a tarefa correspondente, se ela estiver carregada. */
+  function abrirTarefaPorId(tarefaId) {
+    const encontrada = tarefas.find((t) => t.id === tarefaId);
+    if (encontrada) {
+      setTarefaAberta(encontrada);
+      return;
+    }
+    setAviso("A tarefa desta notificação não está mais disponível para você.");
+  }
+
   /** Card solto em outra coluna: grava o novo status e a linha de histórico. */
   async function moverTarefa(tarefa, novoStatus) {
     setMovendoId(tarefa.id);
     setErro(null);
     setAviso(null);
     try {
-      const { tarefa: atualizada, avisoHistorico } = await mudarStatusTarefa(
-        tarefa,
-        novoStatus,
-        usuarioLogado?.id,
-      );
-      aplicarAtualizacao(atualizada);
+      const resultado = await mudarStatusTarefa(tarefa, novoStatus, usuarioLogado?.id);
+      aplicarAtualizacao(resultado.tarefa);
       setAviso(
-        avisoHistorico
-          ? `O status foi alterado, mas o registro no histórico falhou: ${avisoHistorico}`
-          : null,
+        resultado.avisoHistorico
+          ? `O status foi alterado, mas o registro no histórico falhou: ${resultado.avisoHistorico}`
+          : resultado.paraAprovacao
+            ? "Tarefa importante: ficou em análise, aguardando a aprovação da gestora."
+            : resultado.ocorrencia
+              ? `Próxima ocorrência criada para ${formatarData(resultado.ocorrencia.prazo)}.`
+              : null,
       );
+      if (resultado.ocorrencia) setRecarga((n) => n + 1);
     } catch (e) {
       setErro(e.message ?? "Não foi possível mudar o status da tarefa.");
     } finally {
@@ -250,36 +309,50 @@ export default function Tarefas() {
             <p className="text-sm text-[#0F2A44]/60 mt-0.5">
               {carregando
                 ? "Carregando tarefas..."
-                : `${filtradas.length} ${filtradas.length === 1 ? "tarefa" : "tarefas"} ${
-                    escopo === "minhas" ? "atribuídas a você" : "no sistema"
-                  }`}
+                : abaAtiva === "minhas"
+                  ? `${tarefasDaPessoa.length} ${
+                      tarefasDaPessoa.length === 1 ? "tarefa sua" : "tarefas suas"
+                    } — como responsável ou compartilhadas com você`
+                  : abaAtiva === "equipe"
+                    ? "Andamento das tarefas da equipe"
+                    : `${filtradas.length} ${filtradas.length === 1 ? "tarefa" : "tarefas"} ${
+                        escopo === "minhas" ? "atribuídas a você" : "no sistema"
+                      }`}
             </p>
           </div>
           <div className="self-start flex flex-wrap items-center gap-3">
+            <SinoNotificacoes
+              usuarioId={usuarioLogado?.id}
+              recarga={recargaSino}
+              onAbrirTarefa={abrirTarefaPorId}
+            />
+
             {/* Alternância de visualização: a lista já existente ou o quadro Kanban. */}
-            <div className="inline-flex rounded-lg border border-black/10 bg-white p-0.5" role="group" aria-label="Visualização">
-              {[
-                { id: "lista", label: "Lista", icone: List },
-                { id: "quadro", label: "Quadro", icone: Columns3 },
-              ].map((opcao) => {
-                const Icone = opcao.icone;
-                const ativa = visao === opcao.id;
-                return (
-                  <button
-                    key={opcao.id}
-                    type="button"
-                    onClick={() => setVisao(opcao.id)}
-                    aria-pressed={ativa}
-                    className={`flex items-center gap-1.5 text-sm px-3.5 py-2 rounded-[7px] transition-colors ${
-                      ativa ? "bg-[#0F2A44] text-white" : "text-[#0F2A44]/60 hover:bg-black/5"
-                    }`}
-                  >
-                    <Icone size={15} />
-                    {opcao.label}
-                  </button>
-                );
-              })}
-            </div>
+            {abaAtiva === "geral" && (
+              <div className="inline-flex rounded-lg border border-black/10 bg-white p-0.5" role="group" aria-label="Visualização">
+                {[
+                  { id: "lista", label: "Lista", icone: List },
+                  { id: "quadro", label: "Quadro", icone: Columns3 },
+                ].map((opcao) => {
+                  const Icone = opcao.icone;
+                  const ativa = visao === opcao.id;
+                  return (
+                    <button
+                      key={opcao.id}
+                      type="button"
+                      onClick={() => setVisao(opcao.id)}
+                      aria-pressed={ativa}
+                      className={`flex items-center gap-1.5 text-sm px-3.5 py-2 rounded-[7px] transition-colors ${
+                        ativa ? "bg-[#0F2A44] text-white" : "text-[#0F2A44]/60 hover:bg-black/5"
+                      }`}
+                    >
+                      <Icone size={15} />
+                      {opcao.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {podeCadastrar && (
               <button
@@ -303,6 +376,32 @@ export default function Tarefas() {
           </div>
         )}
 
+        {/* Abas da página: a visão que já existia continua sendo a primeira. */}
+        <div className="flex gap-1 border-b border-black/10 mb-5 overflow-x-auto">
+          {abasVisiveis.map((item) => {
+            const Icone = item.icone;
+            const ativa = abaAtiva === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setAbaPagina(item.id)}
+                aria-current={ativa ? "page" : undefined}
+                className={`flex items-center gap-1.5 px-3.5 py-2.5 text-sm border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                  ativa
+                    ? "border-[#C9A227] text-[#0F2A44] font-medium"
+                    : "border-transparent text-[#0F2A44]/50 hover:text-[#0F2A44]/80"
+                }`}
+              >
+                <Icone size={15} />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {abaAtiva === "geral" && (
+          <>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-5">
           {CONTADORES.map((c) => (
             <CardContador
@@ -481,6 +580,28 @@ export default function Tarefas() {
             </div>
           </>
         )}
+          </>
+        )}
+
+        {abaAtiva === "minhas" &&
+          (carregando ? (
+            <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
+          ) : (
+            <MinhasTarefas
+              tarefas={tarefasDaPessoa}
+              usuarioId={usuarioLogado?.id}
+              idsCompartilhadas={idsCompartilhadas}
+              onAbrir={setTarefaAberta}
+            />
+          ))}
+
+        {abaAtiva === "equipe" &&
+          podeVerEquipe &&
+          (carregando ? (
+            <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
+          ) : (
+            <PainelEquipe tarefas={tarefas} usuarios={usuarios} />
+          ))}
       </div>
 
       {abrirNova && (
@@ -505,8 +626,10 @@ export default function Tarefas() {
           tarefa={tarefaAberta}
           usuarioLogado={usuarioLogado}
           permissao={permissao}
+          usuarios={usuarios}
           onFechar={() => setTarefaAberta(null)}
           onAtualizada={aplicarAtualizacao}
+          onListaMudou={() => setRecarga((n) => n + 1)}
         />
       )}
     </Layout>
