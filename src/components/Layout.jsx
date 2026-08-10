@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   Home, Landmark, Users, Calendar, History, BarChart2, Settings,
-  LogOut, ShieldCheck, UserCog,
+  LogOut, ShieldCheck, UserCog, ClipboardList,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -11,6 +11,7 @@ const navItems = [
   { to: "/saldos", label: "Saldos das Contas", icon: Landmark },
   { to: "/fornecedores", label: "Fornecedores", icon: Users },
   { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
+  { to: "/tarefas", label: "Tarefas", icon: ClipboardList },
   { to: "/historico", label: "Histórico", icon: History },
   { to: "/relatorios", label: "Relatórios", icon: BarChart2 },
   { to: "/auditoria", label: "Auditoria", icon: ShieldCheck },
