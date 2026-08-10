@@ -1,5 +1,5 @@
 import React from "react";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import {
   emailValido,
@@ -8,6 +8,7 @@ import {
   STATUS_USUARIO,
 } from "../../lib/usuariosEquipe";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell, PainelSenha, SeletorFoto } from "./comuns";
+import AbaPermissoes from "./AbaPermissoes";
 
 const ABAS = [
   { id: "dados", label: "Dados" },
@@ -135,8 +136,6 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
       setRedefinindo(false);
     }
   }
-
-  const perfilAtual = perfis.find((p) => p.id === form?.perfil_id) ?? null;
 
   return (
     <ModalShell
@@ -298,22 +297,7 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
           )}
         </form>
       ) : (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-black/5 bg-[#F5F3EF]/70 p-4">
-            <div className="flex items-center gap-2 text-[#0F2A44]">
-              <ShieldCheck size={16} className="text-[#C9A227]" />
-              <span className="text-sm font-semibold">Perfil de acesso atual</span>
-            </div>
-            <div className="mt-3 text-sm text-[#0F2A44]">{perfilAtual?.nome ?? "Sem perfil atribuído"}</div>
-            {perfilAtual?.descricao && (
-              <p className="text-xs text-[#0F2A44]/55 mt-1">{perfilAtual.descricao}</p>
-            )}
-          </div>
-          <p className="text-xs text-[#0F2A44]/45">
-            As permissões deste usuário vêm do perfil de acesso. A edição detalhada por módulo será liberada em uma
-            próxima etapa.
-          </p>
-        </div>
+        <AbaPermissoes usuarioId={usuarioId} podeEditar={podeEditar} />
       )}
     </ModalShell>
   );
