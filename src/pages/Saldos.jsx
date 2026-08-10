@@ -6,6 +6,9 @@ import {
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { imprimirSaldos, gerarPdfSaldos, agoraBR } from "../lib/saldosDocumento";
+import { carregarSaldosDasContas } from "../lib/saldosContasDados";
+import { totalizarSaldos } from "../lib/saldosContas";
+import { somar } from "../lib/rateioPagamentos";
 import Layout from "../components/Layout";
 import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
@@ -161,28 +164,24 @@ export default function Saldos() {
         .eq("ativo", true);
       if (e3) throw e3;
 
-      const { data: saldos, error: e4 } = await supabase
-        .from("saldos_historico")
-        .select("conta_id, valor_saldo, data_saldo")
-        .order("data_saldo", { ascending: false });
-      if (e4) throw e4;
-
-      const ultimoSaldo = {};
-      for (const s of saldos ?? []) {
-        if (!(s.conta_id in ultimoSaldo)) ultimoSaldo[s.conta_id] = s;
-      }
+      // O Saldo Real de cada conta vem da fonte única (consulta paginada, um
+      // registro por conta) -- a mesma usada pelo Painel Principal e por
+      // Pagamentos Diários.
+      const { contas: contasComSaldo } = await carregarSaldosDasContas({
+        contas: (contas ?? []).map((c) => ({
+          id: c.id,
+          secretaria_id: c.secretaria_id,
+          banco: c.bancos?.nome ?? "--",
+          nome_conta: c.nome_conta,
+          numero_conta: c.numero_conta,
+        })),
+        comReservas: false,
+      });
 
       const agrupado = (secs ?? []).map((sec, i) => {
-        const contasDaSec = (contas ?? [])
-          .filter((c) => c.secretaria_id === sec.id)
-          .map((c) => ({
-            id: c.id,
-            banco: c.bancos?.nome ?? "--",
-            nome_conta: c.nome_conta,
-            numero_conta: c.numero_conta,
-            saldo: ultimoSaldo[c.id]?.valor_saldo ?? 0,
-          }));
-        const total = contasDaSec.reduce((acc, c) => acc + (c.saldo ?? 0), 0);
+        const contasDaSec = contasComSaldo.filter((c) => c.secretaria_id === sec.id);
+        // Cada conta entra no total UMA ÚNICA VEZ, pelo id da conta.
+        const total = totalizarSaldos(contasDaSec).saldoReal;
         return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
       });
 
@@ -341,31 +340,25 @@ export default function Saldos() {
         .eq("ativo", true);
       if (e2) throw e2;
 
-      const { data: saldos, error: e3 } = await supabase
-        .from("saldos_historico")
-        .select("conta_id, valor_saldo, data_saldo")
-        .lte("data_saldo", dataSelecionada)
-        .order("data_saldo", { ascending: false });
-      if (e3) throw e3;
-
-      const saldoNaDataOuAnterior = {};
-      for (const s of saldos ?? []) {
-        if (!(s.conta_id in saldoNaDataOuAnterior)) saldoNaDataOuAnterior[s.conta_id] = s;
-      }
+      // Mesma fonte única, agora com o saldo limitado à data escolhida.
+      const { contas: contasComSaldo } = await carregarSaldosDasContas({
+        contas: (contas ?? []).map((c) => ({
+          id: c.id,
+          secretaria_id: c.secretaria_id,
+          banco: c.bancos?.nome ?? "--",
+          nome_conta: c.nome_conta,
+          numero_conta: c.numero_conta,
+        })),
+        ate: dataSelecionada,
+        comReservas: false,
+      });
 
       const agrupado = (secs ?? []).map((sec, i) => {
-        const contasDaSec = (contas ?? [])
-          .filter((c) => c.secretaria_id === sec.id)
-          .map((c) => ({
-            id: c.id,
-            banco: c.bancos?.nome ?? "--",
-            nome_conta: c.nome_conta,
-            numero_conta: c.numero_conta,
-            saldo: saldoNaDataOuAnterior[c.id]?.valor_saldo ?? null,
-            dataDoSaldo: saldoNaDataOuAnterior[c.id]?.data_saldo ?? null,
-          }))
-          .filter((c) => c.saldo !== null);
-        const total = contasDaSec.reduce((acc, c) => acc + c.saldo, 0);
+        const contasDaSec = contasComSaldo
+          // Sem lançamento até a data escolhida, a conta não aparece na visão histórica.
+          .filter((c) => c.secretaria_id === sec.id && c.dataSaldo !== null)
+          .map((c) => ({ ...c, dataDoSaldo: c.dataSaldo }));
+        const total = totalizarSaldos(contasDaSec).saldoReal;
         return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
       }).filter((sec) => sec.contas.length > 0);
 
@@ -685,7 +678,7 @@ export default function Saldos() {
   const dataSelecionadaBR = new Date(dataSelecionada + "T00:00:00").toLocaleDateString("pt-BR", {
     day: "2-digit", month: "long", year: "numeric",
   });
-  const totalGeralHistorico = contasPorSecretariaNaData.reduce((acc, s) => acc + s.total, 0);
+  const totalGeralHistorico = somar(contasPorSecretariaNaData.map((s) => s.total));
 
   const secretariasAtual = React.useMemo(
     () => ordenarPorPreferencia(contasPorSecretaria, ordemSecretarias),

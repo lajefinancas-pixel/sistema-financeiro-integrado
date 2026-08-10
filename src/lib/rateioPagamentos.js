@@ -8,7 +8,7 @@
 // Tudo aqui é cálculo puro (sem banco), com dinheiro sempre arredondado em
 // centavos para que somas de frações não deixem uma diferença invisível na tela.
 
-import { formatBRL, paraNumeroMoeda } from "./moeda";
+import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 
 /** Diferença que ainda conta como "igual": meio centavo. */
 export const TOLERANCIA = 0.005;
