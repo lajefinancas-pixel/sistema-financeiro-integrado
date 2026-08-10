@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -24,6 +24,68 @@ function situacaoInfo(v) {
 }
 
 const ALIQUOTAS_PADRAO = [2, 3, 4, 5];
+
+// Cada opção aponta para um campo de data que já existe no cadastro:
+// "cadastro" vem do fornecedor; os demais vêm dos lançamentos dele.
+const CAMPOS_DATA = [
+  { value: "cadastro", label: "Cadastro" },
+  { value: "emissao", label: "Emissão" },
+  { value: "vencimento", label: "Vencimento" },
+  { value: "pagamento", label: "Pagamento" },
+  { value: "lancamento", label: "Lançamento" },
+];
+
+const FAIXAS_VALOR = [
+  { label: "Até R$ 1.000", min: "", max: "1000" },
+  { label: "R$ 1.001 a R$ 5.000", min: "1000.01", max: "5000" },
+  { label: "R$ 5.001 a R$ 10.000", min: "5000.01", max: "10000" },
+  { label: "R$ 10.001 a R$ 50.000", min: "10000.01", max: "50000" },
+  { label: "Acima de R$ 50.000", min: "50000.01", max: "" },
+];
+
+const FILTROS_VAZIOS = {
+  nome: "",
+  dataInicial: "",
+  dataFinal: "",
+  campoData: "vencimento",
+  valorMin: "",
+  valorMax: "",
+  documento: "",
+  situacao: "",
+};
+
+function normalizarTexto(v) {
+  return String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+function somenteDigitos(v) {
+  return String(v ?? "").replace(/\D/g, "");
+}
+function soData(v) {
+  return v ? String(v).slice(0, 10) : "";
+}
+function dentroDoPeriodo(valor, inicio, fim) {
+  const data = soData(valor);
+  if (!data) return false;
+  if (inicio && data < inicio) return false;
+  if (fim && data > fim) return false;
+  return true;
+}
+function paraNumero(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isNaN(n) ? null : n;
+}
+function filtroPreenchido(f) {
+  return (
+    f.nome.trim() !== "" ||
+    f.dataInicial !== "" ||
+    f.dataFinal !== "" ||
+    f.valorMin !== "" ||
+    f.valorMax !== "" ||
+    f.documento.trim() !== "" ||
+    f.situacao !== ""
+  );
+}
 
 const FORM_VALOR_VAZIO = {
   fornecedor_id: "",
@@ -67,9 +129,39 @@ export default function Fornecedores() {
   const [fixarIss, setFixarIss] = React.useState(false);
   const [fixarIr, setFixarIr] = React.useState(false);
 
+  // Filtros avançados: a busca rápida vale na hora; os demais só ao clicar em "Aplicar Filtros".
+  const [buscaRapida, setBuscaRapida] = React.useState("");
+  const [filtros, setFiltros] = React.useState(FILTROS_VAZIOS);
+  const [filtrosAplicados, setFiltrosAplicados] = React.useState(FILTROS_VAZIOS);
+  const [mostrarFiltros, setMostrarFiltros] = React.useState(false);
+  // Datas de pagamento (data da programação em que o valor foi pago), por valor em aberto.
+  const [datasPagamento, setDatasPagamento] = React.useState({});
+
   React.useEffect(() => {
     carregarDados();
+    carregarDatasPagamento();
   }, []);
+
+  // Consulta isolada: se falhar, só o filtro por data de pagamento fica sem base, sem afetar a tela.
+  async function carregarDatasPagamento() {
+    try {
+      const { data, error } = await supabase
+        .from("pagamentos")
+        .select("valor_em_aberto_id, programacoes_pagamento(data_programacao)")
+        .eq("situacao", "pago");
+      if (error) throw error;
+
+      const porValor = {};
+      (data ?? []).forEach((p) => {
+        const data_pg = soData(p.programacoes_pagamento?.data_programacao);
+        if (!p.valor_em_aberto_id || !data_pg) return;
+        (porValor[p.valor_em_aberto_id] ??= []).push(data_pg);
+      });
+      setDatasPagamento(porValor);
+    } catch {
+      setDatasPagamento({});
+    }
+  }
 
   async function carregarDados() {
     setCarregando(true);
@@ -81,7 +173,7 @@ export default function Fornecedores() {
 
       const { data: forns, error: e2 } = await supabase
         .from("fornecedores")
-        .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, telefone, email, aliquota_iss_fixa, aliquota_ir_fixa, secretarias(nome)")
+        .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, telefone, email, aliquota_iss_fixa, aliquota_ir_fixa, created_at, secretarias(nome)")
         .eq("ativo", true)
         .order("razao_social");
       if (e2) throw e2;
@@ -292,6 +384,95 @@ export default function Fornecedores() {
     XLSX.writeFile(wb, `fornecedores-${hojeISO()}.xlsx`);
   }
 
+  // Situações oferecidas no filtro: apenas as que realmente aparecem nos fornecedores cadastrados.
+  const situacoesDisponiveis = React.useMemo(() => {
+    const encontradas = new Set();
+    fornecedores.forEach((f) => f.valores.forEach((v) => { if (v.situacao) encontradas.add(v.situacao); }));
+    return [...encontradas]
+      .map((s) => ({ value: s, label: SITUACOES.find((x) => x.value === s)?.label ?? s }))
+      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  }, [fornecedores]);
+
+  function dataDoLancamento(valor, campo) {
+    if (campo === "emissao") return [valor.data_nota_fiscal];
+    if (campo === "vencimento") return [valor.data_vencimento];
+    if (campo === "lancamento") return [valor.created_at];
+    if (campo === "pagamento") return datasPagamento[valor.id] ?? [];
+    return [];
+  }
+
+  const fornecedoresFiltrados = React.useMemo(() => {
+    const busca = normalizarTexto(buscaRapida);
+    const { nome, dataInicial, dataFinal, campoData, valorMin, valorMax, documento, situacao } = filtrosAplicados;
+
+    const nomeBusca = normalizarTexto(nome);
+    const docDigitos = somenteDigitos(documento);
+    const docTexto = normalizarTexto(documento);
+    const minimo = paraNumero(valorMin);
+    const maximo = paraNumero(valorMax);
+    const temPeriodo = Boolean(dataInicial || dataFinal);
+    const periodoNoLancamento = temPeriodo && campoData !== "cadastro";
+    // Valor, situação e período (exceto cadastro) precisam bater todos no mesmo lançamento.
+    const filtraLancamentos = Boolean(situacao) || minimo !== null || maximo !== null || periodoNoLancamento;
+
+    return fornecedores.filter((f) => {
+      const digitosDoc = somenteDigitos(f.cpf_cnpj);
+      const nomes = normalizarTexto(`${f.razao_social ?? ""} ${f.nome_fantasia ?? ""}`);
+
+      if (busca) {
+        const buscaDigitos = somenteDigitos(busca);
+        const achouTexto = `${nomes} ${normalizarTexto(f.cpf_cnpj)}`.includes(busca);
+        const achouDoc = buscaDigitos !== "" && digitosDoc.includes(buscaDigitos);
+        if (!achouTexto && !achouDoc) return false;
+      }
+
+      if (nomeBusca && !nomes.includes(nomeBusca)) return false;
+
+      if (documento.trim()) {
+        // Aceita com ou sem pontuação: compara só os dígitos quando o filtro tiver algum.
+        const combina = docDigitos ? digitosDoc.includes(docDigitos) : normalizarTexto(f.cpf_cnpj).includes(docTexto);
+        if (!combina) return false;
+      }
+
+      if (temPeriodo && campoData === "cadastro" && !dentroDoPeriodo(f.created_at, dataInicial, dataFinal)) return false;
+
+      if (!filtraLancamentos) return true;
+
+      return f.valores.some((v) => {
+        if (situacao && v.situacao !== situacao) return false;
+
+        const valorLiquido = v.valor ?? 0;
+        if (minimo !== null && valorLiquido < minimo) return false;
+        if (maximo !== null && valorLiquido > maximo) return false;
+
+        if (periodoNoLancamento) {
+          const datas = dataDoLancamento(v, campoData);
+          if (!datas.some((d) => dentroDoPeriodo(d, dataInicial, dataFinal))) return false;
+        }
+        return true;
+      });
+    });
+  }, [fornecedores, buscaRapida, filtrosAplicados, datasPagamento]);
+
+  const filtrandoAlgo = buscaRapida.trim() !== "" || filtroPreenchido(filtrosAplicados);
+
+  function aplicarFiltros() {
+    setFiltrosAplicados(filtros);
+  }
+  function limparFiltros() {
+    setFiltros(FILTROS_VAZIOS);
+    setFiltrosAplicados(FILTROS_VAZIOS);
+    setBuscaRapida("");
+  }
+  function aplicarFaixa(faixa) {
+    const jaAtiva = filtros.valorMin === faixa.min && filtros.valorMax === faixa.max;
+    const novos = jaAtiva
+      ? { ...filtros, valorMin: "", valorMax: "" }
+      : { ...filtros, valorMin: faixa.min, valorMax: faixa.max };
+    setFiltros(novos);
+    setFiltrosAplicados(novos);
+  }
+
   const totalGeralAberto = fornecedores.reduce((acc, f) => acc + f.totalAberto, 0);
   return (
     <Layout>
@@ -335,6 +516,170 @@ export default function Fornecedores() {
             {erro}
           </div>
         )}
+
+        <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6 print:hidden">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={buscaRapida}
+              onChange={(e) => setBuscaRapida(e.target.value)}
+              placeholder="🔎 Buscar fornecedor..."
+              className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setMostrarFiltros((v) => !v)}
+              className={`flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border ${
+                mostrarFiltros || filtroPreenchido(filtrosAplicados)
+                  ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                  : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+              }`}
+            >
+              <SlidersHorizontal size={15} />
+              Filtros avançados
+              {mostrarFiltros ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+          <p className="text-[11px] text-[#0F2A44]/40 mt-1.5">
+            A busca rápida procura ao mesmo tempo em nome, razão social, nome fantasia, CPF e CNPJ.
+          </p>
+
+          {mostrarFiltros && (
+            <div className="mt-4 pt-4 border-t border-black/5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Nome / Razão social / Nome fantasia</label>
+                <input
+                  type="text"
+                  value={filtros.nome}
+                  onChange={(e) => setFiltros({ ...filtros, nome: e.target.value })}
+                  placeholder="Parte do nome, ex: Meta"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Data inicial</label>
+                  <input
+                    type="date"
+                    value={filtros.dataInicial}
+                    onChange={(e) => setFiltros({ ...filtros, dataInicial: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Data final</label>
+                  <input
+                    type="date"
+                    value={filtros.dataFinal}
+                    onChange={(e) => setFiltros({ ...filtros, dataFinal: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Filtrar data por</label>
+                  <select
+                    value={filtros.campoData}
+                    onChange={(e) => setFiltros({ ...filtros, campoData: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    {CAMPOS_DATA.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-[#0F2A44]/70">Valor mínimo</label>
+                    <input
+                      type="number" step="0.01" placeholder="0,00"
+                      value={filtros.valorMin}
+                      onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-[#0F2A44]/70">Valor máximo</label>
+                    <input
+                      type="number" step="0.01" placeholder="0,00"
+                      value={filtros.valorMax}
+                      onChange={(e) => setFiltros({ ...filtros, valorMax: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {FAIXAS_VALOR.map((faixa) => (
+                    <button
+                      key={faixa.label}
+                      type="button"
+                      onClick={() => aplicarFaixa(faixa)}
+                      className={`px-3 py-1.5 rounded-md text-xs border ${
+                        filtros.valorMin === faixa.min && filtros.valorMax === faixa.max
+                          ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                          : "border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                      }`}
+                    >
+                      {faixa.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Considera o valor líquido de cada lançamento do fornecedor.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">CNPJ / CPF</label>
+                  <input
+                    type="text"
+                    value={filtros.documento}
+                    onChange={(e) => setFiltros({ ...filtros, documento: e.target.value })}
+                    placeholder="Com ou sem pontuação"
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Situação</label>
+                  <select
+                    value={filtros.situacao}
+                    onChange={(e) => setFiltros({ ...filtros, situacao: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  >
+                    <option value="">Todas</option>
+                    {situacoesDisponiveis.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={aplicarFiltros}
+                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+                >
+                  <Filter size={15} /> Aplicar Filtros
+                </button>
+                <button
+                  type="button"
+                  onClick={limparFiltros}
+                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                >
+                  <Eraser size={15} /> Limpar Filtros
+                </button>
+                {filtrandoAlgo && (
+                  <span className="text-xs text-[#0F2A44]/50 ml-1">
+                    {fornecedoresFiltrados.length} de {fornecedores.length} fornecedores
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {mostrarFormValor && (
           <form
@@ -659,9 +1004,13 @@ export default function Fornecedores() {
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
             Nenhum fornecedor cadastrado ainda.
           </div>
+        ) : fornecedoresFiltrados.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
+            Nenhum fornecedor encontrado com os filtros aplicados.
+          </div>
         ) : (
           <div className="space-y-3">
-            {fornecedores.map((f) => (
+            {fornecedoresFiltrados.map((f) => (
               <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
                 <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
                   <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="flex-1 text-left">
