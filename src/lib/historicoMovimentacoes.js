@@ -44,8 +44,18 @@ const MODULOS = {
 
 export const OPCOES_MODULO = Object.entries(MODULOS).map(([valor, label]) => ({ valor, label }));
 
+/**
+ * Módulos que a trilha de auditoria grava e que aparecem apenas nos cards de
+ * histórico por módulo. Ficam fora de MODULOS de propósito: o select de módulo
+ * da linha do tempo e o recorte das consultas com filtro continuam exatamente
+ * como estavam.
+ */
+const MODULOS_SO_EM_CARD = {
+  pagamentos: "Pagamentos",
+};
+
 export function moduloLabel(valor) {
-  return MODULOS[valor] ?? valor ?? "--";
+  return MODULOS[valor] ?? MODULOS_SO_EM_CARD[valor] ?? valor ?? "--";
 }
 
 /**
@@ -409,6 +419,126 @@ export async function contarMovimentacoes(filtros = null) {
 
   if (eventos.error && conclusoes.error) return null;
   return (eventos.error ? 0 : (eventos.count ?? 0)) + (conclusoes.error ? 0 : (conclusoes.count ?? 0));
+}
+
+/* -------------------------------------------------------------------------
+ * Histórico por módulo (cards compactos)
+ * ---------------------------------------------------------------------- */
+
+/** Quantas movimentações um card de módulo abre de cada vez. */
+export const LIMITE_POR_MODULO = 10;
+
+/**
+ * Cards de histórico por módulo mostrados abaixo do Histórico de Saldos. Cada
+ * card lê as mesmas trilhas da linha do tempo geral, recortadas pelo módulo —
+ * nada de tabela nova e nada de consulta por fora das políticas do banco.
+ */
+export const HISTORICOS_POR_MODULO = [
+  {
+    chave: "fornecedores",
+    titulo: "Histórico de Fornecedores",
+    descricao: "Cadastros, alterações e exclusões de fornecedores",
+  },
+  {
+    chave: "pagamentos",
+    titulo: "Histórico de Pagamentos",
+    descricao: "Movimentações registradas nos pagamentos",
+  },
+  {
+    chave: "tarefas",
+    titulo: "Histórico de Tarefas",
+    descricao: "Tarefas cadastradas, alteradas e concluídas",
+  },
+  {
+    chave: "usuarios",
+    titulo: "Histórico de Usuários",
+    descricao: "Contas de acesso e permissões da equipe",
+  },
+];
+
+const ACOES_DA_TRILHA = ["criou", "alterou", "excluiu"];
+
+/** Consulta da trilha de auditoria recortada por um módulo. */
+function consultaDoModulo(modulo, { contar = false } = {}) {
+  const base = supabase.from(TABELA_EVENTOS);
+  const q = contar ? base.select("id", { count: "exact", head: true }) : base.select(COLUNAS_EVENTO);
+  return q.eq("modulo", modulo).in("acao", ACOES_DA_TRILHA).eq("resultado", "sucesso");
+}
+
+/**
+ * Conclusões de tarefa do módulo, quando ele tiver: só "tarefas" guarda parte
+ * das movimentações fora da trilha de auditoria.
+ */
+function conclusoesDoModulo(modulo, opcoes) {
+  if (modulo !== "tarefas") return null;
+  return consultaDeConclusoes({ ...FILTROS_VAZIOS, modulo: "tarefas" }, opcoes);
+}
+
+/**
+ * Quantas movimentações o módulo tem — é o número do card. Devolve null quando
+ * a leitura não está liberada, para o card aparecer sem número em vez de
+ * anunciar um zero que não é verdade.
+ */
+export async function contarMovimentacoesDoModulo(modulo) {
+  const consultaConclusoes = conclusoesDoModulo(modulo, { contar: true });
+
+  const [eventos, conclusoes] = await Promise.all([
+    consultaDoModulo(modulo, { contar: true }),
+    consultaConclusoes ?? Promise.resolve(null),
+  ]);
+
+  const falhouEventos = Boolean(eventos?.error);
+  const falhouConclusoes = consultaConclusoes ? Boolean(conclusoes?.error) : true;
+  if (falhouEventos && falhouConclusoes) return null;
+
+  const daTrilha = falhouEventos ? 0 : (eventos?.count ?? 0);
+  const dasConclusoes = falhouConclusoes ? 0 : (conclusoes?.count ?? 0);
+  return daTrilha + dasConclusoes;
+}
+
+/**
+ * Movimentações mais recentes de um módulo, no mesmo formato da linha do tempo
+ * geral (e com os mesmos avisos quando uma das trilhas não está liberada).
+ *
+ * @returns { movimentacoes, temMais, avisos }
+ */
+export async function listarMovimentacoesDoModulo(modulo, { limite = LIMITE_POR_MODULO } = {}) {
+  const consultaConclusoes = conclusoesDoModulo(modulo);
+
+  const [eventos, conclusoes] = await Promise.all([
+    consultaDoModulo(modulo).order("data_hora", { ascending: false }).limit(limite + 1),
+    consultaConclusoes
+      ? consultaConclusoes.order("criado_em", { ascending: false }).limit(limite + 1)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  // Nenhuma trilha respondeu: não há o que mostrar, a tela exibe a mensagem.
+  if (eventos.error && (!consultaConclusoes || conclusoes.error)) throw eventos.error;
+
+  const avisos = [];
+  if (eventos.error) {
+    avisos.push(
+      mensagemAmigavel(
+        eventos.error,
+        "Os cadastros, alterações e exclusões não puderam ser carregados; as conclusões de tarefa continuam na lista.",
+      ),
+    );
+  }
+  if (consultaConclusoes && conclusoes.error) {
+    avisos.push(
+      mensagemAmigavel(
+        conclusoes.error,
+        "As conclusões de tarefa não puderam ser carregadas; as demais movimentações continuam na lista.",
+      ),
+    );
+  }
+
+  const juntas = [
+    ...(eventos.data ?? []).map(eventoParaMovimentacao),
+    ...(conclusoes.data ?? []).map(conclusaoParaMovimentacao),
+  ].sort((a, b) => instanteEm(b) - instanteEm(a));
+
+  return { movimentacoes: juntas.slice(0, limite), temMais: juntas.length > limite, avisos };
 }
 
 /* -------------------------------------------------------------------------
