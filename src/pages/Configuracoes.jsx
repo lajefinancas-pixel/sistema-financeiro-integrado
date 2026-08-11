@@ -9,6 +9,9 @@ import { Alerta } from "../components/equipe/comuns";
 import { AvisoSomenteLeitura, Cartao, EmBreve } from "../components/configuracoes/comuns";
 import CategoriaGeral from "../components/configuracoes/CategoriaGeral";
 import CategoriaUsuariosSeguranca from "../components/configuracoes/CategoriaUsuariosSeguranca";
+import CategoriaFinanceiro from "../components/configuracoes/CategoriaFinanceiro";
+import CategoriaFornecedores from "../components/configuracoes/CategoriaFornecedores";
+import CategoriaTributario from "../components/configuracoes/CategoriaTributario";
 import {
   CATEGORIAS,
   CATEGORIA_PADRAO,
@@ -16,6 +19,7 @@ import {
   categoriaValida,
   GERAL_PADRAO,
   SEGURANCA_PADRAO,
+  TRIBUTARIO_PADRAO,
 } from "../lib/configuracoesSistema";
 
 // A tela inteira é do módulo 'administracao': abrir exige pode_visualizar e
@@ -102,6 +106,7 @@ export default function Configuracoes() {
   const [configuracoes, setConfiguracoes] = React.useState({
     geral: GERAL_PADRAO,
     seguranca: SEGURANCA_PADRAO,
+    tributario: TRIBUTARIO_PADRAO,
     autoria: {},
   });
   const [carregando, setCarregando] = React.useState(true);
@@ -210,6 +215,17 @@ export default function Configuracoes() {
               <CategoriaUsuariosSeguranca
                 valores={configuracoes.seguranca}
                 autoria={configuracoes.autoria?.seguranca}
+                podeEditar={podeEditar}
+                onSalvo={recarregar}
+              />
+            ) : categoriaAtual === "financeiro" ? (
+              <CategoriaFinanceiro podeEditar={podeEditar} />
+            ) : categoriaAtual === "fornecedores" ? (
+              <CategoriaFornecedores />
+            ) : categoriaAtual === "tributario" ? (
+              <CategoriaTributario
+                valores={configuracoes.tributario}
+                autoria={configuracoes.autoria?.tributario}
                 podeEditar={podeEditar}
                 onSalvo={recarregar}
               />
