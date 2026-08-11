@@ -122,6 +122,51 @@ function linhasDeFornecedores(fornecedores) {
   }));
 }
 
+// --- Colunas e apoio das categorias Tributário, Usuários e Gestão e Auditoria ---
+const COL_NOTA = { chave: "nota", label: "Nota fiscal", peso: 11 };
+const COL_EMISSAO = { chave: "data_nota", label: "Emissão", tipo: "data", peso: 11 };
+const COL_VALOR_BRUTO = { chave: "valor_bruto", label: "Valor bruto", tipo: "moeda", somavel: true, peso: 15 };
+const COL_BASE_CALCULO = { chave: "base_calculo", label: "Base de cálculo", tipo: "moeda", somavel: true, peso: 15 };
+const COL_ISS = { chave: "valor_iss", label: "ISS retido", tipo: "moeda", somavel: true, peso: 14 };
+const COL_IRPJ = { chave: "valor_ir", label: "IRPJ retido", tipo: "moeda", somavel: true, peso: 14 };
+const COL_ALIQUOTA_ISS = { chave: "aliquota_iss_texto", label: "Alíq. ISS", peso: 9 };
+const COL_ALIQUOTA_IRPJ = { chave: "aliquota_ir_texto", label: "Alíq. IRPJ", peso: 9 };
+
+const COL_TAREFA = { chave: "titulo", label: "Tarefa", peso: 30 };
+const COL_RESPONSAVEL = { chave: "responsavel", label: "Responsável", peso: 18 };
+const COL_CATEGORIA_TAREFA = { chave: "categoria", label: "Categoria", peso: 12 };
+const COL_PRIORIDADE = { chave: "prioridade", label: "Prioridade", peso: 10 };
+const COL_PRAZO = { chave: "prazo", label: "Prazo", tipo: "data", peso: 11 };
+const COL_QUANDO = { chave: "quando", label: "Data / hora", peso: 14 };
+const COL_USUARIO = { chave: "usuario", label: "Usuário", peso: 18 };
+const COL_ACAO = { chave: "acao", label: "Ação", peso: 16 };
+const COL_DESCRICAO_ACAO = { chave: "descricao", label: "O que foi registrado", peso: 34 };
+
+// Sequência dos status no relatório de tarefas pendentes: a mesma ordem em que
+// a página Tarefas apresenta o andamento, das novas às encerradas.
+const ORDEM_STATUS_PENDENTES = [
+  "Nova", "Recebida", "Em andamento", "Aguardando resposta", "Em análise", "Cancelada",
+];
+
+const lancamentosDe = (bases) => bases?.tributaria?.lancamentos ?? [];
+const tarefasDe = (bases) => bases?.tarefas?.tarefas ?? [];
+const historicoDe = (bases) => bases?.historico?.registros ?? [];
+
+/** Mais recente primeiro; registros sem data ficam no fim. */
+function porMaisRecente(campo) {
+  return (a, b) => String(b?.[campo] ?? "").localeCompare(String(a?.[campo] ?? ""));
+}
+
+function porFornecedorEData(a, b) {
+  return porRazaoSocial(a, b) || String(a.data_nota ?? "").localeCompare(String(b.data_nota ?? ""));
+}
+
+/** Quantos fornecedores diferentes apareceram no resultado. */
+function fornecedoresDistintos(resultado) {
+  const nomes = new Set(resultado.grupos.flatMap((g) => g.linhas).map((l) => l.razao_social));
+  return String(nomes.size);
+}
+
 // --- Relatórios ---
 export const CATEGORIAS = [
   {
@@ -133,6 +178,21 @@ export const CATEGORIAS = [
     id: "fornecedores",
     nome: "Fornecedores",
     descricao: "Cadastro de fornecedores por secretaria, por período de cadastro e por situação.",
+  },
+  {
+    id: "tributario",
+    nome: "Tributário",
+    descricao: "ISS, IRPJ, retenções aplicadas e pendências tributárias dos lançamentos dos fornecedores.",
+  },
+  {
+    id: "usuarios",
+    nome: "Usuários e Gestão",
+    descricao: "Atividades registradas por usuário e o acompanhamento das tarefas da equipe.",
+  },
+  {
+    id: "auditoria",
+    nome: "Auditoria",
+    descricao: "Trilha das alterações registradas no sistema e as aprovações concedidas.",
   },
 ];
 
@@ -297,6 +357,243 @@ export const RELATORIOS = [
         { label: "Inativos", valor: String(quantidade("Inativo")) },
       ];
     },
+  },
+  {
+    id: "iss-retido",
+    categoria: "tributario",
+    base: "tributaria",
+    nome: "ISS",
+    descricao: "Lançamentos de fornecedores com retenção de ISS, com a alíquota e o valor retido.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 18 },
+      COL_NOTA,
+      COL_EMISSAO,
+      COL_BASE_CALCULO,
+      COL_ALIQUOTA_ISS,
+      COL_ISS,
+    ],
+    campoTotal: "valor_iss",
+    rotuloTotal: "ISS retido",
+    montar: (bases) =>
+      blocoUnico(lancamentosDe(bases).filter((l) => l.valor_iss > 0).sort(porFornecedorEData)),
+    resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
+  },
+  {
+    id: "irpj-retido",
+    categoria: "tributario",
+    base: "tributaria",
+    nome: "IRPJ",
+    descricao: "Lançamentos de fornecedores com retenção de IRPJ, com a alíquota e o valor retido.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 18 },
+      COL_NOTA,
+      COL_EMISSAO,
+      COL_BASE_CALCULO,
+      COL_ALIQUOTA_IRPJ,
+      COL_IRPJ,
+    ],
+    campoTotal: "valor_ir",
+    rotuloTotal: "IRPJ retido",
+    montar: (bases) =>
+      blocoUnico(lancamentosDe(bases).filter((l) => l.valor_ir > 0).sort(porFornecedorEData)),
+    resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
+  },
+  {
+    id: "retencoes-tributarias",
+    categoria: "tributario",
+    base: "tributaria",
+    nome: "Retenções",
+    descricao: "Visão consolidada de todas as retenções aplicadas, agrupadas por secretaria.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_NOTA,
+      COL_EMISSAO,
+      COL_VALOR_BRUTO,
+      { chave: "valor_liquido", label: "Valor líquido", tipo: "moeda", somavel: true, peso: 15 },
+      COL_ISS,
+      COL_IRPJ,
+      { chave: "total_retido", label: "Total retido", tipo: "moeda", somavel: true, peso: 16 },
+    ],
+    campoTotal: "total_retido",
+    rotuloTotal: "Total retido",
+    rotuloGrupo: "Secretaria",
+    montar: (bases) =>
+      agrupar(lancamentosDe(bases).filter((l) => l.total_retido > 0), "secretaria", {
+        ordenarLinhas: porFornecedorEData,
+      }),
+    resumo: (resultado) => [
+      { label: "ISS retido", valor: formatBRL(resultado.totais.valor_iss) },
+      { label: "IRPJ retido", valor: formatBRL(resultado.totais.valor_ir) },
+    ],
+  },
+  {
+    id: "pendencias-tributarias",
+    categoria: "tributario",
+    base: "tributaria",
+    nome: "Pendências tributárias",
+    descricao: "Lançamentos fora do Simples com alíquota informada e nenhuma retenção aplicada.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 16 },
+      COL_NOTA,
+      COL_EMISSAO,
+      COL_ALIQUOTA_ISS,
+      COL_ALIQUOTA_IRPJ,
+      { chave: "situacao", label: "Situação", peso: 12 },
+      COL_VALOR_BRUTO,
+    ],
+    campoTotal: "valor_bruto",
+    rotuloTotal: "Valor envolvido",
+    montar: (bases) =>
+      blocoUnico(lancamentosDe(bases).filter((l) => l.pendencia === true).sort(porFornecedorEData)),
+    resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
+  },
+  {
+    id: "atividades-por-usuario",
+    categoria: "usuarios",
+    base: "historico",
+    nome: "Atividades por usuário",
+    descricao: "Ações registradas na trilha das tarefas, agrupadas por quem as realizou.",
+    colunas: [COL_QUANDO, COL_ACAO, { chave: "tarefa", label: "Tarefa", peso: 28 }, COL_DESCRICAO_ACAO],
+    rotuloGrupo: "Usuário",
+    montar: (bases) =>
+      agrupar(historicoDe(bases), "usuario", { ordenarLinhas: porMaisRecente("criado_em") }),
+  },
+  {
+    id: "tarefas-por-funcionario",
+    categoria: "usuarios",
+    base: "tarefas",
+    nome: "Tarefas por funcionário",
+    descricao: "Quantidade de tarefas de cada responsável, com concluídas, pendentes e atrasadas.",
+    colunas: [
+      { chave: "responsavel", label: "Responsável", peso: 30 },
+      { chave: "total", label: "Tarefas", tipo: "numero", somavel: true, peso: 12 },
+      { chave: "concluidas", label: "Concluídas", tipo: "numero", somavel: true, peso: 14 },
+      { chave: "pendentes", label: "Pendentes", tipo: "numero", somavel: true, peso: 14 },
+      { chave: "atrasadas", label: "Atrasadas", tipo: "numero", somavel: true, peso: 14 },
+      { chave: "canceladas", label: "Canceladas", tipo: "numero", somavel: true, peso: 14 },
+    ],
+    // "Pendentes" é o que continua em aberto (nem concluída nem cancelada), e as
+    // atrasadas são um recorte dessas pendentes -- por isso não somam entre si.
+    montar: (bases) => {
+      const porResponsavel = new Map();
+      tarefasDe(bases).forEach((t) => {
+        const nome = t.responsavel || "Sem responsável";
+        if (!porResponsavel.has(nome)) {
+          porResponsavel.set(nome, {
+            responsavel: nome, total: 0, concluidas: 0, pendentes: 0, atrasadas: 0, canceladas: 0,
+          });
+        }
+        const linha = porResponsavel.get(nome);
+        linha.total += 1;
+        if (t.status_chave === "concluida") linha.concluidas += 1;
+        else if (t.status_chave === "cancelada") linha.canceladas += 1;
+        else {
+          linha.pendentes += 1;
+          if (t.atrasada) linha.atrasadas += 1;
+        }
+      });
+
+      return blocoUnico(
+        [...porResponsavel.values()].sort(
+          (a, b) => b.total - a.total || compararTexto(a.responsavel, b.responsavel)
+        )
+      );
+    },
+    resumo: (resultado) => [
+      { label: "Responsáveis", valor: String(resultado.registros) },
+      { label: "Tarefas", valor: String(resultado.totais.total ?? 0) },
+    ],
+  },
+  {
+    id: "tarefas-concluidas",
+    categoria: "usuarios",
+    base: "tarefas",
+    nome: "Tarefas concluídas",
+    descricao: "Tarefas com status concluída, com a data e a hora da conclusão.",
+    colunas: [
+      COL_TAREFA,
+      COL_RESPONSAVEL,
+      COL_CATEGORIA_TAREFA,
+      COL_PRIORIDADE,
+      COL_PRAZO,
+      { chave: "concluida_em_texto", label: "Concluída em", peso: 15 },
+      { chave: "concluida_por", label: "Concluída por", peso: 18 },
+    ],
+    montar: (bases) =>
+      blocoUnico(
+        tarefasDe(bases)
+          .filter((t) => t.status_chave === "concluida")
+          .sort(porMaisRecente("concluida_em"))
+      ),
+  },
+  {
+    id: "tarefas-pendentes",
+    categoria: "usuarios",
+    base: "tarefas",
+    nome: "Tarefas pendentes",
+    descricao: "Tarefas que ainda não foram concluídas, agrupadas pelo status atual.",
+    colunas: [
+      COL_TAREFA,
+      COL_RESPONSAVEL,
+      COL_CATEGORIA_TAREFA,
+      COL_PRIORIDADE,
+      COL_PRAZO,
+      { chave: "prazo_situacao", label: "Situação do prazo", peso: 14 },
+    ],
+    rotuloGrupo: "Status",
+    montar: (bases) =>
+      agrupar(
+        tarefasDe(bases).filter((t) => t.status_chave !== "concluida"),
+        "status",
+        {
+          ordem: ORDEM_STATUS_PENDENTES,
+          ordenarLinhas: (a, b) =>
+            String(a.prazo ?? "9999-12-31").localeCompare(String(b.prazo ?? "9999-12-31")) ||
+            compararTexto(a.titulo, b.titulo),
+        }
+      ),
+    resumo: (resultado) => {
+      const atrasadas = resultado.grupos
+        .flatMap((g) => g.linhas)
+        .filter((l) => l.prazo_situacao === "Atrasada").length;
+      return [{ label: "Atrasadas", valor: String(atrasadas) }];
+    },
+  },
+  {
+    id: "alteracoes-realizadas",
+    categoria: "auditoria",
+    base: "historico",
+    nome: "Alterações realizadas",
+    descricao: "Trilha das alterações registradas nas tarefas, da mais recente para a mais antiga.",
+    colunas: [COL_QUANDO, COL_USUARIO, COL_ACAO, { chave: "tarefa", label: "Registro", peso: 26 }, COL_DESCRICAO_ACAO],
+    montar: (bases) => blocoUnico([...historicoDe(bases)].sort(porMaisRecente("criado_em"))),
+  },
+  {
+    id: "aprovacoes",
+    categoria: "auditoria",
+    base: "tarefas",
+    nome: "Aprovações",
+    descricao: "Tarefas aprovadas, mostrando quem aprovou e quando a aprovação aconteceu.",
+    colunas: [
+      COL_TAREFA,
+      COL_RESPONSAVEL,
+      COL_CATEGORIA_TAREFA,
+      { chave: "concluida_em_texto", label: "Concluída em", peso: 15 },
+      { chave: "aprovada_por", label: "Aprovada por", peso: 18 },
+      { chave: "aprovada_em_texto", label: "Aprovada em", peso: 15 },
+    ],
+    montar: (bases) =>
+      blocoUnico(
+        tarefasDe(bases)
+          .filter((t) => t.aprovada === true)
+          .sort(porMaisRecente("aprovada_em"))
+      ),
   },
 ];
 

@@ -1,11 +1,15 @@
 import React from "react";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, RefreshCw,
+  Receipt, UserCog, ShieldCheck,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
-import { carregarBaseFinanceira, carregarBaseFornecedores } from "../lib/relatoriosDados";
+import {
+  carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
+  carregarBaseTarefas, carregarBaseHistorico,
+} from "../lib/relatoriosDados";
 import {
   CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
 } from "../lib/relatoriosCatalogo";
@@ -14,7 +18,25 @@ import { agoraBR } from "../lib/saldosDocumento";
 import { formatBRL } from "../lib/moeda";
 import { mensagemAmigavel } from "../lib/erros";
 
-const ICONES_CATEGORIA = { financeiro: Landmark, fornecedores: Users };
+const ICONES_CATEGORIA = {
+  financeiro: Landmark,
+  fornecedores: Users,
+  tributario: Receipt,
+  usuarios: UserCog,
+  auditoria: ShieldCheck,
+};
+
+/**
+ * Bases das categorias Tributário, Usuários e Gestão e Auditoria. Cada uma é
+ * carregada por conta própria: se uma tabela estiver indisponível (permissão do
+ * usuário, banco sem o recurso), só a categoria dela fica sem registros -- as
+ * categorias Financeiro e Fornecedores continuam intactas.
+ */
+const BASES_COMPLEMENTARES = [
+  { chave: "tributaria", nome: "Tributário", carregar: carregarBaseTributaria },
+  { chave: "tarefas", nome: "Usuários e Gestão", carregar: carregarBaseTarefas },
+  { chave: "historico", nome: "Atividades e Auditoria", carregar: carregarBaseHistorico },
+];
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -87,10 +109,17 @@ export default function Relatorios() {
   } = usePermissaoRelatorios();
   const podeVisualizar = permissao?.pode_visualizar === true;
 
-  const [bases, setBases] = React.useState({ financeira: null, fornecedores: null });
+  const [bases, setBases] = React.useState({
+    financeira: null,
+    fornecedores: null,
+    tributaria: null,
+    tarefas: null,
+    historico: null,
+  });
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
   const [avisoReserva, setAvisoReserva] = React.useState(false);
+  const [avisosBase, setAvisosBase] = React.useState([]);
 
   const [selecionado, setSelecionado] = React.useState(null);
   const [geradoEm, setGeradoEm] = React.useState(null);
@@ -99,13 +128,31 @@ export default function Relatorios() {
   const carregarBases = React.useCallback(async () => {
     setCarregando(true);
     setErro(null);
+    setAvisosBase([]);
     try {
       const [financeira, fornecedores] = await Promise.all([
         carregarBaseFinanceira(),
         carregarBaseFornecedores(),
       ]);
-      setBases({ financeira, fornecedores });
+
+      const resultados = await Promise.allSettled(BASES_COMPLEMENTARES.map((b) => b.carregar()));
+      const complementares = {};
+      const avisos = [];
+      BASES_COMPLEMENTARES.forEach((base, indice) => {
+        const resultado = resultados[indice];
+        if (resultado.status === "fulfilled") {
+          complementares[base.chave] = resultado.value;
+        } else {
+          complementares[base.chave] = null;
+          avisos.push(
+            `${base.nome}: ${mensagemAmigavel(resultado.reason, "os dados desta categoria não estão disponíveis.")}`
+          );
+        }
+      });
+
+      setBases({ financeira, fornecedores, ...complementares });
       setAvisoReserva(financeira.rateioIndisponivel === true);
+      setAvisosBase(avisos);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível carregar os dados dos relatórios."));
     } finally {
@@ -249,6 +296,21 @@ export default function Relatorios() {
           <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-4 py-2.5 mb-5">
             O consolidado está mostrando o saldo real das contas: o valor reservado das programações
             ainda não está disponível neste ambiente.
+          </div>
+        )}
+
+        {avisosBase.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-4 py-2.5 mb-5 space-y-1">
+            {avisosBase.map((aviso) => (
+              <div key={aviso}>{aviso}</div>
+            ))}
+          </div>
+        )}
+
+        {bases.historico?.truncado && relatorio?.base === "historico" && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-4 py-2.5 mb-5">
+            Este relatório está mostrando os {bases.historico.limite} registros mais recentes da
+            trilha de alterações.
           </div>
         )}
 
