@@ -12,6 +12,7 @@ import { somar } from "../lib/rateioPagamentos";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
 import { paraNumeroMoeda } from "../lib/moeda";
+import { registrarEvento } from "../lib/auditoria";
 import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
@@ -75,6 +76,20 @@ function montarSecoes(lista) {
         nome_conta: c.nome_conta,
       })),
     }));
+}
+
+// Saldo em centavos: comparar assim evita registrar "alteração" quando o valor
+// digitado é o mesmo de antes, com outra representação decimal.
+function centavos(valor) {
+  return Math.round(paraNumeroMoeda(valor) * 100);
+}
+
+/** Como a conta aparece na trilha de auditoria: "Secretaria — Banco · Conta". */
+function rotuloDaConta(conta, secretaria) {
+  const identificacao = [conta?.banco, conta?.nome_conta].filter(Boolean).join(" · ");
+  const numero = conta?.numero_conta ? ` (${conta.numero_conta})` : "";
+  const inicio = secretaria ? `${secretaria} — ` : "";
+  return `${inicio}${identificacao || "Conta bancária"}${numero}`;
 }
 
 export default function Saldos() {
@@ -390,6 +405,40 @@ export default function Saldos() {
     setEditandoSecretariaId(sec.id);
   }
 
+  /**
+   * Conta (com o saldo que está na tela) e a secretaria dela — é a base do
+   * "antes" que a trilha de auditoria registra nas mudanças de saldo.
+   */
+  function localizarConta(contaId) {
+    for (const sec of contasPorSecretaria) {
+      const conta = (sec.contas ?? []).find((c) => String(c.id) === String(contaId));
+      if (conta) return { conta, secretaria: sec.nome };
+    }
+    return { conta: null, secretaria: null };
+  }
+
+  /**
+   * Auditoria de saldo: mudança de dinheiro em conta é sempre evento crítico.
+   * Auditar nunca derruba o salvamento — `registrarEvento` trata os próprios
+   * erros e a tela segue exatamente como antes.
+   */
+  async function auditarSaldo({ conta, secretaria, valorNovo, dataNova }) {
+    await registrarEvento({
+      modulo: "saldos",
+      acao: "alterou",
+      registroAfetado: rotuloDaConta(conta, secretaria),
+      valorAnterior: {
+        saldo: formatBRL(paraNumeroMoeda(conta?.saldo ?? 0)),
+        data_saldo: conta?.dataSaldo ?? conta?.dataDoSaldo ?? null,
+      },
+      valorNovo: {
+        saldo: formatBRL(paraNumeroMoeda(valorNovo)),
+        data_saldo: dataNova ?? null,
+      },
+      nivel: "critico",
+    });
+  }
+
   async function salvarLote(sec) {
     setSalvando(true);
     setErro(null);
@@ -403,6 +452,22 @@ export default function Saldos() {
         .from("saldos_historico")
         .upsert(linhas, { onConflict: "conta_id,data_saldo" });
       if (error) throw error;
+
+      // Auditoria: um evento por conta que realmente mudou de valor ou de data.
+      const alteradas = sec.contas.filter(
+        (c) =>
+          centavos(saldosLote[c.id]) !== centavos(c.saldo) ||
+          (c.dataSaldo ?? c.dataDoSaldo ?? null) !== dataLote,
+      );
+      for (const conta of alteradas) {
+        await auditarSaldo({
+          conta,
+          secretaria: sec.nome,
+          valorNovo: saldosLote[conta.id],
+          dataNova: dataLote,
+        });
+      }
+
       setEditandoSecretariaId(null);
       setSaldosLote({});
       await carregarDados();
@@ -477,6 +542,32 @@ export default function Saldos() {
       });
       if (eSaldo) throw eSaldo;
 
+      // Auditoria: a conta nova já entra no painel com saldo, por isso o evento
+      // de criação também é crítico.
+      const nomeSecretaria =
+        secretarias.find((s) => String(s.id) === String(secretariaId))?.nome ||
+        form.secretaria_novo_nome.trim() ||
+        null;
+      const nomeBanco =
+        bancos.find((b) => String(b.id) === String(bancoId))?.nome || form.banco_novo_nome.trim() || null;
+      await registrarEvento({
+        modulo: "saldos",
+        acao: "criou",
+        registroAfetado: rotuloDaConta(
+          { banco: nomeBanco, nome_conta: form.nome_conta, numero_conta: form.numero_conta },
+          nomeSecretaria,
+        ),
+        valorNovo: {
+          secretaria: nomeSecretaria,
+          banco: nomeBanco,
+          nome_conta: form.nome_conta,
+          numero_conta: form.numero_conta || null,
+          saldo_inicial: formatBRL(valorInicial),
+          data_saldo: form.data_saldo,
+        },
+        nivel: "critico",
+      });
+
       setForm({
         secretaria_id: "", secretaria_novo_nome: "", banco_id: "", banco_novo_nome: "",
         nome_conta: "", numero_conta: "", tipo_conta: "", saldo_inicial: "", data_saldo: hojeISO(),
@@ -502,6 +593,11 @@ export default function Saldos() {
         { onConflict: "conta_id,data_saldo" }
       );
       if (error) throw error;
+
+      // Auditoria: lançamento de saldo é evento crítico.
+      const { conta, secretaria } = localizarConta(contaId);
+      await auditarSaldo({ conta, secretaria, valorNovo: valor, dataNova: novoSaldo.data });
+
       setEditando(null);
       setNovoSaldo({ valor: "", data: hojeISO() });
       await carregarDados();
@@ -666,6 +762,20 @@ export default function Saldos() {
 
       setResultadoImportar({ criadas, erros });
       if (criadas > 0) {
+        // Auditoria: a importação em lote entra como um único evento crítico,
+        // com o total de contas criadas (cada linha já traz um saldo).
+        await registrarEvento({
+          modulo: "saldos",
+          acao: "criou",
+          registroAfetado: `Importação em lote — ${criadas} ${criadas === 1 ? "conta" : "contas"}`,
+          valorNovo: {
+            contas_criadas: criadas,
+            linhas_com_erro: erros.length,
+            data_saldo: hojeISO(),
+          },
+          nivel: "critico",
+        });
+
         setTextoImportar("");
         await carregarDados();
       }

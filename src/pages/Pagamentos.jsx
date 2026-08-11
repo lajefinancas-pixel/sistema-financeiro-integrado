@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
+import { registrarEvento } from "../lib/auditoria";
 import { mensagemAmigavel, erroAmigavel } from "../lib/erros";
 import {
   TOLERANCIA,
@@ -763,6 +764,23 @@ export default function Pagamentos() {
       if (resultado && resultado.ok === false) {
         throw erroAmigavel(textoDoMotivo(resultado, nomeDaConta(resultado.conta_id)));
       }
+
+      // Auditoria: efetivar pagamento move dinheiro das contas, por isso o
+      // evento é crítico. Registrar nunca interfere na efetivação, que já foi
+      // concluída no banco neste ponto.
+      const nomeFornecedor = pagamento.fornecedores?.razao_social ?? pagamento.nome_avulso ?? "Pagamento";
+      await registrarEvento({
+        modulo: "pagamentos",
+        acao: "alterou",
+        registroAfetado: `${nomeFornecedor} — ${formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar))}`,
+        valorAnterior: { situacao: "Pendente" },
+        valorNovo: {
+          situacao: "Pago",
+          valor_pago: formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar)),
+          data_pagamento: data,
+        },
+        nivel: "critico",
+      });
 
       await carregarContasEFornecedores(secretariaId);
       await carregarProgramacaoAtual();
