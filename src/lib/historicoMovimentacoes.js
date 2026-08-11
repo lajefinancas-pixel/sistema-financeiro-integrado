@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { mensagemAmigavel } from "./erros";
+import { comparacaoAntesDepois } from "./auditoria";
 
 /**
  * Camada de dados da linha do tempo de movimentações da tela "Histórico".
@@ -306,6 +307,9 @@ function eventoParaMovimentacao(evento) {
     registro: evento.registro_afetado || "Registro não identificado",
     secretaria: secretariaDoEvento(evento),
     detalhe: null,
+    // Somente os campos que realmente mudaram (a mesma comparação da Auditoria):
+    // campo igual nos dois lados não entra na lista.
+    mudancas: comparacaoAntesDepois(evento),
   };
 }
 
@@ -320,6 +324,8 @@ function conclusaoParaMovimentacao(registro) {
     registro: registro.tarefa?.titulo ? `Tarefa "${registro.tarefa.titulo}"` : "Tarefa concluída",
     secretaria: registro.tarefa?.secretaria_relacionada ?? null,
     detalhe: observacao ? `Observação final: ${observacao}` : null,
+    // A conclusão de tarefa não guarda estado antes/depois: nada a comparar.
+    mudancas: [],
   };
 }
 
@@ -403,6 +409,107 @@ export async function contarMovimentacoes(filtros = null) {
 
   if (eventos.error && conclusoes.error) return null;
   return (eventos.error ? 0 : (eventos.count ?? 0)) + (conclusoes.error ? 0 : (conclusoes.count ?? 0));
+}
+
+/* -------------------------------------------------------------------------
+ * Exportação
+ * ---------------------------------------------------------------------- */
+
+/** Teto de movimentações que entram em um documento (impressão, PDF ou planilha). */
+export const LIMITE_EXPORTACAO = 2000;
+
+/**
+ * Todas as movimentações do recorte que está valendo na tela, para gerar o
+ * documento. Reaproveita a mesma consulta da linha do tempo — inclusive as
+ * políticas de leitura do banco e os avisos de trilha indisponível — e para no
+ * limite, informando quando sobrou movimentação de fora.
+ *
+ * @returns { movimentacoes, avisos, limitado }
+ */
+export async function listarMovimentacoesParaExportacao({
+  filtros = null,
+  limite = LIMITE_EXPORTACAO,
+} = {}) {
+  // Uma página só, do tamanho do limite: a consulta já traz uma movimentação a
+  // mais para revelar se o recorte continua depois do teto.
+  const { movimentacoes, temMais, avisos } = await listarMovimentacoes({
+    pagina: 0,
+    porPagina: limite,
+    filtros,
+  });
+
+  return { movimentacoes, avisos, limitado: temMais };
+}
+
+/* -------------------------------------------------------------------------
+ * Histórico de um registro específico
+ * ---------------------------------------------------------------------- */
+
+/** Quantas movimentações o histórico de um cadastro mostra de uma vez. */
+export const LIMITE_POR_REGISTRO = 50;
+
+/**
+ * Movimentações de um fornecedor específico, da mesma fonte da linha do tempo
+ * geral (a trilha de auditoria). Os eventos do módulo gravam o registro afetado
+ * como "Razão Social (CPF/CNPJ)", então a busca é feita pelos dois — o CPF/CNPJ
+ * identifica o cadastro mesmo depois de uma mudança de razão social.
+ *
+ * @returns { movimentacoes, temMais }
+ */
+export async function listarMovimentacoesDoFornecedor({
+  razaoSocial = "",
+  cpfCnpj = "",
+  limite = LIMITE_POR_REGISTRO,
+} = {}) {
+  const alvos = [];
+  if (String(cpfCnpj).trim() !== "") {
+    alvos.push(`registro_afetado.ilike.${valorCitado(`%${String(cpfCnpj).trim()}%`)}`);
+    alvos.push(`valor_novo->>cpf_cnpj.ilike.${valorCitado(`%${String(cpfCnpj).trim()}%`)}`);
+  }
+  if (String(razaoSocial).trim() !== "") {
+    // O registro afetado começa pela razão social ("Nome (CPF/CNPJ)"), então o
+    // começo do texto basta — e evita casar com um cadastro homônimo mais longo.
+    alvos.push(`registro_afetado.ilike.${valorCitado(`${String(razaoSocial).trim()}%`)}`);
+  }
+  if (alvos.length === 0) return { movimentacoes: [], temMais: false };
+
+  const { data, error } = await supabase
+    .from(TABELA_EVENTOS)
+    .select(COLUNAS_EVENTO)
+    .eq("modulo", "fornecedores")
+    .eq("resultado", "sucesso")
+    .or(alvos.join(","))
+    .order("data_hora", { ascending: false })
+    .limit(limite + 1);
+  if (error) throw error;
+
+  const movimentacoes = (data ?? []).map(eventoParaMovimentacao);
+  return { movimentacoes: movimentacoes.slice(0, limite), temMais: movimentacoes.length > limite };
+}
+
+/* -------------------------------------------------------------------------
+ * Emissor dos documentos
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Quem está usando o sistema, apenas para assinar o topo dos documentos. Não
+ * decide nada de acesso: quem pode ver o quê continua sendo o banco que resolve.
+ * Devolve null quando não dá para identificar — o documento sai sem o emissor.
+ */
+export async function carregarUsuarioAtual() {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return null;
+    const { data, error } = await supabase
+      .from("usuarios")
+      .select("id, nome_completo, cargo")
+      .eq("auth_id", auth.user.id)
+      .limit(1);
+    if (error) return null;
+    return data?.[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------------------

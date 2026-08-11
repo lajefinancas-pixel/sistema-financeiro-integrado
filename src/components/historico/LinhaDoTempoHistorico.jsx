@@ -1,5 +1,6 @@
 import React from "react";
-import { Building2, User } from "lucide-react";
+import { Building2, ChevronDown, ChevronUp, User } from "lucide-react";
+import ComparacaoAntesDepois from "./ComparacaoAntesDepois";
 import {
   diaDaMovimentacao,
   formatarDataHora,
@@ -21,12 +22,37 @@ function agruparPorDia(movimentacoes) {
 }
 
 /**
+ * O que o botão de expandir promete, conforme o que a movimentação guardou:
+ * cadastro só tem o lado "Depois", exclusão só tem o lado "Antes" e a alteração
+ * tem os dois.
+ */
+function textoDoBotao(mudancas) {
+  const quantidade = `${mudancas.length} ${mudancas.length === 1 ? "campo" : "campos"}`;
+  if (mudancas.every((m) => !m.tinhaAntes)) return `Ver os dados registrados (${quantidade})`;
+  if (mudancas.every((m) => !m.temDepois)) return `Ver os dados anteriores (${quantidade})`;
+  return `Ver o que mudou (${quantidade})`;
+}
+
+/**
  * Linha do tempo das movimentações do sistema, do mais recente para o mais
  * antigo, agrupada por dia. Cada item mostra o tipo de movimentação, o módulo,
  * quem fez, quando e o registro afetado.
+ *
+ * Quando a movimentação guardou o estado do registro antes e depois da ação, o
+ * item pode ser expandido para mostrar a comparação campo a campo.
  */
 export default function LinhaDoTempoHistorico({ movimentacoes }) {
   const grupos = agruparPorDia(movimentacoes);
+  const [expandidos, setExpandidos] = React.useState(() => new Set());
+
+  function alternar(id) {
+    setExpandidos((atuais) => {
+      const proximos = new Set(atuais);
+      if (proximos.has(id)) proximos.delete(id);
+      else proximos.add(id);
+      return proximos;
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -39,6 +65,9 @@ export default function LinhaDoTempoHistorico({ movimentacoes }) {
           <div className="bg-white rounded-2xl border border-black/5 shadow-sm divide-y divide-black/5">
             {grupo.itens.map((m) => {
               const info = tipoInfo(m.tipo);
+              const mudancas = m.mudancas ?? [];
+              const temComparacao = mudancas.length > 0;
+              const aberto = expandidos.has(m.id);
               return (
                 <div key={m.id} className="flex gap-3 px-4 py-3.5">
                   <span
@@ -77,6 +106,23 @@ export default function LinhaDoTempoHistorico({ movimentacoes }) {
                         </span>
                       )}
                     </div>
+
+                    {/* A comparação só é oferecida quando a movimentação guardou o
+                        estado do registro; sem isso não há o que abrir. */}
+                    {temComparacao && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => alternar(m.id)}
+                          aria-expanded={aberto}
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-black/10 text-[#0F2A44]/65 hover:bg-black/5"
+                        >
+                          {aberto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          {aberto ? "Ocultar a comparação" : textoDoBotao(mudancas)}
+                        </button>
+                        {aberto && <ComparacaoAntesDepois mudancas={mudancas} />}
+                      </>
+                    )}
                   </div>
                 </div>
               );
