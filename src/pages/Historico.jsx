@@ -15,17 +15,26 @@ import CardsAtalhoHistorico from "../components/historico/CardsAtalhoHistorico";
 import FiltrosHistorico from "../components/historico/FiltrosHistorico";
 import LinhaDoTempoHistorico from "../components/historico/LinhaDoTempoHistorico";
 import { mensagemAmigavel } from "../lib/erros";
+import { agoraBR } from "../lib/saldosDocumento";
 import {
   ATALHOS,
   FILTROS_VAZIOS,
+  LIMITE_EXPORTACAO,
   POR_PAGINA,
+  carregarUsuarioAtual,
   contarMovimentacoes,
   filtroPreenchido,
   listarMovimentacoes,
+  listarMovimentacoesParaExportacao,
   listarSecretariasParaFiltro,
   listarUsuariosParaFiltro,
   quantidadeDeFiltros,
 } from "../lib/historicoMovimentacoes";
+import {
+  exportarExcelHistorico,
+  gerarPdfHistorico,
+  imprimirHistorico,
+} from "../lib/historicoDocumento";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -84,6 +93,11 @@ export default function Historico() {
   const [erroSecretariasFiltro, setErroSecretariasFiltro] = React.useState(null);
   const [contagensAtalhos, setContagensAtalhos] = React.useState({});
 
+  // Documentos da linha do tempo (impressão, PDF e planilha).
+  const [exportando, setExportando] = React.useState(null);
+  const [avisoExportacao, setAvisoExportacao] = React.useState(null);
+  const [usuarioAtual, setUsuarioAtual] = React.useState(null);
+
   const chaveAplicados = JSON.stringify(aplicados);
   const comFiltro = filtroPreenchido(aplicados);
   const filtrosEmUso = quantidadeDeFiltros(aplicados);
@@ -99,6 +113,8 @@ export default function Historico() {
   React.useEffect(() => {
     carregarListasDosFiltros();
     carregarContagensDosAtalhos();
+    // Só assina o topo dos documentos: não muda nada de acesso na tela.
+    carregarUsuarioAtual().then(setUsuarioAtual);
   }, []);
 
   React.useEffect(() => {
@@ -187,6 +203,55 @@ export default function Historico() {
     setFiltros(recorte);
     setAplicados(recorte);
     setPaginaMovimentacoes(0);
+  }
+
+  /**
+   * Documento da linha do tempo no formato pedido, sempre com o recorte que está
+   * valendo na tela: os filtros aplicados vão para a consulta da exportação e
+   * para o cabeçalho do documento (período, filtros, data/hora e quem emitiu).
+   *
+   * A consulta é a mesma da linha do tempo, então o documento sai com tudo o que
+   * o recorte tem — e não apenas com as páginas já abertas na tela.
+   */
+  async function exportarMovimentacoes(formato) {
+    if (exportando) return;
+    setExportando(formato);
+    setAvisoExportacao(null);
+    setErroMovimentacoes(null);
+
+    try {
+      const { movimentacoes: paraDocumento, avisos, limitado } =
+        await listarMovimentacoesParaExportacao({ filtros: aplicados });
+
+      if (paraDocumento.length === 0) {
+        setAvisoExportacao("Não há movimentações para exportar com os filtros atuais.");
+        return;
+      }
+
+      const documento = {
+        movimentacoes: paraDocumento,
+        filtros: aplicados,
+        usuarios: usuariosFiltro,
+        usuario: usuarioAtual,
+        geradoEm: agoraBR(),
+      };
+
+      if (formato === "impressao") imprimirHistorico(documento);
+      else if (formato === "pdf") gerarPdfHistorico(documento);
+      else exportarExcelHistorico(documento);
+
+      const recados = [...avisos];
+      if (limitado) {
+        recados.push(
+          `O documento saiu com as ${LIMITE_EXPORTACAO} movimentações mais recentes deste recorte. Estreite o período para exportar o restante.`,
+        );
+      }
+      setAvisoExportacao(recados.length > 0 ? recados.join(" ") : null);
+    } catch (e) {
+      setErroMovimentacoes(mensagemAmigavel(e, "Não foi possível exportar as movimentações."));
+    } finally {
+      setExportando(null);
+    }
   }
 
   async function carregarDatasComSaldo() {
@@ -445,12 +510,49 @@ export default function Historico() {
                       }, da mais recente para a mais antiga`}
               </p>
             </div>
-            {filtrosEmUso > 0 && (
-              <span className="text-xs px-3 py-1.5 rounded-full bg-[#E7EDF5] text-[#0F2A44]">
-                {filtrosEmUso} {filtrosEmUso === 1 ? "filtro aplicado" : "filtros aplicados"}
-              </span>
-            )}
+            {/* Documentos da linha do tempo: os três saem com os filtros que estão
+                valendo na consulta, no mesmo padrão de Saldos, Relatórios e Auditoria. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {filtrosEmUso > 0 && (
+                <span className="text-xs px-3 py-1.5 rounded-full bg-[#E7EDF5] text-[#0F2A44]">
+                  {filtrosEmUso} {filtrosEmUso === 1 ? "filtro aplicado" : "filtros aplicados"}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => exportarMovimentacoes("impressao")}
+                disabled={carregandoMovimentacoes || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <Printer size={15} />
+                {exportando === "impressao" ? "Preparando..." : "🖨 Imprimir"}
+              </button>
+              <button
+                type="button"
+                onClick={() => exportarMovimentacoes("pdf")}
+                disabled={carregandoMovimentacoes || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <FileText size={15} />
+                {exportando === "pdf" ? "Gerando..." : "PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => exportarMovimentacoes("excel")}
+                disabled={carregandoMovimentacoes || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <FileSpreadsheet size={15} />
+                {exportando === "excel" ? "Exportando..." : "Excel"}
+              </button>
+            </div>
           </div>
+
+          {avisoExportacao && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3 mb-4">
+              {avisoExportacao}
+            </div>
+          )}
 
           <CardsAtalhoHistorico
             aplicados={aplicados}

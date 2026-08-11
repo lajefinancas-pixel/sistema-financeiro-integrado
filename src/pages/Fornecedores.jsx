@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown, History } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
@@ -7,6 +7,7 @@ import { registrarEvento } from "../lib/auditoria";
 import Layout from "../components/Layout";
 import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
 import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
+import ModalHistoricoFornecedor from "../components/historico/ModalHistoricoFornecedor";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 function formatBRL(v) {
@@ -353,6 +354,8 @@ export default function Fornecedores() {
   const [secretarias, setSecretarias] = React.useState([]);
   const [fornecedores, setFornecedores] = React.useState([]);
   const [expandido, setExpandido] = React.useState(salvoNaSessao?.expandido ?? null);
+  // Fornecedor com o histórico aberto no modal (null quando nenhum está aberto).
+  const [historicoDe, setHistoricoDe] = React.useState(null);
 
   const [mostrarForm, setMostrarForm] = React.useState(false);
   const [mostrarFormValor, setMostrarFormValor] = React.useState(false);
@@ -1908,6 +1911,18 @@ export default function Fornecedores() {
                         </tbody>
                       </table>
                     )}
+
+                    {/* Atalho discreto para a trilha deste cadastro: abre as
+                        movimentações do fornecedor sem sair da tela. */}
+                    <div className="mt-3 pt-3 border-t border-black/5 flex justify-end print:hidden">
+                      <button
+                        type="button"
+                        onClick={() => setHistoricoDe(f)}
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                      >
+                        <History size={13} /> Ver Histórico
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1924,6 +1939,10 @@ export default function Fornecedores() {
           onEscolher={(escopo) => executarExportacao(exportacaoPendente, escopo)}
           onCancelar={() => setExportacaoPendente(null)}
         />
+      )}
+
+      {historicoDe && (
+        <ModalHistoricoFornecedor fornecedor={historicoDe} onFechar={() => setHistoricoDe(null)} />
       )}
     </Layout>
   );
