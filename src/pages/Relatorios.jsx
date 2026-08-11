@@ -1,22 +1,30 @@
 import React from "react";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, RefreshCw,
-  Receipt, UserCog, ShieldCheck,
+  Receipt, UserCog, ShieldCheck, Plus, Sparkles,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
+import ConstrutorRelatorio, { RelatoriosSalvos } from "../components/relatorios/ConstrutorRelatorio";
+import ResultadoPersonalizado from "../components/relatorios/ResultadoPersonalizado";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
-  carregarBaseTarefas, carregarBaseHistorico,
+  carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos,
 } from "../lib/relatoriosDados";
 import {
   CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
 } from "../lib/relatoriosCatalogo";
+import {
+  configuracaoPadrao, FONTES, gerarRelatorioPersonalizado, normalizarConfiguracao,
+} from "../lib/relatoriosPersonalizados";
+import {
+  excluirRelatorioFavorito, listarRelatoriosFavoritos, salvarRelatorioFavorito,
+} from "../lib/relatoriosFavoritos";
 import { imprimirRelatorio, gerarPdfRelatorio, exportarExcelRelatorio } from "../lib/relatoriosDocumento";
 import { agoraBR } from "../lib/saldosDocumento";
 import { formatBRL } from "../lib/moeda";
-import { mensagemAmigavel } from "../lib/erros";
+import { comTratamento, mensagemAmigavel } from "../lib/erros";
 
 const ICONES_CATEGORIA = {
   financeiro: Landmark,
@@ -27,15 +35,17 @@ const ICONES_CATEGORIA = {
 };
 
 /**
- * Bases das categorias Tributário, Usuários e Gestão e Auditoria. Cada uma é
- * carregada por conta própria: se uma tabela estiver indisponível (permissão do
- * usuário, banco sem o recurso), só a categoria dela fica sem registros -- as
- * categorias Financeiro e Fornecedores continuam intactas.
+ * Bases das categorias Tributário, Usuários e Gestão e Auditoria, mais a de
+ * Pagamentos usada pelos relatórios personalizados. Cada uma é carregada por
+ * conta própria: se uma tabela estiver indisponível (permissão do usuário, banco
+ * sem o recurso), só a categoria dela fica sem registros -- as categorias
+ * Financeiro e Fornecedores continuam intactas.
  */
 const BASES_COMPLEMENTARES = [
   { chave: "tributaria", nome: "Tributário", carregar: carregarBaseTributaria },
   { chave: "tarefas", nome: "Usuários e Gestão", carregar: carregarBaseTarefas },
   { chave: "historico", nome: "Atividades e Auditoria", carregar: carregarBaseHistorico },
+  { chave: "pagamentos", nome: "Pagamentos", carregar: carregarBasePagamentos },
 ];
 
 function hojeISO() {
@@ -115,6 +125,7 @@ export default function Relatorios() {
     tributaria: null,
     tarefas: null,
     historico: null,
+    pagamentos: null,
   });
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -124,6 +135,20 @@ export default function Relatorios() {
   const [selecionado, setSelecionado] = React.useState(null);
   const [geradoEm, setGeradoEm] = React.useState(null);
   const [periodo, setPeriodo] = React.useState({ inicio: primeiroDiaDoAno(), fim: hojeISO() });
+
+  // --- Relatórios personalizados ---
+  const [mostrarConstrutor, setMostrarConstrutor] = React.useState(false);
+  const [configuracao, setConfiguracao] = React.useState(() => configuracaoPadrao(FONTES[0].id));
+  // Critérios do último "Gerar relatório": a tela só recalcula quando o usuário
+  // manda gerar (ou quando os dados são atualizados), não a cada clique no
+  // construtor.
+  const [criteriosGerados, setCriteriosGerados] = React.useState(null);
+  const [geradoEmPersonalizado, setGeradoEmPersonalizado] = React.useState(null);
+  const [erroConstrutor, setErroConstrutor] = React.useState(null);
+  const [favoritos, setFavoritos] = React.useState([]);
+  const [carregandoFavoritos, setCarregandoFavoritos] = React.useState(true);
+  const [erroFavoritos, setErroFavoritos] = React.useState(null);
+  const [salvandoFavorito, setSalvandoFavorito] = React.useState(false);
 
   const carregarBases = React.useCallback(async () => {
     setCarregando(true);
@@ -174,11 +199,14 @@ export default function Relatorios() {
   function selecionar(id) {
     setSelecionado(id);
     setGeradoEm(agoraBR());
+    // Um resultado por vez na tela: escolher um relatório pronto fecha o personalizado.
+    setCriteriosGerados(null);
   }
 
   async function atualizar() {
     await carregarBases();
     setGeradoEm(agoraBR());
+    if (criteriosGerados) setGeradoEmPersonalizado(agoraBR());
   }
 
   const subtituloDocumento = React.useMemo(() => {
@@ -221,6 +249,137 @@ export default function Relatorios() {
       titulo: resultado.nome,
       resultado,
       arquivo: `${nomeDoArquivo(relatorio)}.xlsx`,
+    });
+  }
+
+  /* --------------------------------------------------------------------
+   * Relatórios personalizados
+   * ----------------------------------------------------------------- */
+
+  // Consulta isolada: se a tabela de relatórios salvos ainda não existir no
+  // banco, só os atalhos ficam de fora -- o construtor continua funcionando.
+  const carregarFavoritos = React.useCallback(async () => {
+    setCarregandoFavoritos(true);
+    const { dados, erro: falha } = await comTratamento(
+      listarRelatoriosFavoritos,
+      "Não foi possível carregar seus relatórios salvos. O construtor continua disponível."
+    );
+    setFavoritos(dados ?? []);
+    setErroFavoritos(falha);
+    setCarregandoFavoritos(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (podeVisualizar) carregarFavoritos();
+  }, [podeVisualizar, carregarFavoritos]);
+
+  const resultadoPersonalizado = React.useMemo(
+    () =>
+      criteriosGerados
+        ? gerarRelatorioPersonalizado(criteriosGerados.configuracao, bases, {
+            nome: criteriosGerados.nome,
+          })
+        : null,
+    [criteriosGerados, bases]
+  );
+
+  function gerarPersonalizado(config, nome = null) {
+    const pronta = normalizarConfiguracao(config ?? configuracao);
+    if (pronta.colunas.length === 0) {
+      setErroConstrutor("Escolha pelo menos uma coluna para o relatório.");
+      return;
+    }
+    setErroConstrutor(null);
+    setConfiguracao(pronta);
+    setCriteriosGerados({ configuracao: pronta, nome });
+    setGeradoEmPersonalizado(agoraBR());
+    // Um resultado por vez na tela: gerar o personalizado fecha o relatório pronto.
+    setSelecionado(null);
+  }
+
+  async function salvarFavorito(nome, aoConcluir) {
+    setSalvandoFavorito(true);
+    setErroFavoritos(null);
+    try {
+      const novo = await salvarRelatorioFavorito(nome, {
+        versao: 1,
+        ...normalizarConfiguracao(configuracao),
+      });
+      setFavoritos((atuais) => [novo, ...atuais]);
+      aoConcluir?.();
+    } catch (e) {
+      setErroFavoritos(mensagemAmigavel(e, "Não foi possível salvar o relatório."));
+    } finally {
+      setSalvandoFavorito(false);
+    }
+  }
+
+  /** Atalho de um relatório salvo: recarrega a configuração inteira e já gera. */
+  function aplicarFavorito(favorito) {
+    setMostrarConstrutor(true);
+    setErroFavoritos(null);
+    gerarPersonalizado(favorito?.configuracao, favorito?.nome);
+  }
+
+  async function excluirFavorito(favorito) {
+    if (!confirm(`Excluir o relatório salvo "${favorito.nome}"?`)) return;
+    setErroFavoritos(null);
+    try {
+      await excluirRelatorioFavorito(favorito.id);
+      setFavoritos((atuais) => atuais.filter((f) => f.id !== favorito.id));
+    } catch (e) {
+      setErroFavoritos(mensagemAmigavel(e, "Não foi possível excluir o relatório salvo."));
+    }
+  }
+
+  const subtituloPersonalizado = React.useMemo(() => {
+    const criterios = criteriosGerados?.configuracao;
+    const inicio = criterios?.periodo?.inicio;
+    const fim = criterios?.periodo?.fim;
+    const trecho =
+      inicio || fim
+        ? `Período de ${formatarCelula(inicio, "data")} a ${formatarCelula(fim, "data")} — `
+        : "";
+    const emitido = `Emitido em ${geradoEmPersonalizado ?? agoraBR()}`;
+    const porQuem = usuario?.nome_completo ? ` por ${usuario.nome_completo}` : "";
+    return `${trecho}${emitido}${porQuem}`;
+  }, [criteriosGerados, geradoEmPersonalizado, usuario]);
+
+  function nomeArquivoPersonalizado() {
+    return `relatorio-personalizado-${criteriosGerados?.configuracao?.fonte ?? "dados"}-${hojeISO()}`;
+  }
+
+  function documentoPersonalizadoIndisponivel(acao) {
+    if (resultadoPersonalizado && resultadoPersonalizado.registros > 0) return false;
+    setErro(`Não há registros para ${acao} neste relatório personalizado.`);
+    return true;
+  }
+
+  function imprimirPersonalizado() {
+    if (documentoPersonalizadoIndisponivel("imprimir")) return;
+    imprimirRelatorio({
+      titulo: resultadoPersonalizado.nome,
+      subtitulo: subtituloPersonalizado,
+      resultado: resultadoPersonalizado,
+    });
+  }
+
+  function baixarPdfPersonalizado() {
+    if (documentoPersonalizadoIndisponivel("gerar o PDF")) return;
+    gerarPdfRelatorio({
+      titulo: resultadoPersonalizado.nome,
+      subtitulo: subtituloPersonalizado,
+      resultado: resultadoPersonalizado,
+      arquivo: `${nomeArquivoPersonalizado()}.pdf`,
+    });
+  }
+
+  function baixarExcelPersonalizado() {
+    if (documentoPersonalizadoIndisponivel("exportar")) return;
+    exportarExcelRelatorio({
+      titulo: resultadoPersonalizado.nome,
+      resultado: resultadoPersonalizado,
+      arquivo: `${nomeArquivoPersonalizado()}.xlsx`,
     });
   }
 
@@ -351,14 +510,81 @@ export default function Relatorios() {
           })}
         </div>
 
+        {/* Relatórios personalizados: construtor próprio e atalhos salvos. */}
+        <section className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#0F2A44] flex items-center justify-center shrink-0">
+                <Sparkles size={18} className="text-[#C9A227]" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-[#0F2A44] uppercase tracking-[0.1em]">
+                  Relatórios personalizados
+                </h2>
+                <p className="text-xs text-[#0F2A44]/55 mt-0.5 leading-relaxed">
+                  Monte o seu relatório escolhendo a fonte de dados, o período, os filtros, as
+                  colunas, o agrupamento e a ordenação.
+                </p>
+              </div>
+            </div>
+            {!mostrarConstrutor && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarConstrutor(true);
+                  setErroConstrutor(null);
+                }}
+                className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white font-medium hover:bg-[#0F2A44]/90 whitespace-nowrap"
+              >
+                <Plus size={15} /> Criar relatório personalizado
+              </button>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <RelatoriosSalvos
+              favoritos={favoritos}
+              carregando={carregandoFavoritos}
+              erro={erroFavoritos}
+              onAplicar={aplicarFavorito}
+              onExcluir={excluirFavorito}
+            />
+          </div>
+
+          {mostrarConstrutor && (
+            <ConstrutorRelatorio
+              configuracao={configuracao}
+              onAlterar={setConfiguracao}
+              bases={bases}
+              onGerar={() => gerarPersonalizado(configuracao)}
+              onSalvar={salvarFavorito}
+              salvando={salvandoFavorito}
+              erro={erroConstrutor}
+              onFechar={() => setMostrarConstrutor(false)}
+            />
+          )}
+        </section>
+
         {/* Resultado do relatório selecionado, na mesma tela. */}
-        {!relatorio && (
+        {!relatorio && !resultadoPersonalizado && (
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center">
             <BarChart2 size={26} className="text-[#0F2A44]/20 mx-auto mb-3" />
             <p className="text-sm text-[#0F2A44]/50">
               Nenhum relatório selecionado. Escolha um dos itens acima para ver os dados aqui.
             </p>
           </div>
+        )}
+
+        {resultadoPersonalizado && (
+          <ResultadoPersonalizado
+            resultado={resultadoPersonalizado}
+            geradoEm={geradoEmPersonalizado ?? agoraBR()}
+            autor={usuario?.nome_completo}
+            carregando={carregando}
+            onImprimir={imprimirPersonalizado}
+            onPdf={baixarPdfPersonalizado}
+            onExcel={baixarExcelPersonalizado}
+          />
         )}
 
         {relatorio && resultado && (
