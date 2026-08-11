@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { notificar } from "./notificacoes";
 import { erroAmigavel, mensagemAmigavel } from "./erros";
+import { registrarEvento } from "./auditoria";
 
 /**
  * Camada de dados da página "Tarefas".
@@ -673,6 +674,17 @@ export async function aprovarTarefa(tarefa, usuarioId) {
     status_anterior: tarefa.status,
   });
 
+  // Trilha de auditoria do sistema (independente do histórico da tarefa).
+  await registrarEvento({
+    modulo: "tarefas",
+    acao: "aprovou",
+    registroAfetado: `Tarefa "${tarefa.titulo}"`,
+    valorAnterior: { status: tarefa.status, aprovada: tarefa.aprovada ?? false },
+    valorNovo: { status: "concluida", aprovada: true },
+    nivel: "informacao",
+    usuarioId: usuarioId ?? null,
+  });
+
   if (data.responsavel_id && data.responsavel_id !== usuarioId) {
     await notificar({
       usuario_id: data.responsavel_id,
@@ -710,6 +722,17 @@ export async function devolverTarefa(tarefa, usuarioId, motivo) {
   const avisoHistorico = await registrarHistorico(tarefa.id, usuarioId, "devolveu", {
     status_anterior: tarefa.status,
     motivo: texto,
+  });
+
+  // Devolução é a "rejeição" da tarefa na trilha de auditoria do sistema.
+  await registrarEvento({
+    modulo: "tarefas",
+    acao: "rejeitou",
+    registroAfetado: `Tarefa "${tarefa.titulo}"`,
+    valorAnterior: { status: tarefa.status, aprovada: tarefa.aprovada ?? false },
+    valorNovo: { status: "em_andamento", aprovada: false, motivo: texto },
+    nivel: "atencao",
+    usuarioId: usuarioId ?? null,
   });
 
   if (data.responsavel_id && data.responsavel_id !== usuarioId) {
