@@ -10,6 +10,7 @@ import {
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell, PainelSenha, SeletorFoto } from "./comuns";
 import AbaPermissoes from "./AbaPermissoes";
 import { mensagemAmigavel } from "../../lib/erros";
+import { registrarEvento } from "../../lib/auditoria";
 
 const ABAS = [
   { id: "dados", label: "Dados" },
@@ -28,6 +29,10 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
 
   const [form, setForm] = React.useState(null);
   const [foto, setFoto] = React.useState(null); // arquivo novo, ainda não enviado
+
+  // Como o cadastro estava quando abriu (ou no último salvamento): é o
+  // "valor_anterior" que a trilha de auditoria registra.
+  const original = React.useRef(null);
 
   React.useEffect(() => {
     let ativo = true;
@@ -50,6 +55,14 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
           status: data.status ?? "ativo",
           perfil_id: data.perfil_id ?? "",
         });
+        original.current = {
+          nome_completo: data.nome_completo ?? null,
+          email: data.email ?? null,
+          cargo: data.cargo ?? null,
+          telefone: data.telefone ?? null,
+          perfil_id: data.perfil_id ?? null,
+          status: data.status ?? null,
+        };
       } catch (e) {
         if (ativo) setErro(mensagemAmigavel(e, "Não foi possível carregar o usuário."));
       } finally {
@@ -77,6 +90,18 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
       const { error } = await supabase.from("usuarios").update({ status: novoStatus }).eq("id", usuarioId);
       if (error) throw error;
       setAviso("Status atualizado.");
+
+      // Auditoria: bloquear um acesso é o evento mais sensível desta tela.
+      await registrarEvento({
+        modulo: "usuarios",
+        acao: "alterou",
+        registroAfetado: `${form.nome_completo || "Usuário"} (${form.email || "sem e-mail"})`,
+        valorAnterior: { status: anterior },
+        valorNovo: { status: novoStatus },
+        nivel: novoStatus === "bloqueado" ? "critico" : "atencao",
+      });
+      if (original.current) original.current.status = novoStatus;
+
       onAtualizado?.();
     } catch (e) {
       setForm((atual) => ({ ...atual, status: anterior }));
@@ -100,17 +125,51 @@ export default function ModalEditarUsuario({ usuarioId, perfis, podeEditar, onFe
     try {
       const fotoUrl = foto ? await enviarFotoUsuario(foto) : form.foto_url;
 
+      const alteracao = {
+        nome_completo: nome,
+        cargo: form.cargo.trim() || null,
+        telefone: form.telefone.trim() || null,
+        perfil_id: form.perfil_id || null,
+        foto_url: fotoUrl,
+      };
+
       const { error } = await supabase
         .from("usuarios")
-        .update({
-          nome_completo: nome,
-          cargo: form.cargo.trim() || null,
-          telefone: form.telefone.trim() || null,
-          perfil_id: form.perfil_id || null,
-          foto_url: fotoUrl,
-        })
+        .update(alteracao)
         .eq("id", usuarioId);
       if (error) throw error;
+
+      // Auditoria: só o que mudou de fato entra na trilha; trocar o perfil de
+      // acesso mexe em permissões, por isso sobe o nível do evento.
+      const antes = original.current ?? {};
+      const depois = {
+        nome_completo: nome,
+        cargo: alteracao.cargo,
+        telefone: alteracao.telefone,
+        perfil_id: alteracao.perfil_id,
+      };
+      const campos = Object.keys(depois).filter((campo) => (antes[campo] ?? null) !== depois[campo]);
+      if (campos.length > 0) {
+        // O perfil vai para a trilha pelo nome, não pelo id, para quem consultar
+        // a auditoria entender o que mudou sem procurar em outra tabela.
+        const CHAVES = { nome_completo: "nome", cargo: "cargo", telefone: "telefone", perfil_id: "perfil" };
+        const legivel = (campo, valor) =>
+          campo === "perfil_id" ? (perfis?.find((p) => p.id === valor)?.nome ?? null) : (valor ?? null);
+
+        await registrarEvento({
+          modulo: "usuarios",
+          acao: "alterou",
+          registroAfetado: `${nome} (${form.email || "sem e-mail"})`,
+          valorAnterior: Object.fromEntries(
+            campos.map((campo) => [CHAVES[campo], legivel(campo, antes[campo])]),
+          ),
+          valorNovo: Object.fromEntries(
+            campos.map((campo) => [CHAVES[campo], legivel(campo, depois[campo])]),
+          ),
+          nivel: campos.includes("perfil_id") ? "critico" : "atencao",
+        });
+        original.current = { ...antes, ...depois };
+      }
 
       setForm((atual) => ({ ...atual, foto_url: fotoUrl }));
       setFoto(null);

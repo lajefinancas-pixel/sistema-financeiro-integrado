@@ -5,6 +5,7 @@ import { gerarSenhaProvisoria } from "../../lib/senhaProvisoria";
 import { emailValido, enviarFotoUsuario, STATUS_USUARIO } from "../../lib/usuariosEquipe";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell, PainelSenha, SeletorFoto } from "./comuns";
 import { erroAmigavel, mensagemAmigavel } from "../../lib/erros";
+import { registrarEvento } from "../../lib/auditoria";
 
 const FORM_VAZIO = {
   nome_completo: "",
@@ -71,12 +72,38 @@ export default function ModalNovoUsuario({ perfis, onFechar, onCriado }) {
       });
       if (erroInsert) {
         const duplicado = erroInsert.code === "23505";
+        // A conta de acesso ficou criada sem cadastro: a trilha guarda a falha.
+        await registrarEvento({
+          modulo: "usuarios",
+          acao: "criou",
+          registroAfetado: `${nome} (${email})`,
+          valorNovo: { email, status: form.status },
+          resultado: "falha",
+          nivel: "critico",
+        });
         throw erroAmigavel(
           duplicado
             ? "Já existe um usuário cadastrado com este e-mail."
             : "O acesso foi criado, mas o cadastro do usuário não foi concluído. Procure o responsável pelo sistema antes de tentar de novo."
         );
       }
+
+      // Auditoria: registra a criação sem interferir na tela (a senha provisória
+      // nunca entra na trilha).
+      await registrarEvento({
+        modulo: "usuarios",
+        acao: "criou",
+        registroAfetado: `${nome} (${email})`,
+        valorNovo: {
+          nome_completo: nome,
+          email,
+          cargo: form.cargo.trim() || null,
+          telefone: form.telefone.trim() || null,
+          perfil: perfis?.find((p) => p.id === form.perfil_id)?.nome ?? null,
+          status: form.status,
+        },
+        nivel: "atencao",
+      });
 
       setCriado({ email, senha });
       onCriado?.();
