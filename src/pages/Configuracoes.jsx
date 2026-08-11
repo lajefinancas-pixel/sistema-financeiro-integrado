@@ -12,12 +12,15 @@ import CategoriaUsuariosSeguranca from "../components/configuracoes/CategoriaUsu
 import CategoriaFinanceiro from "../components/configuracoes/CategoriaFinanceiro";
 import CategoriaFornecedores from "../components/configuracoes/CategoriaFornecedores";
 import CategoriaTributario from "../components/configuracoes/CategoriaTributario";
+import CategoriaNotificacoes from "../components/configuracoes/CategoriaNotificacoes";
+import CategoriaBackup from "../components/configuracoes/CategoriaBackup";
 import {
   CATEGORIAS,
   CATEGORIA_PADRAO,
   carregarConfiguracoes,
   categoriaValida,
   GERAL_PADRAO,
+  NOTIFICACOES_PADRAO,
   SEGURANCA_PADRAO,
   TRIBUTARIO_PADRAO,
 } from "../lib/configuracoesSistema";
@@ -107,6 +110,7 @@ export default function Configuracoes() {
     geral: GERAL_PADRAO,
     seguranca: SEGURANCA_PADRAO,
     tributario: TRIBUTARIO_PADRAO,
+    notificacoes: NOTIFICACOES_PADRAO,
     autoria: {},
   });
   const [carregando, setCarregando] = React.useState(true);
@@ -229,6 +233,15 @@ export default function Configuracoes() {
                 podeEditar={podeEditar}
                 onSalvo={recarregar}
               />
+            ) : categoriaAtual === "notificacoes" ? (
+              <CategoriaNotificacoes
+                valores={configuracoes.notificacoes}
+                autoria={configuracoes.autoria?.notificacoes}
+                podeEditar={podeEditar}
+                onSalvo={recarregar}
+              />
+            ) : categoriaAtual === "backup" ? (
+              <CategoriaBackup podeEditar={podeEditar} usuarioId={usuarioLogado?.id} />
             ) : (
               <>
                 <EmBreve

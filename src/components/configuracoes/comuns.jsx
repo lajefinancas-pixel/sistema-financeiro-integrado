@@ -161,6 +161,44 @@ export function SeletorLogomarca({ urlAtual, arquivo, onSelecionar, onRemover, d
 }
 
 /**
+ * Interruptor liga/desliga de uma opção da tela.
+ *
+ * É um botão com `role="switch"`, para que leitores de tela anunciem o estado
+ * atual da opção — e não apenas "botão".
+ */
+export function Interruptor({ titulo, descricao, ligado, desabilitado, onAlternar }) {
+  return (
+    <div className="flex items-start gap-4 px-4 py-3.5 bg-white">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-[#0F2A44]">{titulo}</div>
+        {descricao && (
+          <p className="text-[11px] text-[#0F2A44]/50 mt-0.5 leading-relaxed">{descricao}</p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={ligado}
+        aria-label={titulo}
+        disabled={desabilitado}
+        onClick={() => onAlternar(!ligado)}
+        title={desabilitado ? "Você não tem permissão para alterar as configurações." : undefined}
+        className={`relative w-11 h-6 rounded-full shrink-0 mt-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          ligado ? "bg-[#0F2A44]" : "bg-[#0F2A44]/15"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all ${
+            ligado ? "left-[22px]" : "left-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+/**
  * Etiqueta de situação (Ativo / Inativo) usada nas listas das configurações.
  * Mesmas cores das demais telas do sistema: verde para ativo, cinza para inativo.
  */
