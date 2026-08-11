@@ -23,6 +23,7 @@ export const CHAVE_GERAL = "geral";
 export const CHAVE_SEGURANCA = "seguranca";
 export const CHAVE_TRIBUTARIO = "tributario";
 export const CHAVE_NOTIFICACOES = "notificacoes";
+export const CHAVE_APARENCIA = "aparencia";
 
 /** Categorias da navegação lateral da tela. */
 export const CATEGORIAS = [
@@ -59,8 +60,13 @@ export const CATEGORIAS = [
     descricao: "Cópias do sistema e registro de restaurações",
     pronta: true,
   },
-  { id: "aparencia", label: "Aparência", descricao: "Cores, densidade e preferências visuais" },
-  { id: "sistema", label: "Sistema", descricao: "Informações técnicas e ferramentas de conferência" },
+  { id: "aparencia", label: "Aparência", descricao: "Logomarca e nome exibido do sistema", pronta: true },
+  {
+    id: "sistema",
+    label: "Sistema",
+    descricao: "Informações técnicas e ferramentas de conferência",
+    pronta: true,
+  },
 ];
 
 export const CATEGORIA_PADRAO = CATEGORIAS[0].id;
@@ -159,6 +165,25 @@ export const LIMITE_TENTATIVAS = { minimo: 1, maximo: 20 };
 
 /** Tamanho máximo da logomarca enviada ao Storage. */
 export const LIMITE_LOGO_MB = 2;
+
+/**
+ * Categoria Aparência.
+ *
+ * Guarda apenas o nome exibido: a logomarca continua sendo a mesma imagem da
+ * categoria Geral (chave 'geral', campo logo_url), para que o sistema tenha uma
+ * única logomarca — a de Aparência substitui aquela, em vez de criar uma
+ * segunda. `nome_exibicao` vazio significa "usar o nome do sistema definido em
+ * Geral".
+ *
+ * Nada aqui altera componentes funcionais: aparência é identidade visual, não
+ * muda telas, colunas, filtros nem ordens já aprovadas nas outras páginas.
+ */
+export const APARENCIA_PADRAO = {
+  nome_exibicao: "",
+};
+
+/** Limite do nome exibido — precisa caber no topo da tela sem quebrar. */
+export const LIMITE_NOME_EXIBICAO = 60;
 
 /* -------------------------------------------------------------------------
  * Máscaras e validações dos campos de identificação
@@ -271,17 +296,23 @@ async function nomesDosAutores(ids) {
 }
 
 /**
- * Configurações de Geral, de Segurança, do Tributário e das Notificações, já
- * preenchidas com os valores padrão onde o banco ainda não tem nada.
+ * Configurações de Geral, de Segurança, do Tributário, das Notificações e da
+ * Aparência, já preenchidas com os valores padrão onde o banco ainda não tem nada.
  *
- * Devolve { geral, seguranca, tributario, notificacoes, autoria } — autoria traz,
- * por chave, { atualizado_em, autor } para o rodapé "última alteração".
+ * Devolve { geral, seguranca, tributario, notificacoes, aparencia, autoria } —
+ * autoria traz, por chave, { atualizado_em, autor } para o rodapé "última alteração".
  */
 export async function carregarConfiguracoes() {
   const { data, error } = await supabase
     .from(TABELA)
     .select("chave, valor, atualizado_em, atualizado_por")
-    .in("chave", [CHAVE_GERAL, CHAVE_SEGURANCA, CHAVE_TRIBUTARIO, CHAVE_NOTIFICACOES]);
+    .in("chave", [
+      CHAVE_GERAL,
+      CHAVE_SEGURANCA,
+      CHAVE_TRIBUTARIO,
+      CHAVE_NOTIFICACOES,
+      CHAVE_APARENCIA,
+    ]);
 
   if (error) {
     throw erroAmigavel(mensagemAmigavel(error, "Não foi possível carregar as configurações do sistema."));
@@ -303,8 +334,20 @@ export async function carregarConfiguracoes() {
     seguranca: comPadrao(SEGURANCA_PADRAO, porChave[CHAVE_SEGURANCA]?.valor),
     tributario: comPadrao(TRIBUTARIO_PADRAO, porChave[CHAVE_TRIBUTARIO]?.valor),
     notificacoes: comPadrao(NOTIFICACOES_PADRAO, porChave[CHAVE_NOTIFICACOES]?.valor),
+    aparencia: comPadrao(APARENCIA_PADRAO, porChave[CHAVE_APARENCIA]?.valor),
     autoria,
   };
+}
+
+/**
+ * Nome que o sistema mostra na tela: o escolhido em Aparência quando existe,
+ * senão o nome do sistema definido em Geral, senão o nome de fábrica.
+ */
+export function nomeExibidoDoSistema({ aparencia, geral } = {}) {
+  const escolhido = String(aparencia?.nome_exibicao ?? "").trim();
+  if (escolhido) return escolhido;
+  const doGeral = String(geral?.nome_sistema ?? "").trim();
+  return doGeral || "Sistema Financeiro Integrado";
 }
 
 /** "11/08/2026 às 14:32" — vazio quando a configuração nunca foi salva. */
@@ -445,9 +488,44 @@ export async function salvarNotificacoes(valores) {
   return pronto;
 }
 
+/**
+ * Categoria Aparência: o nome exibido do sistema.
+ *
+ * Deixar o campo vazio é uma escolha válida — significa "usar o nome do sistema
+ * definido em Geral". Gravar aqui não mexe em nenhuma outra chave.
+ */
+export async function salvarAparencia(valores) {
+  const nome = String(valores?.nome_exibicao ?? "").trim().replace(/\s+/g, " ");
+  if (nome.length > LIMITE_NOME_EXIBICAO) {
+    throw erroAmigavel(
+      `O nome exibido pode ter no máximo ${LIMITE_NOME_EXIBICAO} caracteres.`
+    );
+  }
+
+  const pronto = { nome_exibicao: nome };
+  await gravar(CHAVE_APARENCIA, pronto);
+  return pronto;
+}
+
+/**
+ * Troca (ou remove) a logomarca do sistema a partir da categoria Aparência.
+ *
+ * A imagem é a mesma da categoria Geral: esta função reescreve a chave 'geral'
+ * inteira preservando todos os outros campos, então nome, CNPJ, contato e
+ * endereço continuam exatamente como estavam. É de propósito — o sistema tem
+ * uma logomarca só, e Aparência substitui aquela em vez de criar uma segunda.
+ */
+export async function salvarLogomarcaSistema(geralAtual, logoUrl) {
+  const pronto = { ...GERAL_PADRAO, ...(geralAtual ?? {}), logo_url: logoUrl ?? null };
+  await gravar(CHAVE_GERAL, pronto);
+  return pronto;
+}
+
 /* -------------------------------------------------------------------------
  * Logomarca
- * ---------------------------------------------------------------------- *//** Envia a logomarca para o Storage e devolve a URL pública. */
+ * ---------------------------------------------------------------------- */
+
+/** Envia a logomarca para o Storage e devolve a URL pública. */
 export async function enviarLogomarca(arquivo) {
   if (!arquivo) throw erroAmigavel("Escolha uma imagem para a logomarca.");
   if (!/^image\//.test(arquivo.type ?? "")) {

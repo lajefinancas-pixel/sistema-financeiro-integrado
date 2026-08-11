@@ -1,12 +1,12 @@
 import React from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { ChevronRight, Settings, Stethoscope } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Settings } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { mensagemAmigavel } from "../lib/erros";
 import { Alerta } from "../components/equipe/comuns";
-import { AvisoSomenteLeitura, Cartao, EmBreve } from "../components/configuracoes/comuns";
+import { AvisoSomenteLeitura, EmBreve } from "../components/configuracoes/comuns";
 import CategoriaGeral from "../components/configuracoes/CategoriaGeral";
 import CategoriaUsuariosSeguranca from "../components/configuracoes/CategoriaUsuariosSeguranca";
 import CategoriaFinanceiro from "../components/configuracoes/CategoriaFinanceiro";
@@ -14,13 +14,17 @@ import CategoriaFornecedores from "../components/configuracoes/CategoriaForneced
 import CategoriaTributario from "../components/configuracoes/CategoriaTributario";
 import CategoriaNotificacoes from "../components/configuracoes/CategoriaNotificacoes";
 import CategoriaBackup from "../components/configuracoes/CategoriaBackup";
+import CategoriaAparencia from "../components/configuracoes/CategoriaAparencia";
+import CategoriaSistema from "../components/configuracoes/CategoriaSistema";
 import {
+  APARENCIA_PADRAO,
   CATEGORIAS,
   CATEGORIA_PADRAO,
   carregarConfiguracoes,
   categoriaValida,
   GERAL_PADRAO,
   NOTIFICACOES_PADRAO,
+  nomeExibidoDoSistema,
   SEGURANCA_PADRAO,
   TRIBUTARIO_PADRAO,
 } from "../lib/configuracoesSistema";
@@ -111,6 +115,7 @@ export default function Configuracoes() {
     seguranca: SEGURANCA_PADRAO,
     tributario: TRIBUTARIO_PADRAO,
     notificacoes: NOTIFICACOES_PADRAO,
+    aparencia: APARENCIA_PADRAO,
     autoria: {},
   });
   const [carregando, setCarregando] = React.useState(true);
@@ -150,6 +155,11 @@ export default function Configuracoes() {
   }
 
   const infoLayout = usuarioLogado ? { nome: usuarioLogado.nome_completo } : undefined;
+
+  // O nome escolhido em Aparência (ou, na falta dele, o nome do sistema definido
+  // em Geral) aparece aqui — a única tela em que a preferência é aplicada nesta
+  // etapa, para não mexer nas páginas já aprovadas.
+  const nomeExibido = nomeExibidoDoSistema(configuracoes);
 
   if (verificando) {
     return (
@@ -192,7 +202,7 @@ export default function Configuracoes() {
             <div className="text-[11px] uppercase tracking-[0.18em] text-[#C9A227] font-medium">Sistema</div>
             <h1 className="text-2xl font-semibold text-[#0F2A44] mt-0.5">Configurações</h1>
             <p className="text-sm text-[#0F2A44]/60 mt-0.5">
-              Parâmetros gerais, acessos e regras de funcionamento do Sistema Financeiro Integrado.
+              Parâmetros gerais, acessos e regras de funcionamento do {nomeExibido}.
             </p>
           </div>
         </div>
@@ -242,41 +252,21 @@ export default function Configuracoes() {
               />
             ) : categoriaAtual === "backup" ? (
               <CategoriaBackup podeEditar={podeEditar} usuarioId={usuarioLogado?.id} />
+            ) : categoriaAtual === "aparencia" ? (
+              <CategoriaAparencia
+                valores={configuracoes.aparencia}
+                geral={configuracoes.geral}
+                autoria={configuracoes.autoria?.aparencia}
+                podeEditar={podeEditar}
+                onSalvo={recarregar}
+              />
+            ) : categoriaAtual === "sistema" ? (
+              <CategoriaSistema />
             ) : (
-              <>
-                <EmBreve
-                  titulo={categoria?.label ?? "Categoria"}
-                  descricao={`${categoria?.descricao ?? "Esta categoria"} — esta parte das configurações será construída nas próximas etapas do sistema.`}
-                />
-
-                {/* Conferência já existente, mantida acessível aqui. */}
-                {categoriaAtual === "sistema" && (
-                  <Cartao
-                    titulo="Conferência"
-                    descricao="Ferramenta de leitura, disponível enquanto as demais opções de sistema são construídas."
-                    icone={Stethoscope}
-                  >
-                    <Link
-                      to="/diagnostico-pagamentos"
-                      className="flex items-center gap-3 rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3.5 hover:bg-[#F5F3EF]"
-                    >
-                      <div className="w-9 h-9 rounded-xl bg-white border border-[#C9A227]/30 flex items-center justify-center shrink-0">
-                        <Stethoscope size={16} className="text-[#0F2A44]" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-[#0F2A44]">
-                          Diagnóstico de pagamentos antigos
-                        </div>
-                        <div className="text-[11px] text-[#0F2A44]/55 mt-0.5 leading-relaxed">
-                          Compara o débito registrado em cada conta com o débito correto pelo rateio.
-                          Somente leitura — nenhum valor é alterado.
-                        </div>
-                      </div>
-                      <ChevronRight size={16} className="text-[#0F2A44]/25 ml-auto shrink-0" />
-                    </Link>
-                  </Cartao>
-                )}
-              </>
+              <EmBreve
+                titulo={categoria?.label ?? "Categoria"}
+                descricao={`${categoria?.descricao ?? "Esta categoria"} — esta parte das configurações será construída nas próximas etapas do sistema.`}
+              />
             )}
           </div>
         </div>
