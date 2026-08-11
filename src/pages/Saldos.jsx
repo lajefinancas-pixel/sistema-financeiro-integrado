@@ -10,6 +10,8 @@ import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
 import { somar } from "../lib/rateioPagamentos";
 import Layout from "../components/Layout";
+import CampoMoeda from "../components/CampoMoeda";
+import { paraNumeroMoeda } from "../lib/moeda";
 import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
@@ -381,7 +383,7 @@ export default function Saldos() {
   function iniciarEdicaoLote(sec) {
     const inicial = {};
     sec.contas.forEach((c) => {
-      inicial[c.id] = String(c.saldo);
+      inicial[c.id] = c.saldo ?? 0;
     });
     setSaldosLote(inicial);
     setDataLote(hojeISO());
@@ -394,7 +396,7 @@ export default function Saldos() {
     try {
       const linhas = sec.contas.map((c) => ({
         conta_id: c.id,
-        valor_saldo: parseFloat(saldosLote[c.id] || "0"),
+        valor_saldo: paraNumeroMoeda(saldosLote[c.id]),
         data_saldo: dataLote,
       }));
       const { error } = await supabase
@@ -469,7 +471,7 @@ export default function Saldos() {
         }).select().single();
       if (eConta) throw eConta;
 
-      const valorInicial = parseFloat(form.saldo_inicial || "0");
+      const valorInicial = paraNumeroMoeda(form.saldo_inicial);
       const { error: eSaldo } = await supabase.from("saldos_historico").insert({
         conta_id: contaData.id, valor_saldo: valorInicial, data_saldo: form.data_saldo,
       });
@@ -494,7 +496,7 @@ export default function Saldos() {
     setSalvando(true);
     setErro(null);
     try {
-      const valor = parseFloat(novoSaldo.valor || "0");
+      const valor = paraNumeroMoeda(novoSaldo.valor);
       const { error } = await supabase.from("saldos_historico").upsert(
         { conta_id: contaId, valor_saldo: valor, data_saldo: novoSaldo.data },
         { onConflict: "conta_id,data_saldo" }
@@ -648,10 +650,10 @@ export default function Saldos() {
             .single();
           if (eConta) throw eConta;
 
-          const valor = parseFloat((saldoStr || "0").replace(",", "."));
+          const valor = paraNumeroMoeda(saldoStr);
           const { error: eSaldo } = await supabase.from("saldos_historico").insert({
             conta_id: contaData.id,
-            valor_saldo: isNaN(valor) ? 0 : valor,
+            valor_saldo: valor,
             data_saldo: hojeISO(),
           });
           if (eSaldo) throw eSaldo;
@@ -908,10 +910,10 @@ export default function Saldos() {
               </div>
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Saldo inicial</label>
-                <input
-                  type="number" step="0.01" placeholder="0,00"
-                  value={form.saldo_inicial}
-                  onChange={(e) => setForm({ ...form, saldo_inicial: e.target.value })}
+                <CampoMoeda
+                  placeholder="R$ 0,00"
+                  valor={form.saldo_inicial}
+                  onValorChange={(numero) => setForm({ ...form, saldo_inicial: numero })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                 />
               </div>
@@ -1053,10 +1055,11 @@ export default function Saldos() {
                               <td className="px-4 py-2.5 whitespace-nowrap text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
                               <td className="px-4 py-2.5 text-center whitespace-nowrap tabular-nums font-bold">
                                 {emLote ? (
-                                  <input
-                                    type="number" step="0.01"
-                                    value={saldosLote[c.id] ?? ""}
-                                    onChange={(e) => setSaldosLote({ ...saldosLote, [c.id]: e.target.value })}
+                                  <CampoMoeda
+                                    valor={saldosLote[c.id] ?? ""}
+                                    onValorChange={(numero) =>
+                                      setSaldosLote((atual) => ({ ...atual, [c.id]: numero }))
+                                    }
                                     className="w-28 px-2 py-1 rounded border border-black/10 text-xs text-center"
                                   />
                                 ) : editando === c.id ? (
@@ -1067,10 +1070,10 @@ export default function Saldos() {
                                       onChange={(e) => setNovoSaldo({ ...novoSaldo, data: e.target.value })}
                                       className="px-2 py-1 rounded border border-black/10 text-xs"
                                     />
-                                    <input
-                                      type="number" step="0.01" placeholder="0,00"
-                                      value={novoSaldo.valor}
-                                      onChange={(e) => setNovoSaldo({ ...novoSaldo, valor: e.target.value })}
+                                    <CampoMoeda
+                                      placeholder="R$ 0,00"
+                                      valor={novoSaldo.valor}
+                                      onValorChange={(numero) => setNovoSaldo((atual) => ({ ...atual, valor: numero }))}
                                       className="w-24 px-2 py-1 rounded border border-black/10 text-xs text-center"
                                     />
                                   </div>
@@ -1094,7 +1097,7 @@ export default function Saldos() {
                                     ) : (
                                       <>
                                         <button
-                                          onClick={() => { setEditando(c.id); setNovoSaldo({ valor: String(c.saldo), data: hojeISO() }); }}
+                                          onClick={() => { setEditando(c.id); setNovoSaldo({ valor: c.saldo ?? 0, data: hojeISO() }); }}
                                           className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
                                           title="Atualizar saldo"
                                         >
