@@ -30,6 +30,23 @@ export function formatBRLSimples(valor) {
 export const FORMATO_MOEDA_PLANILHA = "R$ #,##0.00";
 
 /**
+ * Variação percentual já com o sinal: "+12,5%", "-3,2%", "0,0%".
+ *
+ * `null`/`undefined` viram "--": é o caso em que não existe base de comparação
+ * (o lado anterior era zero), e não uma variação de 0%.
+ */
+export function formatarPercentual(valor) {
+  const numero = Number(valor);
+  if (valor === null || valor === undefined || valor === "" || !Number.isFinite(numero)) return "--";
+  const absoluto = Math.abs(numero).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  const sinal = numero > 0 ? "+" : numero < 0 ? "-" : "";
+  return `${sinal}${absoluto}%`;
+}
+
+/**
  * Separa o texto digitado em sinal, parte inteira e centavos.
  *
  * Regra: a vírgula sempre manda, porque é o separador decimal brasileiro

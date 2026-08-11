@@ -1,12 +1,15 @@
 import React from "react";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, RefreshCw,
-  Receipt, UserCog, ShieldCheck, Plus, Sparkles,
+  Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import ConstrutorRelatorio, { RelatoriosSalvos } from "../components/relatorios/ConstrutorRelatorio";
 import ResultadoPersonalizado from "../components/relatorios/ResultadoPersonalizado";
+import GraficoRelatorio from "../components/relatorios/GraficoRelatorio";
+import OpcoesImpressao from "../components/relatorios/OpcoesImpressao";
+import PainelComparativo from "../components/relatorios/PainelComparativo";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
@@ -16,12 +19,15 @@ import {
   CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
 } from "../lib/relatoriosCatalogo";
 import {
-  configuracaoPadrao, FONTES, gerarRelatorioPersonalizado, normalizarConfiguracao,
+  configuracaoPadrao, FONTES, gerarRelatorioPersonalizado, normalizarConfiguracao, resumoDosCriterios,
 } from "../lib/relatoriosPersonalizados";
 import {
   excluirRelatorioFavorito, listarRelatoriosFavoritos, salvarRelatorioFavorito,
 } from "../lib/relatoriosFavoritos";
 import { imprimirRelatorio, gerarPdfRelatorio, exportarExcelRelatorio } from "../lib/relatoriosDocumento";
+import { MODO_IMPRESSAO_PADRAO, montarCabecalho, textoPeriodo } from "../lib/relatoriosCabecalho";
+import { comparativoDoRelatorio } from "../lib/relatoriosComparativo";
+import { dadosDoGrafico } from "../lib/relatoriosGrafico";
 import { agoraBR } from "../lib/saldosDocumento";
 import { formatBRL } from "../lib/moeda";
 import { comTratamento, mensagemAmigavel } from "../lib/erros";
@@ -136,6 +142,16 @@ export default function Relatorios() {
   const [geradoEm, setGeradoEm] = React.useState(null);
   const [periodo, setPeriodo] = React.useState({ inicio: primeiroDiaDoAno(), fim: hojeISO() });
 
+  // --- Gráfico, comparativo e formato de impressão ---
+  const [mostrarGrafico, setMostrarGrafico] = React.useState(false);
+  const [tipoGrafico, setTipoGrafico] = React.useState("barras");
+  const [mostrarComparativo, setMostrarComparativo] = React.useState(false);
+  // O formato escolhido vale para todos os documentos da tela (pronto,
+  // personalizado e comparativo), então quem emite escolhe uma vez.
+  const [modoDeImpressao, setModoDeImpressao] = React.useState(MODO_IMPRESSAO_PADRAO);
+  const [mostrarGraficoPersonalizado, setMostrarGraficoPersonalizado] = React.useState(false);
+  const [tipoGraficoPersonalizado, setTipoGraficoPersonalizado] = React.useState("barras");
+
   // --- Relatórios personalizados ---
   const [mostrarConstrutor, setMostrarConstrutor] = React.useState(false);
   const [configuracao, setConfiguracao] = React.useState(() => configuracaoPadrao(FONTES[0].id));
@@ -195,12 +211,18 @@ export default function Relatorios() {
     [relatorio, bases, periodo]
   );
   const total = resultado ? valorTotal(resultado) : null;
+  const grafico = React.useMemo(() => dadosDoGrafico(resultado), [resultado]);
+  const comparativo = comparativoDoRelatorio(relatorio?.id);
 
   function selecionar(id) {
     setSelecionado(id);
     setGeradoEm(agoraBR());
     // Um resultado por vez na tela: escolher um relatório pronto fecha o personalizado.
     setCriteriosGerados(null);
+    // Gráfico e comparativo recomeçam fechados: o relatório é outro.
+    setMostrarGrafico(false);
+    setMostrarComparativo(false);
+    setTipoGrafico("barras");
   }
 
   async function atualizar() {
@@ -208,6 +230,34 @@ export default function Relatorios() {
     setGeradoEm(agoraBR());
     if (criteriosGerados) setGeradoEmPersonalizado(agoraBR());
   }
+
+  /** Período do relatório em texto, quando ele tem filtro de datas. */
+  const periodoDoRelatorio =
+    relatorio?.temPeriodo ? textoPeriodo(periodo.inicio, periodo.fim) : "";
+
+  /**
+   * Filtros do relatório pronto em texto: são a categoria e o agrupamento que ele
+   * já declara -- é o que define o recorte dos dados nesse caso.
+   */
+  const filtrosDoRelatorio = React.useMemo(
+    () => [
+      { label: "Categoria", valor: CATEGORIAS.find((c) => c.id === relatorio?.categoria)?.nome },
+      { label: "Agrupado por", valor: resultado?.rotuloGrupo },
+    ],
+    [relatorio, resultado]
+  );
+
+  const cabecalhoDoRelatorio = React.useMemo(
+    () =>
+      montarCabecalho({
+        relatorio: resultado?.nome,
+        periodo: periodoDoRelatorio,
+        filtros: filtrosDoRelatorio,
+        geradoEm: geradoEm ?? agoraBR(),
+        usuario,
+      }),
+    [resultado, periodoDoRelatorio, filtrosDoRelatorio, geradoEm, usuario]
+  );
 
   const subtituloDocumento = React.useMemo(() => {
     const emitido = `Emitido em ${geradoEm ?? agoraBR()}`;
@@ -224,7 +274,13 @@ export default function Relatorios() {
       setErro("Não há registros para imprimir neste relatório.");
       return;
     }
-    imprimirRelatorio({ titulo: resultado.nome, subtitulo: subtituloDocumento, resultado });
+    imprimirRelatorio({
+      titulo: resultado.nome,
+      subtitulo: subtituloDocumento,
+      resultado,
+      cabecalho: cabecalhoDoRelatorio,
+      modo: modoDeImpressao,
+    });
   }
 
   function baixarPdf() {
@@ -236,6 +292,8 @@ export default function Relatorios() {
       titulo: resultado.nome,
       subtitulo: subtituloDocumento,
       resultado,
+      cabecalho: cabecalhoDoRelatorio,
+      modo: modoDeImpressao,
       arquivo: `${nomeDoArquivo(relatorio)}.pdf`,
     });
   }
@@ -249,6 +307,50 @@ export default function Relatorios() {
       titulo: resultado.nome,
       resultado,
       arquivo: `${nomeDoArquivo(relatorio)}.xlsx`,
+    });
+  }
+
+  /**
+   * Documentos do comparativo. O cabeçalho é o mesmo padrão dos outros, com o
+   * resumo da comparação entrando na linha de filtros.
+   */
+  function documentoComparativo(acao, resultadoComparativo, filtros) {
+    if (!resultadoComparativo || resultadoComparativo.registros === 0) {
+      setErro("Não há valores para gerar este comparativo.");
+      return;
+    }
+    const cabecalho = montarCabecalho({
+      relatorio: resultadoComparativo.nome,
+      periodo: periodoDoRelatorio,
+      filtros,
+      geradoEm: agoraBR(),
+      usuario,
+    });
+    const arquivo = `${relatorio?.id ?? "relatorio"}-comparativo-${hojeISO()}`;
+
+    if (acao === "imprimir") {
+      imprimirRelatorio({
+        titulo: resultadoComparativo.nome,
+        resultado: resultadoComparativo,
+        cabecalho,
+        modo: modoDeImpressao,
+      });
+      return;
+    }
+    if (acao === "pdf") {
+      gerarPdfRelatorio({
+        titulo: resultadoComparativo.nome,
+        resultado: resultadoComparativo,
+        cabecalho,
+        modo: modoDeImpressao,
+        arquivo: `${arquivo}.pdf`,
+      });
+      return;
+    }
+    exportarExcelRelatorio({
+      titulo: resultadoComparativo.nome,
+      resultado: resultadoComparativo,
+      arquivo: `${arquivo}.xlsx`,
     });
   }
 
@@ -293,8 +395,11 @@ export default function Relatorios() {
     setConfiguracao(pronta);
     setCriteriosGerados({ configuracao: pronta, nome });
     setGeradoEmPersonalizado(agoraBR());
+    setMostrarGraficoPersonalizado(false);
+    setTipoGraficoPersonalizado("barras");
     // Um resultado por vez na tela: gerar o personalizado fecha o relatório pronto.
     setSelecionado(null);
+    setMostrarComparativo(false);
   }
 
   async function salvarFavorito(nome, aoConcluir) {
@@ -345,6 +450,23 @@ export default function Relatorios() {
     return `${trecho}${emitido}${porQuem}`;
   }, [criteriosGerados, geradoEmPersonalizado, usuario]);
 
+  const graficoPersonalizado = React.useMemo(
+    () => dadosDoGrafico(resultadoPersonalizado),
+    [resultadoPersonalizado]
+  );
+
+  /** Cabeçalho do personalizado: os critérios escolhidos são os filtros usados. */
+  const cabecalhoPersonalizado = React.useMemo(() => {
+    const criterios = criteriosGerados?.configuracao;
+    return montarCabecalho({
+      relatorio: resultadoPersonalizado?.nome,
+      periodo: textoPeriodo(criterios?.periodo?.inicio, criterios?.periodo?.fim),
+      filtros: resumoDosCriterios(criterios),
+      geradoEm: geradoEmPersonalizado ?? agoraBR(),
+      usuario,
+    });
+  }, [criteriosGerados, resultadoPersonalizado, geradoEmPersonalizado, usuario]);
+
   function nomeArquivoPersonalizado() {
     return `relatorio-personalizado-${criteriosGerados?.configuracao?.fonte ?? "dados"}-${hojeISO()}`;
   }
@@ -361,6 +483,8 @@ export default function Relatorios() {
       titulo: resultadoPersonalizado.nome,
       subtitulo: subtituloPersonalizado,
       resultado: resultadoPersonalizado,
+      cabecalho: cabecalhoPersonalizado,
+      modo: modoDeImpressao,
     });
   }
 
@@ -370,6 +494,8 @@ export default function Relatorios() {
       titulo: resultadoPersonalizado.nome,
       subtitulo: subtituloPersonalizado,
       resultado: resultadoPersonalizado,
+      cabecalho: cabecalhoPersonalizado,
+      modo: modoDeImpressao,
       arquivo: `${nomeArquivoPersonalizado()}.pdf`,
     });
   }
@@ -584,6 +710,13 @@ export default function Relatorios() {
             onImprimir={imprimirPersonalizado}
             onPdf={baixarPdfPersonalizado}
             onExcel={baixarExcelPersonalizado}
+            grafico={graficoPersonalizado}
+            mostrarGrafico={mostrarGraficoPersonalizado}
+            onMostrarGrafico={() => setMostrarGraficoPersonalizado((v) => !v)}
+            tipoGrafico={tipoGraficoPersonalizado}
+            onTipoGrafico={setTipoGraficoPersonalizado}
+            modoImpressao={modoDeImpressao}
+            onModoImpressao={setModoDeImpressao}
           />
         )}
 
@@ -603,6 +736,33 @@ export default function Relatorios() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {grafico && (
+                    <button
+                      onClick={() => setMostrarGrafico((v) => !v)}
+                      aria-pressed={mostrarGrafico}
+                      className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${
+                        mostrarGrafico
+                          ? "bg-[#0F2A44] border-[#0F2A44] text-white"
+                          : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                      }`}
+                    >
+                      <BarChart3 size={14} /> {mostrarGrafico ? "Ocultar gráfico" : "Ver gráfico"}
+                    </button>
+                  )}
+                  {comparativo && (
+                    <button
+                      onClick={() => setMostrarComparativo((v) => !v)}
+                      aria-pressed={mostrarComparativo}
+                      className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${
+                        mostrarComparativo
+                          ? "bg-[#0F2A44] border-[#0F2A44] text-white"
+                          : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                      }`}
+                    >
+                      <GitCompare size={14} />{" "}
+                      {mostrarComparativo ? "Ocultar comparativo" : "Comparativo"}
+                    </button>
+                  )}
                   <button
                     onClick={imprimir}
                     className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
@@ -661,7 +821,20 @@ export default function Relatorios() {
                   <Chip key={item.label} label={item.label} valor={item.valor} destaque={item.destaque} />
                 ))}
               </div>
+
+              <div className="mt-5 pt-4 border-t border-black/5">
+                <OpcoesImpressao
+                  modo={modoDeImpressao}
+                  onModo={setModoDeImpressao}
+                  colunas={resultado.colunas}
+                />
+              </div>
             </header>
+
+            {/* O gráfico entra acima da tabela e não a substitui. */}
+            {mostrarGrafico && grafico && !carregando && (
+              <GraficoRelatorio dados={grafico} tipo={tipoGrafico} onTipo={setTipoGrafico} />
+            )}
 
             {carregando && (
               <div className="px-5 sm:px-6 py-8 text-sm text-[#0F2A44]/50">Carregando dados...</div>
@@ -765,6 +938,20 @@ export default function Relatorios() {
               </div>
             )}
           </section>
+        )}
+
+        {/* Comparativo do relatório selecionado, abaixo do resultado dele. */}
+        {relatorio && comparativo && mostrarComparativo && !carregando && (
+          <div className="mt-5">
+            <PainelComparativo
+              relatorio={relatorio}
+              config={comparativo}
+              bases={bases}
+              modoImpressao={modoDeImpressao}
+              onModoImpressao={setModoDeImpressao}
+              onDocumento={documentoComparativo}
+            />
+          </div>
         )}
       </div>
     </Layout>

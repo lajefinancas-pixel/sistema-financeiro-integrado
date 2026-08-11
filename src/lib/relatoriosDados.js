@@ -61,6 +61,32 @@ export async function carregarBaseFinanceira() {
   return { secretarias: secs ?? [], contas: comSaldo, rateioIndisponivel };
 }
 
+/**
+ * Posição das mesmas contas numa data passada -- é o lado "mês anterior" dos
+ * relatórios comparativos. O saldo vem da mesma fonte única, só com o corte de
+ * data (`ate`), então o valor histórico é lido do saldos_historico e não estimado.
+ *
+ * As contas são repassadas sem nenhum campo de saldo de propósito: quando uma
+ * conta não tem histórico até aquela data, ela precisa aparecer com zero, e não
+ * herdar o saldo de hoje. Reservas ficam de fora -- a comparação é de saldo real.
+ */
+export async function carregarSaldosNaData({ contas, ate }) {
+  const { contas: comSaldo } = await carregarSaldosDasContas({
+    contas: (contas ?? []).map((c) => ({
+      id: c.id,
+      secretaria_id: c.secretaria_id,
+      secretaria: c.secretaria,
+      banco: c.banco,
+      nome_conta: c.nome_conta,
+      numero_conta: c.numero_conta,
+      tipo_conta: c.tipo_conta,
+    })),
+    ate,
+    comReservas: false,
+  });
+  return comSaldo;
+}
+
 /** Cadastro de fornecedores (ativos e inativos) com o nome da secretaria. */
 export async function carregarBaseFornecedores() {
   const { data, error } = await supabase
