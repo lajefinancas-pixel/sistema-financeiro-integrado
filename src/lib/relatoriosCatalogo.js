@@ -11,7 +11,7 @@
 // mesma conta duas vezes.
 
 import { somar } from "./rateioPagamentos";
-import { formatBRL } from "./moeda";
+import { formatarPercentual, formatBRL } from "./moeda";
 
 /** Só a parte "AAAA-MM-DD" de uma data/hora do banco. */
 export function soData(valor) {
@@ -42,9 +42,15 @@ export function rotuloDoMes(valor) {
 export function formatarCelula(valor, tipo) {
   if (tipo === "moeda") return formatBRL(valor);
   if (tipo === "data") return formatarDataBR(valor);
+  if (tipo === "percentual") return formatarPercentual(valor);
   if (tipo === "numero") return String(valor ?? 0);
   const texto = String(valor ?? "").trim();
   return texto === "" ? "--" : texto;
+}
+
+/** Colunas de valor (moeda, número, percentual) são alinhadas à direita. */
+export function colunaNumerica(coluna) {
+  return coluna?.tipo === "moeda" || coluna?.tipo === "numero" || coluna?.tipo === "percentual";
 }
 
 function compararTexto(a, b) {

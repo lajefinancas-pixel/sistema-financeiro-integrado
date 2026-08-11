@@ -2,7 +2,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { agoraBR } from "./saldosDocumento";
-import { formatarCelula } from "./relatoriosCatalogo";
+import { colunaNumerica, formatarCelula } from "./relatoriosCatalogo";
+import { modoImpressao, orientacaoSugerida } from "./relatoriosCabecalho";
 import { formatBRL, formatBRLSimples } from "./moeda";
 
 // Impressão, PDF e planilha da Central de Relatórios.
@@ -11,8 +12,23 @@ import { formatBRL, formatBRLSimples } from "./moeda";
 // densidade (fonte, espaçamento e altura de linha) grande o bastante para caber no
 // número de páginas pedido, e a menor faixa ainda fica legível em A4. A diferença é
 // que aqui as colunas são as que o relatório declarou, e não uma lista fixa.
+//
+// Dois formatos, escolhidos por quem emite:
+//
+//   compacta  -- aproveita o máximo da folha (o padrão): a densidade diminui até o
+//                relatório caber em poucas páginas, sem espaço em branco sobrando.
+//   detalhada -- fonte maior e texto completo, sem cortar o conteúdo das células;
+//                usa quantas páginas precisar.
+//
+// A orientação é automática: relatórios com muitas colunas saem em paisagem, o
+// resto em retrato -- ninguém precisa escolher isso na tela.
+//
+// Todo documento leva o mesmo cabeçalho padronizado (instituição, nome do
+// relatório, período, filtros, data e hora da geração, emissor) e a numeração de
+// páginas.
 
 const COR_NAVY = [15, 42, 68];
+const COR_CINZA = [90, 107, 124];
 
 function esc(v) {
   return String(v ?? "")
@@ -25,7 +41,40 @@ function textoSimples(v) {
 }
 
 function alinhamento(coluna) {
-  return coluna.tipo === "moeda" || coluna.tipo === "numero" ? "right" : "left";
+  return colunaNumerica(coluna) ? "right" : "left";
+}
+
+/** Formato pedido (densidade + orientação) resolvido a partir do que a tela mandou. */
+function formatoDoDocumento({ modo, orientacao, colunas, maxPaginas }) {
+  const escolhido = modoImpressao(modo);
+  return {
+    maxPaginas: maxPaginas ?? escolhido.maxPaginas,
+    quebrarTexto: escolhido.quebrarTexto,
+    orientacao: orientacao ?? orientacaoSugerida(colunas),
+  };
+}
+
+function textoRegistros(quantidade) {
+  return `${quantidade} ${quantidade === 1 ? "registro" : "registros"}`;
+}
+
+/**
+ * Cabeçalho padronizado a partir do que a tela mandou, com um caminho de
+ * compatibilidade: quando só vem `subtitulo` (texto único), ele entra na linha de
+ * emissão, e o documento continua saindo com a mesma estrutura.
+ */
+function cabecalhoDoDocumento({ titulo, subtitulo, cabecalho }) {
+  return {
+    instituicao: cabecalho?.instituicao ?? "",
+    lema: cabecalho?.lema ?? "",
+    relatorio: cabecalho?.relatorio ?? titulo ?? "Relatório",
+    periodo: cabecalho?.periodo ?? "",
+    filtros: cabecalho?.filtros ?? "",
+    geradoEm: cabecalho?.geradoEm ?? "",
+    usuario: cabecalho?.usuario ?? "",
+    // Sem cabeçalho estruturado, o texto antigo é a única identificação que existe.
+    avulso: cabecalho ? "" : String(subtitulo ?? `Emitido em ${agoraBR()}`),
+  };
 }
 
 function celula(linha, coluna) {
@@ -60,9 +109,12 @@ const FAIXAS_HTML = [
 
 // Altura útil aproximada de uma página A4 com margens estreitas, em pixels de tela (96dpi).
 const ALTURA_PAGINA_PX = 1040;
+// Em paisagem a folha é mais larga e mais baixa: cabem menos linhas por página.
+const ALTURA_PAGINA_PX_PAISAGEM = 700;
 
-function escolherFaixaHtml(grupos, maxPaginas) {
-  const limite = ALTURA_PAGINA_PX * maxPaginas * 0.93; // folga para as quebras de página
+function escolherFaixaHtml(grupos, maxPaginas, orientacao) {
+  const alturaFolha = orientacao === "landscape" ? ALTURA_PAGINA_PX_PAISAGEM : ALTURA_PAGINA_PX;
+  const limite = alturaFolha * maxPaginas * 0.93; // folga para as quebras de página
   for (const faixa of FAIXAS_HTML) {
     const alturaLinha = faixa.fonte * 1.32 + faixa.pad * 2 + 1;
     let altura = faixa.fonte * 2.4 + 8; // cabeçalho do documento
@@ -98,7 +150,7 @@ function tabelaHtml({ grupo, colunas, campoTotal, larguraPorColuna, rotuloGrupo 
         )}</th>
         <th class="right">${
           total === null
-            ? `${grupo.linhas.length} ${grupo.linhas.length === 1 ? "registro" : "registros"}`
+            ? `${textoRegistros(grupo.linhas.length)}`
             : `Total: ${esc(formatBRL(total))}`
         }</th>
       </tr>`
@@ -128,20 +180,70 @@ function tabelaHtml({ grupo, colunas, campoTotal, larguraPorColuna, rotuloGrupo 
   </section>`;
 }
 
-/** Documento HTML compacto do relatório selecionado. */
-export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas = 3 }) {
+/** Bloco de identificação que abre todo documento impresso. */
+function cabecalhoHtml(dados) {
+  const detalhes = [
+    dados.periodo ? `<span><b>Período:</b> ${esc(dados.periodo)}</span>` : "",
+    dados.filtros ? `<span><b>Filtros:</b> ${esc(dados.filtros)}</span>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const emissao = [
+    dados.geradoEm ? `<div>Gerado em ${esc(dados.geradoEm)}</div>` : "",
+    dados.usuario ? `<div>Emitido por ${esc(dados.usuario)}</div>` : "",
+    dados.avulso ? `<div>${esc(dados.avulso)}</div>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  return `<header class="cabecalho">
+    <div class="topo">
+      <div class="marca">
+        ${dados.instituicao ? `<div class="instituicao">${esc(dados.instituicao)}</div>` : ""}
+        ${dados.lema ? `<div class="lema">${esc(dados.lema)}</div>` : ""}
+      </div>
+      <div class="emissao">${emissao}</div>
+    </div>
+    <h1>${esc(dados.relatorio)}</h1>
+    ${detalhes ? `<div class="detalhes">${detalhes}</div>` : ""}
+  </header>`;
+}
+
+/**
+ * Documento HTML do relatório selecionado.
+ *
+ * `cabecalho` é o bloco padronizado (montarCabecalho); `modo` escolhe entre a
+ * impressão compacta e a detalhada; `orientacao` normalmente não é informada --
+ * ela sai da quantidade de colunas do relatório.
+ */
+export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas }) {
+  const formato = formatoDoDocumento({ modo, orientacao, colunas: resultado.colunas, maxPaginas });
   const grupos = resultado.grupos.filter((g) => g.linhas.length > 0);
-  const faixa = escolherFaixaHtml(grupos, maxPaginas);
+  const faixa = escolherFaixaHtml(grupos, formato.maxPaginas, formato.orientacao);
   const larguraPorColuna = larguras(resultado.colunas);
   const total = resultado.campoTotal ? resultado.totais?.[resultado.campoTotal] ?? 0 : null;
+  const identificacao = cabecalhoDoDocumento({ titulo, subtitulo, cabecalho });
+  const celulaTexto = formato.quebrarTexto
+    ? "white-space: normal; word-break: break-word;"
+    : "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;";
 
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>${esc(titulo)}</title>
+<title>${esc(identificacao.relatorio)}</title>
 <style>
-  @page { size: A4 portrait; margin: 8mm 9mm; }
+  /* A orientação acompanha a largura do relatório: muitas colunas pedem paisagem. */
+  @page {
+    size: A4 ${formato.orientacao};
+    margin: 8mm 9mm;
+    /* Numeração de páginas para os motores de impressão que suportam caixa de
+       margem; nos demais (Chrome, por exemplo) a própria janela de impressão
+       oferece o cabeçalho/rodapé com o número da página. O PDF gerado pelo
+       botão "PDF" numera sempre, em qualquer navegador. */
+    @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #5A6B7C; }
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; color: #0F2A44; font-size: ${faixa.fonte}px; line-height: 1.3;
@@ -149,11 +251,20 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas =
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .cabecalho {
-    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
     border-bottom: 1.5px solid #0F2A44; padding-bottom: 3px; margin-bottom: ${faixa.gap}px;
   }
-  .cabecalho h1 { margin: 0; font-size: ${faixa.fonte + 3}px; font-weight: 600; }
-  .cabecalho .quando { font-size: ${faixa.fonte}px; color: #44586C; text-align: right; }
+  .cabecalho .topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .cabecalho .instituicao {
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    font-size: ${Math.max(faixa.fonte - 0.5, 7)}px;
+  }
+  .cabecalho .lema { color: #5A6B7C; font-size: ${Math.max(faixa.fonte - 1, 6.5)}px; }
+  .cabecalho .emissao { text-align: right; color: #44586C; font-size: ${Math.max(faixa.fonte - 0.5, 7)}px; }
+  .cabecalho h1 { margin: 2px 0 0; font-size: ${faixa.fonte + 3}px; font-weight: 600; }
+  .cabecalho .detalhes {
+    display: flex; flex-wrap: wrap; gap: 2px 14px; color: #44586C;
+    font-size: ${Math.max(faixa.fonte - 0.5, 7)}px; margin-top: 1px;
+  }
   .bloco { margin-bottom: ${faixa.gap}px; break-inside: auto; page-break-inside: auto; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   /* Nome do grupo e cabeçalho das colunas ficam no <thead>: se a tabela continuar
@@ -168,10 +279,10 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas =
   }
   td {
     padding: ${faixa.pad}px 5px; border-bottom: 1px solid #E7EAEE;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    ${celulaTexto}
   }
   .right { text-align: right; }
-  td.valor { font-weight: 700; font-variant-numeric: tabular-nums; }
+  td.valor { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .linha-titulo th {
     background: #EEF1F5; color: #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
     text-transform: uppercase; border-bottom: 0; padding: ${faixa.pad}px 5px;
@@ -185,10 +296,7 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas =
 </style>
 </head>
 <body>
-  <div class="cabecalho">
-    <h1>${esc(titulo)}</h1>
-    <div class="quando">${esc(subtitulo)}</div>
-  </div>
+  ${cabecalhoHtml(identificacao)}
   ${grupos
     .map((grupo) =>
       tabelaHtml({
@@ -201,7 +309,7 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas =
     )
     .join("")}
   <div class="rodape">
-    <span>${esc(`${resultado.registros} ${resultado.registros === 1 ? "registro" : "registros"}`)}</span>
+    <span>${esc(textoRegistros(resultado.registros))}</span>
     ${total === null ? "<span></span>" : `<span>Total geral: ${esc(formatBRL(total))}</span>`}
   </div>
 </body>
@@ -212,13 +320,16 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, maxPaginas =
  * Imprime o relatório em um documento próprio, sem interferir no CSS de impressão
  * das outras páginas do sistema.
  */
-export function imprimirRelatorio({ titulo, subtitulo, resultado, maxPaginas = 3 }) {
+export function imprimirRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas }) {
   if (!resultado || resultado.registros === 0) return;
 
   const html = montarHtmlRelatorio({
     titulo,
-    subtitulo: subtitulo ?? `Emitido em ${agoraBR()}`,
+    subtitulo,
     resultado,
+    cabecalho,
+    modo,
+    orientacao,
     maxPaginas,
   });
 
@@ -256,9 +367,11 @@ const FAIXAS_PDF = [
 ];
 
 const ALTURA_PAGINA_PT = 760; // A4 (842pt) menos as margens do documento
+const ALTURA_PAGINA_PT_PAISAGEM = 520; // A4 deitada (595pt) menos as margens
 
-function escolherFaixaPdf(grupos, maxPaginas) {
-  const limite = ALTURA_PAGINA_PT * maxPaginas * 0.95;
+function escolherFaixaPdf(grupos, maxPaginas, orientacao) {
+  const alturaFolha = orientacao === "landscape" ? ALTURA_PAGINA_PT_PAISAGEM : ALTURA_PAGINA_PT;
+  const limite = alturaFolha * maxPaginas * 0.95;
   for (const faixa of FAIXAS_PDF) {
     const alturaLinha = faixa.fonte * 1.15 + faixa.pad * 2 + 1;
     let altura = 0;
@@ -268,29 +381,92 @@ function escolherFaixaPdf(grupos, maxPaginas) {
   return FAIXAS_PDF[FAIXAS_PDF.length - 1];
 }
 
-/** PDF com o mesmo formato compacto da impressão: grupos empilhados, um abaixo do outro. */
-export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPaginas = 3 }) {
+/** PDF com o mesmo formato da impressão: grupos empilhados, um abaixo do outro. */
+export function gerarPdfRelatorio({
+  titulo,
+  subtitulo,
+  resultado,
+  arquivo,
+  cabecalho,
+  modo,
+  orientacao,
+  maxPaginas,
+}) {
   if (!resultado || resultado.registros === 0) return;
 
-  const grupos = resultado.grupos.filter((g) => g.linhas.length > 0);
   const colunas = resultado.colunas;
-  const faixa = escolherFaixaPdf(grupos, maxPaginas);
-  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+  const formato = formatoDoDocumento({ modo, orientacao, colunas, maxPaginas });
+  const grupos = resultado.grupos.filter((g) => g.linhas.length > 0);
+  const faixa = escolherFaixaPdf(grupos, formato.maxPaginas, formato.orientacao);
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: formato.orientacao });
   const larguraPagina = doc.internal.pageSize.getWidth();
+  const alturaPagina = doc.internal.pageSize.getHeight();
   const margem = 26;
-  const cabecalho = `${titulo} — ${subtitulo ?? `Emitido em ${agoraBR()}`}`;
+  const larguraUtil = larguraPagina - margem * 2;
+  const fonte = faixa.fonte;
 
+  const identificacao = cabecalhoDoDocumento({ titulo, subtitulo, cabecalho });
+  const detalhes = [
+    identificacao.periodo ? `Período: ${identificacao.periodo}` : "",
+    identificacao.filtros ? `Filtros: ${identificacao.filtros}` : "",
+  ]
+    .filter(Boolean)
+    .join("   •   ");
+  const emissor =
+    identificacao.usuario !== "" ? `Emitido por ${identificacao.usuario}` : identificacao.avulso;
+
+  // As linhas do detalhe são medidas uma vez só: a altura do cabeçalho é a mesma
+  // em todas as páginas, então a tabela sempre começa na mesma posição.
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(fonte - 1);
+  const linhasDetalhe = detalhes ? doc.splitTextToSize(textoSimples(detalhes), larguraUtil).slice(0, 3) : [];
+  const alturaCabecalho = fonte + 5 + (fonte + 3) + 6 + linhasDetalhe.length * (fonte + 1);
+
+  /** Cabeçalho padronizado, repetido no topo de cada página. */
   const desenharCabecalho = () => {
-    doc.setFontSize(faixa.fonte + 2);
+    const direita = larguraPagina - margem;
+    let y = margem + fonte;
+
+    if (identificacao.instituicao) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(fonte - 0.5);
+      doc.setTextColor(...COR_NAVY);
+      doc.text(textoSimples(identificacao.instituicao.toUpperCase()), margem, y);
+    }
+    if (identificacao.geradoEm) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(fonte - 1);
+      doc.setTextColor(...COR_CINZA);
+      doc.text(textoSimples(`Gerado em ${identificacao.geradoEm}`), direita, y, { align: "right" });
+    }
+
+    y += fonte + 5;
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(fonte + 3);
     doc.setTextColor(...COR_NAVY);
-    doc.text(textoSimples(cabecalho), margem, margem + 6);
+    doc.text(textoSimples(identificacao.relatorio), margem, y);
+    if (emissor) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(fonte - 1);
+      doc.setTextColor(...COR_CINZA);
+      doc.text(textoSimples(emissor), direita, y, { align: "right" });
+    }
+
+    y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fonte - 1);
+    doc.setTextColor(...COR_CINZA);
+    linhasDetalhe.forEach((linha) => {
+      y += fonte + 1;
+      doc.text(linha, margem, y);
+    });
+
     doc.setDrawColor(...COR_NAVY);
     doc.setLineWidth(0.8);
-    doc.line(margem, margem + 10, larguraPagina - margem, margem + 10);
+    doc.line(margem, margem + alturaCabecalho + 2, larguraPagina - margem, margem + alturaCabecalho + 2);
+    doc.setTextColor(...COR_NAVY);
   };
 
-  const larguraUtil = larguraPagina - margem * 2;
   const percentuais = larguras(colunas);
   const estilosDeColuna = {};
   colunas.forEach((c, indice) => {
@@ -302,7 +478,10 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
   });
 
   const temSomavel = colunas.some((c) => c.somavel);
-  let posicao = margem + 20;
+  const topo = margem + alturaCabecalho + 10;
+  // Faixa reservada no pé da folha para o total geral e a numeração de páginas.
+  const rodapeReservado = margem + 12;
+  let posicao = topo;
 
   grupos.forEach((grupo) => {
     const total = totalDoGrupo(grupo, resultado.campoTotal);
@@ -320,7 +499,7 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
         {
           content:
             total === null
-              ? `${grupo.linhas.length} ${grupo.linhas.length === 1 ? "registro" : "registros"}`
+              ? textoRegistros(grupo.linhas.length)
               : `Total: ${textoSimples(formatBRLSimples(total))}`,
           styles: { halign: "right", fontStyle: "bold", fontSize: faixa.fonte + 1 },
         },
@@ -330,7 +509,7 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
 
     autoTable(doc, {
       startY: posicao,
-      margin: { top: margem + 20, left: margem, right: margem, bottom: margem },
+      margin: { top: topo, left: margem, right: margem, bottom: rodapeReservado },
       theme: "grid",
       styles: {
         fontSize: faixa.fonte,
@@ -338,7 +517,8 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
         lineColor: [225, 229, 234],
         lineWidth: 0.4,
         textColor: COR_NAVY,
-        overflow: "ellipsize",
+        // Na impressão detalhada o texto quebra em várias linhas em vez de ser cortado.
+        overflow: formato.quebrarTexto ? "linebreak" : "ellipsize",
       },
       headStyles: { fillColor: [238, 241, 245], textColor: COR_NAVY, fontStyle: "bold" },
       footStyles: { fillColor: [255, 255, 255], textColor: COR_NAVY, fontStyle: "bold" },
@@ -372,19 +552,28 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
   });
 
   const total = resultado.campoTotal ? resultado.totais?.[resultado.campoTotal] ?? 0 : null;
-  const rodape = `${resultado.registros} ${resultado.registros === 1 ? "registro" : "registros"}${
+  const resumo = `${textoRegistros(resultado.registros)}${
     total === null ? "" : `   •   Total geral: ${formatBRLSimples(total)}`
   }`;
-  const alturaPagina = doc.internal.pageSize.getHeight();
-  // Só abre uma página nova se o rodapé realmente não couber na atual.
-  if (posicao + faixa.fonte + margem > alturaPagina) {
-    doc.addPage();
-    desenharCabecalho();
-    posicao = margem + 20;
+
+  // O rodapé é desenhado na faixa reservada de cada página, depois de o documento
+  // estar fechado: assim a numeração sai exata ("Página 2 de 5") e nenhuma página
+  // extra é criada só para caber o total.
+  const paginas = doc.getNumberOfPages();
+  const linhaRodape = alturaPagina - margem + fonte;
+  for (let pagina = 1; pagina <= paginas; pagina++) {
+    doc.setPage(pagina);
+    if (pagina === paginas) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(fonte);
+      doc.setTextColor(...COR_NAVY);
+      doc.text(textoSimples(resumo), margem, linhaRodape);
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fonte - 1);
+    doc.setTextColor(...COR_CINZA);
+    doc.text(`Página ${pagina} de ${paginas}`, larguraPagina - margem, linhaRodape, { align: "right" });
   }
-  doc.setFontSize(faixa.fonte + 1);
-  doc.setFont("helvetica", "bold");
-  doc.text(textoSimples(rodape), larguraPagina - margem, posicao + faixa.fonte, { align: "right" });
 
   doc.save(arquivo || "relatorio.pdf");
 }

@@ -1,18 +1,21 @@
 import React from "react";
-import { FileSpreadsheet, FileText, Printer } from "lucide-react";
-import { formatarCelula, valorTotal } from "../../lib/relatoriosCatalogo";
+import { BarChart3, FileSpreadsheet, FileText, Printer } from "lucide-react";
+import { colunaNumerica, formatarCelula, valorTotal } from "../../lib/relatoriosCatalogo";
 import { formatBRL } from "../../lib/moeda";
+import GraficoRelatorio from "./GraficoRelatorio";
+import OpcoesImpressao from "./OpcoesImpressao";
 
 // Resultado do relatório personalizado na tela. O `resultado` recebido tem o mesmo
 // formato dos relatórios prontos (colunas, grupos com subtotal, registros e
-// totais), por isso os botões Imprimir / PDF / Excel usam as mesmas funções.
+// totais), por isso os botões Imprimir / PDF / Excel usam as mesmas funções -- e o
+// gráfico e o formato de impressão também são os mesmos.
 
 function textoRegistros(quantidade) {
   return `${quantidade} ${quantidade === 1 ? "registro" : "registros"}`;
 }
 
 function alinharCelula(coluna) {
-  return coluna.tipo === "moeda" || coluna.tipo === "numero" ? "text-right" : "text-left";
+  return colunaNumerica(coluna) ? "text-right" : "text-left";
 }
 
 function Chip({ label, valor, destaque }) {
@@ -38,6 +41,13 @@ export default function ResultadoPersonalizado({
   onImprimir,
   onPdf,
   onExcel,
+  grafico,
+  mostrarGrafico,
+  onMostrarGrafico,
+  tipoGrafico,
+  onTipoGrafico,
+  modoImpressao,
+  onModoImpressao,
 }) {
   if (!resultado) return null;
 
@@ -63,6 +73,19 @@ export default function ResultadoPersonalizado({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {grafico && onMostrarGrafico && (
+              <button
+                onClick={onMostrarGrafico}
+                aria-pressed={mostrarGrafico}
+                className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${
+                  mostrarGrafico
+                    ? "bg-[#0F2A44] border-[#0F2A44] text-white"
+                    : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                }`}
+              >
+                <BarChart3 size={14} /> {mostrarGrafico ? "Ocultar gráfico" : "Ver gráfico"}
+              </button>
+            )}
             <button
               onClick={onImprimir}
               className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
@@ -91,7 +114,22 @@ export default function ResultadoPersonalizado({
             <Chip key={item.label} label={item.label} valor={item.valor} />
           ))}
         </div>
+
+        {onModoImpressao && (
+          <div className="mt-5 pt-4 border-t border-black/5">
+            <OpcoesImpressao
+              modo={modoImpressao}
+              onModo={onModoImpressao}
+              colunas={resultado.colunas}
+            />
+          </div>
+        )}
       </header>
+
+      {/* O gráfico resume; a tabela detalhada continua logo abaixo. */}
+      {mostrarGrafico && grafico && !carregando && (
+        <GraficoRelatorio dados={grafico} tipo={tipoGrafico} onTipo={onTipoGrafico} />
+      )}
 
       {carregando && (
         <div className="px-5 sm:px-6 py-8 text-sm text-[#0F2A44]/50">Carregando dados...</div>
