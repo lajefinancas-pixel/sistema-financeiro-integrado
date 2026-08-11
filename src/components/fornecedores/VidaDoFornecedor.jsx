@@ -1,0 +1,396 @@
+import React from "react";
+import { AlertTriangle, Banknote, Contact, History, Landmark, Receipt, Trash2, Wallet } from "lucide-react";
+import { formatBRL } from "../../lib/moeda";
+
+/**
+ * "Vida do fornecedor": o que a listagem mostra quando um cadastro é aberto.
+ *
+ * É apresentação, não cálculo novo. Cada bloco apenas reorganiza dados que já
+ * existem -- o cadastro do fornecedor, os lançamentos de valores em aberto e os
+ * pagamentos já efetivados nas programações --, e as ações (mudar situação,
+ * excluir lançamento, ver histórico) continuam sendo as da própria tela, com as
+ * mesmas permissões de sempre.
+ */
+
+function soData(v) {
+  return v ? String(v).slice(0, 10) : "";
+}
+function formatarData(iso) {
+  const data = soData(iso);
+  return data ? new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR") : "--";
+}
+function numero(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function textoOuTraco(v) {
+  const texto = String(v ?? "").trim();
+  return texto === "" ? "--" : texto;
+}
+function percentual(v) {
+  const n = numero(v);
+  return n > 0 ? `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%` : "";
+}
+
+const EM_ABERTO = (v) => v.situacao !== "pago" && v.situacao !== "cancelado";
+
+/** Identificação do lançamento a partir dos campos já gravados nele. */
+function descricaoDoLancamento(v, fornecedor) {
+  const partes = [];
+  if (v.numero_nota_fiscal) partes.push(`NF ${v.numero_nota_fiscal}`);
+  if (v.parcela) partes.push(`Parcela ${v.parcela}`);
+  if (v.numero_processo) partes.push(`Processo ${v.numero_processo}`);
+  if (v.numero_empenho) partes.push(`Empenho ${v.numero_empenho}`);
+  if (partes.length > 0) return partes.join(" · ");
+  return textoOuTraco(fornecedor.descricao);
+}
+
+/** Lançamento fora do Simples, com alíquota informada e nenhuma retenção aplicada. */
+function temPendenciaTributaria(v) {
+  return (
+    v.optante_simples === false &&
+    (numero(v.aliquota_iss) > 0 || numero(v.aliquota_ir) > 0) &&
+    numero(v.desconto_iss) <= 0 &&
+    numero(v.desconto_ir) <= 0
+  );
+}
+
+function Bloco({ icone: Icone, titulo, children }) {
+  return (
+    <section className="rounded-xl border border-black/5 bg-white print:break-inside-avoid">
+      <h4 className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#0F2A44]/50 border-b border-black/5">
+        <Icone size={13} /> {titulo}
+      </h4>
+      <div className="px-3 py-3">{children}</div>
+    </section>
+  );
+}
+
+function Campo({ rotulo, valor }) {
+  return (
+    <div>
+      <div className="text-[11px] text-[#0F2A44]/45">{rotulo}</div>
+      <div className="text-sm text-[#0F2A44] break-words">{textoOuTraco(valor)}</div>
+    </div>
+  );
+}
+
+function Indicador({ rotulo, valor, destaque }) {
+  return (
+    <div className="rounded-lg border border-black/5 bg-black/[0.015] px-3 py-2">
+      <div className="text-[11px] text-[#0F2A44]/45">{rotulo}</div>
+      <div className={`text-sm tabular-nums text-[#0F2A44] ${destaque ? "font-semibold" : ""}`}>{valor}</div>
+    </div>
+  );
+}
+
+function Vazio({ children }) {
+  return <div className="text-xs text-[#0F2A44]/40">{children}</div>;
+}
+
+export default function VidaDoFornecedor({
+  fornecedor,
+  secretariaNome,
+  tipo,
+  bancario,
+  situacoes,
+  situacaoInfo,
+  pagamentos,
+  carregandoPagamentos,
+  erroPagamentos,
+  onMudarSituacao,
+  onExcluirValor,
+  onVerHistorico,
+}) {
+  // Lançamentos já resolvidos (pagos/cancelados) ficam recolhidos para não
+  // esconder o que ainda está por pagar -- mas seguem acessíveis e editáveis.
+  const [mostrarResolvidos, setMostrarResolvidos] = React.useState(false);
+
+  const valores = fornecedor.valores ?? [];
+  const aPagar = React.useMemo(
+    () =>
+      valores
+        .filter(EM_ABERTO)
+        .slice()
+        .sort((a, b) => soData(a.data_vencimento).localeCompare(soData(b.data_vencimento))),
+    [valores]
+  );
+  const resolvidos = React.useMemo(() => valores.filter((v) => !EM_ABERTO(v)), [valores]);
+  const listaLancamentos = mostrarResolvidos ? [...aPagar, ...resolvidos] : aPagar;
+
+  const totalPago = (pagamentos ?? []).reduce((acc, p) => acc + numero(p.valor), 0);
+  const totalAberto = numero(fornecedor.totalAberto);
+  // Sem a leitura dos pagamentos, o que depende deles aparece como "--" em vez
+  // de um total zerado que pareceria real.
+  const pagamentosIndisponiveis = carregandoPagamentos || Boolean(erroPagamentos);
+
+  const issRetido = valores.reduce((acc, v) => acc + numero(v.desconto_iss), 0);
+  const irRetido = valores.reduce((acc, v) => acc + numero(v.desconto_ir), 0);
+  const comRetencao = valores.filter((v) => numero(v.desconto_iss) > 0 || numero(v.desconto_ir) > 0);
+  const pendencias = valores.filter(temPendenciaTributaria);
+  const issFixo = percentual(fornecedor.aliquota_iss_fixa);
+  const irFixo = percentual(fornecedor.aliquota_ir_fixa);
+  const semTributario =
+    comRetencao.length === 0 && pendencias.length === 0 && !issFixo && !irFixo;
+
+  return (
+    <div className="border-t border-black/5 px-4 py-4 space-y-3 bg-black/[0.01]">
+      <Bloco icone={Contact} titulo="Identificação">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Campo rotulo="Nome" valor={fornecedor.razao_social || fornecedor.nome_fantasia} />
+          <Campo rotulo="Razão social" valor={fornecedor.razao_social} />
+          <Campo rotulo="Nome fantasia" valor={fornecedor.nome_fantasia} />
+          <Campo rotulo="CNPJ/CPF" valor={fornecedor.cpf_cnpj} />
+          <Campo rotulo="Secretaria" valor={secretariaNome} />
+          <Campo rotulo="Tipo" valor={tipo} />
+          <Campo rotulo="Telefone" valor={fornecedor.telefone} />
+          <Campo rotulo="E-mail" valor={fornecedor.email} />
+          <Campo rotulo="Situação cadastral" valor={fornecedor.ativo === false ? "Inativo" : "Ativo"} />
+          {bancario?.texto ? (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Campo rotulo="Dados bancários" valor={bancario.texto} />
+            </div>
+          ) : (
+            <>
+              <Campo rotulo="Banco" valor={bancario?.banco} />
+              <Campo rotulo="Agência" valor={bancario?.agencia} />
+              <Campo rotulo="Conta" valor={bancario?.conta} />
+            </>
+          )}
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Campo rotulo="Descrição do serviço/fornecimento" valor={fornecedor.descricao} />
+          </div>
+        </div>
+      </Bloco>
+
+      <Bloco icone={Wallet} titulo="Financeiro">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <Indicador rotulo="Total em aberto" valor={formatBRL(totalAberto)} destaque />
+          <Indicador rotulo="Total já pago" valor={pagamentosIndisponiveis ? "--" : formatBRL(totalPago)} />
+          <Indicador
+            rotulo="Total geral movimentado"
+            valor={pagamentosIndisponiveis ? "--" : formatBRL(totalAberto + totalPago)}
+          />
+          <Indicador rotulo="Quantidade de lançamentos" valor={valores.length} />
+        </div>
+        <p className="mt-2 text-[11px] text-[#0F2A44]/40">
+          Em aberto: lançamentos deste fornecedor ainda não quitados. Já pago: pagamentos efetivados
+          nas programações e vinculados a este cadastro.
+        </p>
+      </Bloco>
+
+      <Bloco icone={Receipt} titulo="A pagar">
+        {aPagar.length === 0 && !mostrarResolvidos ? (
+          <Vazio>Nenhum valor em aberto para este fornecedor.</Vazio>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Data</th>
+                  <th className="py-1.5 pr-3 font-medium">Descrição</th>
+                  <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">Valor</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Secretaria</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Situação</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Vencimento</th>
+                  <th className="py-1.5 font-medium text-right print:hidden">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listaLancamentos.map((v) => {
+                  const info = situacaoInfo(v.situacao);
+                  return (
+                    <tr key={v.id} className="border-t border-black/5">
+                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                        {formatarData(v.data_nota_fiscal || v.created_at)}
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
+                        {descricaoDoLancamento(v, fornecedor)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums font-medium whitespace-nowrap">
+                        {formatBRL(v.valor)}
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                        {textoOuTraco(secretariaNome)}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <select
+                          value={v.situacao}
+                          onChange={(e) => onMudarSituacao(v.id, e.target.value)}
+                          style={{ color: info.cor, backgroundColor: info.bg }}
+                          className="text-xs font-medium px-2 py-1 rounded-md border-none"
+                        >
+                          {situacoes.map((s) => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                        {formatarData(v.data_vencimento)}
+                      </td>
+                      <td className="py-2 text-right print:hidden">
+                        <button
+                          onClick={() => onExcluirValor(v.id)}
+                          className="text-[#0F2A44]/30 hover:text-red-500"
+                          title="Excluir lançamento"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {resolvidos.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMostrarResolvidos((atual) => !atual)}
+            className="mt-2 text-[11px] text-[#0F2A44]/50 underline underline-offset-2 hover:text-[#0F2A44] print:hidden"
+          >
+            {mostrarResolvidos
+              ? "Ocultar lançamentos pagos/cancelados"
+              : `Mostrar também lançamentos pagos/cancelados (${resolvidos.length})`}
+          </button>
+        )}
+      </Bloco>
+
+      <Bloco icone={Banknote} titulo="Pagamentos realizados">
+        {carregandoPagamentos ? (
+          <Vazio>Carregando pagamentos...</Vazio>
+        ) : erroPagamentos ? (
+          <div className="text-xs text-red-600">{erroPagamentos}</div>
+        ) : (pagamentos ?? []).length === 0 ? (
+          <Vazio>Nenhum pagamento efetivado para este fornecedor até agora.</Vazio>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Data</th>
+                  <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">Valor</th>
+                  <th className="py-1.5 pr-3 font-medium">Conta utilizada</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Secretaria</th>
+                  <th className="py-1.5 font-medium whitespace-nowrap">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagamentos.map((p) => (
+                  <tr key={p.id} className="border-t border-black/5">
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                      {formatarData(p.data)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums font-medium whitespace-nowrap">
+                      {formatBRL(p.valor)}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
+                      {p.contas.length > 0 ? p.contas.join(" · ") : "--"}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                      {textoOuTraco(p.secretaria)}
+                    </td>
+                    <td className="py-2 text-xs text-[#0F2A44]/70 whitespace-nowrap">{p.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Bloco>
+
+      <Bloco icone={Landmark} titulo="Tributário">
+        {semTributario ? (
+          <Vazio>Nenhum dado tributário cadastrado para este fornecedor.</Vazio>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Indicador
+                rotulo={`ISS retido${issFixo ? ` (fixo: ${issFixo})` : ""}`}
+                valor={formatBRL(issRetido)}
+              />
+              <Indicador
+                rotulo={`IRPJ retido${irFixo ? ` (fixo: ${irFixo})` : ""}`}
+                valor={formatBRL(irRetido)}
+              />
+              <Indicador rotulo="Lançamentos com retenção" valor={comRetencao.length} />
+              <Indicador rotulo="Pendências tributárias" valor={pendencias.length} />
+            </div>
+
+            {comRetencao.length > 0 && (
+              <div className="overflow-x-auto mt-3">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                      <th className="py-1.5 pr-3 font-medium">Lançamento</th>
+                      <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">Bruto</th>
+                      <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">Base de cálculo</th>
+                      <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">ISS</th>
+                      <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">IRPJ</th>
+                      <th className="py-1.5 font-medium text-right whitespace-nowrap">Líquido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comRetencao.map((v) => (
+                      <tr key={v.id} className="border-t border-black/5">
+                        <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
+                          {descricaoDoLancamento(v, fornecedor)}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-xs">
+                          {formatBRL(v.valor_bruto ?? v.valor)}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-xs">
+                          {v.base_calculo ? formatBRL(v.base_calculo) : "--"}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-xs text-red-600">
+                          {numero(v.desconto_iss) > 0
+                            ? `${formatBRL(v.desconto_iss)}${percentual(v.aliquota_iss) ? ` (${percentual(v.aliquota_iss)})` : ""}`
+                            : "--"}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-xs text-red-600">
+                          {numero(v.desconto_ir) > 0
+                            ? `${formatBRL(v.desconto_ir)}${percentual(v.aliquota_ir) ? ` (${percentual(v.aliquota_ir)})` : ""}`
+                            : "--"}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-xs font-medium">
+                          {formatBRL(v.valor)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {pendencias.length > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#FFF6E5] border border-[#EA9A1E]/20 px-3 py-2">
+                <AlertTriangle size={14} className="text-[#EA9A1E] mt-0.5 shrink-0" />
+                <div className="text-xs text-[#0F2A44]/70">
+                  <span className="font-medium">
+                    {pendencias.length === 1 ? "1 pendência tributária" : `${pendencias.length} pendências tributárias`}
+                  </span>{" "}
+                  -- lançamento fora do Simples, com alíquota informada e sem retenção aplicada:{" "}
+                  {pendencias.map((v) => descricaoDoLancamento(v, fornecedor)).join(" · ")}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Bloco>
+
+      {/* Atalho discreto para a trilha deste cadastro: abre as
+          movimentações do fornecedor sem sair da tela. */}
+      <div className="flex justify-end print:hidden">
+        <button
+          type="button"
+          onClick={onVerHistorico}
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 bg-white text-[#0F2A44]/60 hover:bg-black/5"
+        >
+          <History size={13} /> Ver Histórico
+        </button>
+      </div>
+    </div>
+  );
+}
