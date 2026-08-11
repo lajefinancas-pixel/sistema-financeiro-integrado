@@ -1,7 +1,7 @@
 import React from "react";
 import {
-  Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, RefreshCw,
-  Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare,
+  Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, ChevronDown,
+  RefreshCw, Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare, Star,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
@@ -100,6 +100,73 @@ function CartaoRelatorio({ relatorio, ativo, onSelecionar }) {
   );
 }
 
+/** "4 relatórios" / "1 relatório" */
+function textoRelatorios(quantidade) {
+  return `${quantidade} ${quantidade === 1 ? "relatório" : "relatórios"}`;
+}
+
+/**
+ * Grupo da central em forma de sanfona: fechado, mostra só o ícone, o nome e a
+ * descrição da categoria; aberto, lista os relatórios dela. Quem controla qual
+ * grupo está aberto é a página, para que só um fique aberto por vez.
+ */
+function GrupoRelatorios({ categoria, Icone, relatorios, aberto, onAlternar, selecionado, onSelecionar }) {
+  const idPainel = `grupo-relatorios-${categoria.id}`;
+  return (
+    <section
+      className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-colors ${
+        aberto ? "border-[#C9A227]/50" : "border-black/5"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onAlternar(categoria.id)}
+        aria-expanded={aberto}
+        aria-controls={idPainel}
+        className="w-full text-left flex items-start gap-3 p-5 hover:bg-[#C9A227]/[0.04]"
+      >
+        <div className="w-10 h-10 rounded-xl bg-[#0F2A44] flex items-center justify-center shrink-0">
+          <Icone size={18} className="text-[#C9A227]" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-[#0F2A44] uppercase tracking-[0.1em]">
+            {categoria.nome}
+          </h2>
+          <p className="text-xs text-[#0F2A44]/55 mt-0.5 leading-relaxed">{categoria.descricao}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+          <span className="hidden sm:inline text-[11px] text-[#0F2A44]/40 whitespace-nowrap">
+            {textoRelatorios(relatorios.length)}
+          </span>
+          <ChevronDown
+            size={18}
+            className={`text-[#0F2A44]/35 transition-transform ${aberto ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      {aberto && (
+        <div id={idPainel} className="px-5 pb-5 pt-1 space-y-2.5 border-t border-black/5">
+          {relatorios.length === 0 ? (
+            <p className="text-xs text-[#0F2A44]/45 pt-3">
+              Nenhum relatório disponível nesta categoria.
+            </p>
+          ) : (
+            relatorios.map((item) => (
+              <CartaoRelatorio
+                key={item.id}
+                relatorio={item}
+                ativo={item.id === selecionado}
+                onSelecionar={onSelecionar}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Chip({ label, valor, destaque }) {
   return (
     <div
@@ -139,6 +206,8 @@ export default function Relatorios() {
   const [avisosBase, setAvisosBase] = React.useState([]);
 
   const [selecionado, setSelecionado] = React.useState(null);
+  // Central recolhida: nenhum grupo aberto ao entrar e só um aberto por vez.
+  const [categoriaAberta, setCategoriaAberta] = React.useState(null);
   const [geradoEm, setGeradoEm] = React.useState(null);
   const [periodo, setPeriodo] = React.useState({ inicio: primeiroDiaDoAno(), fim: hojeISO() });
 
@@ -165,6 +234,13 @@ export default function Relatorios() {
   const [carregandoFavoritos, setCarregandoFavoritos] = React.useState(true);
   const [erroFavoritos, setErroFavoritos] = React.useState(null);
   const [salvandoFavorito, setSalvandoFavorito] = React.useState(false);
+  // null = ainda no automático: "Meus relatórios" fica recolhido enquanto não
+  // houver nenhum relatório salvo. Clicar no cabeçalho passa a mandar no estado.
+  const [meusRelatoriosAberto, setMeusRelatoriosAberto] = React.useState(null);
+
+  function alternarCategoria(id) {
+    setCategoriaAberta((atual) => (atual === id ? null : id));
+  }
 
   const carregarBases = React.useCallback(async () => {
     setCarregando(true);
@@ -599,41 +675,20 @@ export default function Relatorios() {
           </div>
         )}
 
-        {/* Painel da central: um bloco por categoria, cada relatório um item clicável. */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-          {CATEGORIAS.map((categoria) => {
-            const Icone = ICONES_CATEGORIA[categoria.id] ?? BarChart2;
-            return (
-              <section
-                key={categoria.id}
-                className="bg-white rounded-2xl border border-black/5 shadow-sm p-5"
-              >
-                <div className="flex items-start gap-3 pb-4 mb-4 border-b border-black/5">
-                  <div className="w-10 h-10 rounded-xl bg-[#0F2A44] flex items-center justify-center shrink-0">
-                    <Icone size={18} className="text-[#C9A227]" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-semibold text-[#0F2A44] uppercase tracking-[0.1em]">
-                      {categoria.nome}
-                    </h2>
-                    <p className="text-xs text-[#0F2A44]/55 mt-0.5 leading-relaxed">
-                      {categoria.descricao}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-2.5">
-                  {relatoriosDaCategoria(categoria.id).map((item) => (
-                    <CartaoRelatorio
-                      key={item.id}
-                      relatorio={item}
-                      ativo={item.id === selecionado}
-                      onSelecionar={selecionar}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
+        {/* Central recolhida: um card fechado por grupo, aberto só ao clicar. */}
+        <div className="space-y-3 mb-6">
+          {CATEGORIAS.map((categoria) => (
+            <GrupoRelatorios
+              key={categoria.id}
+              categoria={categoria}
+              Icone={ICONES_CATEGORIA[categoria.id] ?? BarChart2}
+              relatorios={relatoriosDaCategoria(categoria.id)}
+              aberto={categoriaAberta === categoria.id}
+              onAlternar={alternarCategoria}
+              selecionado={selecionado}
+              onSelecionar={selecionar}
+            />
+          ))}
         </div>
 
         {/* Relatórios personalizados: construtor próprio e atalhos salvos. */}
@@ -653,28 +708,61 @@ export default function Relatorios() {
                 </p>
               </div>
             </div>
-            {!mostrarConstrutor && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMostrarConstrutor(true);
-                  setErroConstrutor(null);
-                }}
-                className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white font-medium hover:bg-[#0F2A44]/90 whitespace-nowrap"
-              >
-                <Plus size={15} /> Criar relatório personalizado
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setMostrarConstrutor(true);
+                setErroConstrutor(null);
+              }}
+              className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white font-medium hover:bg-[#0F2A44]/90 whitespace-nowrap"
+            >
+              <Plus size={15} /> Criar relatório personalizado
+            </button>
           </div>
 
-          <div className="mt-4">
-            <RelatoriosSalvos
-              favoritos={favoritos}
-              carregando={carregandoFavoritos}
-              erro={erroFavoritos}
-              onAplicar={aplicarFavorito}
-              onExcluir={excluirFavorito}
-            />
+          {/* "Meus relatórios": recolhido por padrão, abre sozinho quando já há
+              algum relatório salvo ou quando o usuário clica no cabeçalho. */}
+          <div className="mt-4 border-t border-black/5 pt-3">
+            <button
+              type="button"
+              onClick={() => setMeusRelatoriosAberto((atual) => !(atual ?? favoritos.length > 0))}
+              aria-expanded={meusRelatoriosAberto ?? favoritos.length > 0}
+              aria-controls="meus-relatorios"
+              className="w-full flex items-center gap-2 text-left rounded-lg px-1 py-1.5 hover:bg-black/[0.03]"
+            >
+              <Star size={14} className="text-[#C9A227] shrink-0" />
+              <span className="text-xs font-medium text-[#0F2A44]/75">Meus relatórios</span>
+              {favoritos.length > 0 && (
+                <span className="text-[10px] font-semibold text-[#0F2A44]/50 bg-[#F5F3EF] rounded-full px-2 py-0.5">
+                  {favoritos.length}
+                </span>
+              )}
+              <ChevronDown
+                size={15}
+                className={`ml-auto text-[#0F2A44]/35 transition-transform ${
+                  (meusRelatoriosAberto ?? favoritos.length > 0) ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {(meusRelatoriosAberto ?? favoritos.length > 0) && (
+              <div id="meus-relatorios" className="mt-3">
+                {!carregandoFavoritos && !erroFavoritos && favoritos.length === 0 ? (
+                  <p className="text-[11px] text-[#0F2A44]/40">
+                    Você ainda não tem relatórios salvos. Monte um relatório personalizado e salve
+                    para vê-lo aqui.
+                  </p>
+                ) : (
+                  <RelatoriosSalvos
+                    favoritos={favoritos}
+                    carregando={carregandoFavoritos}
+                    erro={erroFavoritos}
+                    onAplicar={aplicarFavorito}
+                    onExcluir={excluirFavorito}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           {mostrarConstrutor && (
