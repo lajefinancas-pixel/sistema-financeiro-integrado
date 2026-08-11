@@ -1,9 +1,31 @@
 import React from "react";
-import { ChevronLeft, ChevronRight, Printer, FileText, FileSpreadsheet } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Printer,
+  FileText,
+  FileSpreadsheet,
+  History,
+  SearchX,
+} from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import CardsAtalhoHistorico from "../components/historico/CardsAtalhoHistorico";
+import FiltrosHistorico from "../components/historico/FiltrosHistorico";
+import LinhaDoTempoHistorico from "../components/historico/LinhaDoTempoHistorico";
 import { mensagemAmigavel } from "../lib/erros";
+import {
+  ATALHOS,
+  FILTROS_VAZIOS,
+  POR_PAGINA,
+  contarMovimentacoes,
+  filtroPreenchido,
+  listarMovimentacoes,
+  listarSecretariasParaFiltro,
+  listarUsuariosParaFiltro,
+  quantidadeDeFiltros,
+} from "../lib/historicoMovimentacoes";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -44,6 +66,28 @@ export default function Historico() {
   const [datasComSaldo, setDatasComSaldo] = React.useState(new Set());
   const [contasPorSecretaria, setContasPorSecretaria] = React.useState([]);
 
+  // Linha do tempo de movimentações: `filtros` é o formulário, `aplicados` é o
+  // recorte que está valendo na consulta (só muda em "Aplicar Filtros", em
+  // "Limpar Filtros" ou ao clicar num card de acesso rápido).
+  const [filtros, setFiltros] = React.useState(FILTROS_VAZIOS);
+  const [aplicados, setAplicados] = React.useState(FILTROS_VAZIOS);
+  const [movimentacoes, setMovimentacoes] = React.useState([]);
+  const [paginaMovimentacoes, setPaginaMovimentacoes] = React.useState(0);
+  const [temMais, setTemMais] = React.useState(false);
+  const [carregandoMovimentacoes, setCarregandoMovimentacoes] = React.useState(true);
+  const [carregandoMais, setCarregandoMais] = React.useState(false);
+  const [erroMovimentacoes, setErroMovimentacoes] = React.useState(null);
+  const [avisosMovimentacoes, setAvisosMovimentacoes] = React.useState([]);
+  const [usuariosFiltro, setUsuariosFiltro] = React.useState([]);
+  const [erroUsuariosFiltro, setErroUsuariosFiltro] = React.useState(null);
+  const [secretariasFiltro, setSecretariasFiltro] = React.useState([]);
+  const [erroSecretariasFiltro, setErroSecretariasFiltro] = React.useState(null);
+  const [contagensAtalhos, setContagensAtalhos] = React.useState({});
+
+  const chaveAplicados = JSON.stringify(aplicados);
+  const comFiltro = filtroPreenchido(aplicados);
+  const filtrosEmUso = quantidadeDeFiltros(aplicados);
+
   React.useEffect(() => {
     carregarDatasComSaldo();
   }, [mesExibido, anoExibido]);
@@ -51,6 +95,99 @@ export default function Historico() {
   React.useEffect(() => {
     carregarSaldosNaData();
   }, [dataSelecionada]);
+
+  React.useEffect(() => {
+    carregarListasDosFiltros();
+    carregarContagensDosAtalhos();
+  }, []);
+
+  React.useEffect(() => {
+    let ativo = true;
+
+    async function carregar() {
+      // "Carregar mais" mantém a linha do tempo na tela: só a primeira página
+      // troca a lista pelo aviso de carregamento.
+      const primeiraPagina = paginaMovimentacoes === 0;
+      if (primeiraPagina) setCarregandoMovimentacoes(true);
+      else setCarregandoMais(true);
+      setErroMovimentacoes(null);
+      try {
+        const resultado = await listarMovimentacoes({
+          pagina: paginaMovimentacoes,
+          porPagina: POR_PAGINA,
+          filtros: aplicados,
+        });
+        if (!ativo) return;
+        setMovimentacoes(resultado.movimentacoes);
+        setTemMais(resultado.temMais);
+        setAvisosMovimentacoes(resultado.avisos);
+      } catch (e) {
+        if (!ativo) return;
+        setMovimentacoes([]);
+        setTemMais(false);
+        setAvisosMovimentacoes([]);
+        setErroMovimentacoes(mensagemAmigavel(e, "Erro ao carregar as movimentações do sistema."));
+      } finally {
+        if (ativo) {
+          setCarregandoMovimentacoes(false);
+          setCarregandoMais(false);
+        }
+      }
+    }
+
+    carregar();
+    return () => {
+      ativo = false;
+    };
+  }, [chaveAplicados, paginaMovimentacoes]);
+
+  async function carregarListasDosFiltros() {
+    // As duas listas são independentes: a falha de uma não tira a outra do ar.
+    try {
+      setUsuariosFiltro(await listarUsuariosParaFiltro());
+      setErroUsuariosFiltro(null);
+    } catch (e) {
+      setUsuariosFiltro([]);
+      setErroUsuariosFiltro(mensagemAmigavel(e, "Erro ao carregar a lista de usuários."));
+    }
+    try {
+      setSecretariasFiltro(await listarSecretariasParaFiltro());
+      setErroSecretariasFiltro(null);
+    } catch (e) {
+      setSecretariasFiltro([]);
+      setErroSecretariasFiltro(mensagemAmigavel(e, "Erro ao carregar a lista de secretarias."));
+    }
+  }
+
+  /** Número de cada card de acesso rápido (null quando a leitura não está liberada). */
+  async function carregarContagensDosAtalhos() {
+    try {
+      const totais = await Promise.all(ATALHOS.map((atalho) => contarMovimentacoes(atalho.filtros())));
+      setContagensAtalhos(Object.fromEntries(ATALHOS.map((atalho, i) => [atalho.chave, totais[i]])));
+    } catch {
+      // O número é um detalhe do card: sem ele o atalho continua funcionando.
+      setContagensAtalhos(Object.fromEntries(ATALHOS.map((atalho) => [atalho.chave, null])));
+    }
+  }
+
+  function aplicarFiltros() {
+    setAplicados(filtros);
+    setPaginaMovimentacoes(0);
+  }
+
+  function limparFiltros() {
+    setFiltros(FILTROS_VAZIOS);
+    setAplicados(FILTROS_VAZIOS);
+    setPaginaMovimentacoes(0);
+  }
+
+  /** O card preenche a área de filtros e já consulta com esse recorte. */
+  function selecionarAtalho(atalho) {
+    const recorte = atalho.filtros();
+    setFiltros(recorte);
+    setAplicados(recorte);
+    setPaginaMovimentacoes(0);
+  }
 
   async function carregarDatasComSaldo() {
     try {
@@ -284,6 +421,113 @@ export default function Historico() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Movimentações do sistema: cards de acesso rápido, área de filtros e
+            linha do tempo. Fica fora da impressão para os documentos de saldos
+            continuarem saindo exatamente como antes. */}
+        <div className="mt-10 print:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[#0F2A44] flex items-center gap-2">
+                <History size={18} className="text-[#0F2A44]/40" />
+                Movimentações do sistema
+              </h2>
+              <p className="text-sm text-[#0F2A44]/60">
+                {carregandoMovimentacoes
+                  ? "Consultando movimentações..."
+                  : movimentacoes.length === 0
+                    ? comFiltro
+                      ? "Nenhuma movimentação atende aos filtros escolhidos."
+                      : "Nenhuma movimentação registrada ainda."
+                    : `${movimentacoes.length}${temMais ? "+" : ""} ${
+                        movimentacoes.length === 1 ? "movimentação" : "movimentações"
+                      }, da mais recente para a mais antiga`}
+              </p>
+            </div>
+            {filtrosEmUso > 0 && (
+              <span className="text-xs px-3 py-1.5 rounded-full bg-[#E7EDF5] text-[#0F2A44]">
+                {filtrosEmUso} {filtrosEmUso === 1 ? "filtro aplicado" : "filtros aplicados"}
+              </span>
+            )}
+          </div>
+
+          <CardsAtalhoHistorico
+            aplicados={aplicados}
+            contagens={contagensAtalhos}
+            onSelecionar={selecionarAtalho}
+          />
+
+          <FiltrosHistorico
+            filtros={filtros}
+            onAlterar={setFiltros}
+            onAplicar={aplicarFiltros}
+            onLimpar={limparFiltros}
+            usuarios={usuariosFiltro}
+            secretarias={secretariasFiltro}
+            erroUsuarios={erroUsuariosFiltro}
+            erroSecretarias={erroSecretariasFiltro}
+            resumo={
+              carregandoMovimentacoes
+                ? "Consultando..."
+                : `${movimentacoes.length}${temMais ? "+" : ""} ${
+                    movimentacoes.length === 1 ? "movimentação" : "movimentações"
+                  }`
+            }
+          />
+
+          {avisosMovimentacoes.map((aviso) => (
+            <div
+              key={aviso}
+              className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3 mb-4"
+            >
+              {aviso}
+            </div>
+          ))}
+
+          {erroMovimentacoes && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
+              {erroMovimentacoes}
+            </div>
+          )}
+
+          {carregandoMovimentacoes ? (
+            <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
+          ) : movimentacoes.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center">
+              <SearchX size={26} className="text-[#0F2A44]/20 mx-auto mb-3" />
+              <div className="text-sm text-[#0F2A44]/40">
+                {comFiltro
+                  ? "Nenhuma movimentação encontrada com esses filtros. Tente ampliar o período ou limpar os filtros."
+                  : "As próximas movimentações da equipe aparecem aqui."}
+              </div>
+              {comFiltro && (
+                <button
+                  type="button"
+                  onClick={limparFiltros}
+                  className="mt-4 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                >
+                  Limpar Filtros
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <LinhaDoTempoHistorico movimentacoes={movimentacoes} />
+              {temMais && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setPaginaMovimentacoes((p) => p + 1)}
+                    disabled={carregandoMais}
+                    className="text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+                  >
+                    {carregandoMais ? "Carregando..." : "Carregar mais"}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </Layout>
