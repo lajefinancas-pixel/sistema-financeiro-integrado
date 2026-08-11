@@ -12,6 +12,7 @@ import { supabase } from "./supabaseClient";
 import { erroAmigavel, mensagemAmigavel } from "./erros";
 import { emailValido } from "./usuariosEquipe";
 import { buscarPaginado } from "./saldosContasDados";
+import { limparCachePreferenciasNotificacao } from "./notificacoes";
 
 const TABELA = "configuracoes_sistema";
 
@@ -21,6 +22,7 @@ export const BUCKET_CONFIGURACOES = "configuracoes";
 export const CHAVE_GERAL = "geral";
 export const CHAVE_SEGURANCA = "seguranca";
 export const CHAVE_TRIBUTARIO = "tributario";
+export const CHAVE_NOTIFICACOES = "notificacoes";
 
 /** Categorias da navegação lateral da tela. */
 export const CATEGORIAS = [
@@ -45,8 +47,18 @@ export const CATEGORIAS = [
   },
   { id: "tributario", label: "Tributário", descricao: "Alíquotas de ISS e IRPJ", pronta: true },
   { id: "relatorios-impressao", label: "Relatórios e Impressão", descricao: "Cabeçalhos, marca d'água e formatos" },
-  { id: "notificacoes", label: "Notificações", descricao: "Avisos por e-mail e alertas do sistema" },
-  { id: "backup", label: "Backup", descricao: "Rotina de cópias e exportação de dados" },
+  {
+    id: "notificacoes",
+    label: "Notificações",
+    descricao: "Quais avisos o sistema gera automaticamente",
+    pronta: true,
+  },
+  {
+    id: "backup",
+    label: "Backup",
+    descricao: "Cópias do sistema e registro de restaurações",
+    pronta: true,
+  },
   { id: "aparencia", label: "Aparência", descricao: "Cores, densidade e preferências visuais" },
   { id: "sistema", label: "Sistema", descricao: "Informações técnicas e ferramentas de conferência" },
 ];
@@ -96,6 +108,50 @@ export const TRIBUTARIO_PADRAO = {
 
 // Faixa aceita nas alíquotas (percentual, com até duas casas decimais).
 export const LIMITE_ALIQUOTA = { minimo: 0, maximo: 100 };
+
+/**
+ * Tipos de aviso que o sistema gera hoje, na ordem em que aparecem na tela.
+ *
+ * Cada chave é o `tipo` gravado na tabela `notificacoes` — desligar um item aqui
+ * faz com que o sistema deixe de CRIAR avisos daquele tipo daqui em diante. Os
+ * avisos já recebidos continuam no sino de notificações, e nada é apagado.
+ *
+ * A preferência é do sistema, não de cada pessoa: quem tem permissão de edição
+ * em Administração define o que o sistema envia para a equipe inteira.
+ */
+export const TIPOS_NOTIFICACAO = [
+  {
+    chave: "tarefa_atribuida",
+    label: "Tarefa atribuída",
+    descricao: "Avisa o responsável quando uma tarefa é criada ou repassada para ele.",
+  },
+  {
+    chave: "tarefa_vence_hoje",
+    label: "Tarefa próxima do vencimento",
+    descricao: "Avisa o responsável no dia em que o prazo da tarefa vence.",
+  },
+  {
+    chave: "tarefa_atrasada",
+    label: "Tarefa atrasada",
+    descricao: "Avisa o responsável quando o prazo da tarefa já passou.",
+  },
+  {
+    chave: "tarefa_aguardando_aprovacao",
+    label: "Alteração pendente de aprovação",
+    descricao: "Avisa quem aprova quando uma tarefa é enviada para conferência.",
+  },
+  {
+    chave: "acao_critica",
+    label: "Ação crítica",
+    descricao:
+      "Avisa sobre ações críticas do sistema. Mesmo desligado, toda ação crítica continua sendo registrada na Auditoria.",
+  },
+];
+
+/** Todos os avisos ligados — o comportamento do sistema antes desta categoria. */
+export const NOTIFICACOES_PADRAO = Object.fromEntries(
+  TIPOS_NOTIFICACAO.map((tipo) => [tipo.chave, true])
+);
 
 // Faixas aceitas na política de senha/sessão.
 export const LIMITE_SESSAO = { minimo: 5, maximo: 1440 };
@@ -215,17 +271,17 @@ async function nomesDosAutores(ids) {
 }
 
 /**
- * Configurações de Geral, de Segurança e do Tributário, já preenchidas com os
- * valores padrão onde o banco ainda não tem nada.
+ * Configurações de Geral, de Segurança, do Tributário e das Notificações, já
+ * preenchidas com os valores padrão onde o banco ainda não tem nada.
  *
- * Devolve { geral, seguranca, tributario, autoria } — autoria traz, por chave,
- * { atualizado_em, autor } para o rodapé "última alteração".
+ * Devolve { geral, seguranca, tributario, notificacoes, autoria } — autoria traz,
+ * por chave, { atualizado_em, autor } para o rodapé "última alteração".
  */
 export async function carregarConfiguracoes() {
   const { data, error } = await supabase
     .from(TABELA)
     .select("chave, valor, atualizado_em, atualizado_por")
-    .in("chave", [CHAVE_GERAL, CHAVE_SEGURANCA, CHAVE_TRIBUTARIO]);
+    .in("chave", [CHAVE_GERAL, CHAVE_SEGURANCA, CHAVE_TRIBUTARIO, CHAVE_NOTIFICACOES]);
 
   if (error) {
     throw erroAmigavel(mensagemAmigavel(error, "Não foi possível carregar as configurações do sistema."));
@@ -246,6 +302,7 @@ export async function carregarConfiguracoes() {
     geral: comPadrao(GERAL_PADRAO, porChave[CHAVE_GERAL]?.valor),
     seguranca: comPadrao(SEGURANCA_PADRAO, porChave[CHAVE_SEGURANCA]?.valor),
     tributario: comPadrao(TRIBUTARIO_PADRAO, porChave[CHAVE_TRIBUTARIO]?.valor),
+    notificacoes: comPadrao(NOTIFICACOES_PADRAO, porChave[CHAVE_NOTIFICACOES]?.valor),
     autoria,
   };
 }
@@ -366,6 +423,25 @@ export async function salvarTributario(valores) {
 
   const pronto = { aliquota_iss_padrao: iss, aliquota_ir_padrao: ir };
   await gravar(CHAVE_TRIBUTARIO, pronto);
+  return pronto;
+}
+
+/**
+ * Categoria Notificações: quais avisos o sistema continua gerando.
+ *
+ * Só as chaves conhecidas em TIPOS_NOTIFICACAO são gravadas, sempre como
+ * booleano — assim a chave 'notificacoes' nunca fica com um tipo desconhecido
+ * ou com um valor que a geração de avisos não saberia interpretar.
+ *
+ * Desligar um tipo não apaga nem esconde nada do que já foi recebido: vale
+ * apenas para os avisos criados a partir de agora.
+ */
+export async function salvarNotificacoes(valores) {
+  const pronto = Object.fromEntries(
+    TIPOS_NOTIFICACAO.map((tipo) => [tipo.chave, valores?.[tipo.chave] !== false])
+  );
+  await gravar(CHAVE_NOTIFICACOES, pronto);
+  limparCachePreferenciasNotificacao();
   return pronto;
 }
 

@@ -61,6 +61,7 @@ const ACOES = {
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
   exportou_auditoria: "Exportou relatório de auditoria",
+  restauracao_backup: "Solicitou restauração de backup",
 };
 
 export function acaoLabel(valor) {
@@ -479,6 +480,17 @@ const CAMPOS = {
   filtros: "Filtros",
   eventos_exportados: "Eventos exportados",
   limite_aplicado: "Limite aplicado",
+  // Campos da categoria Notificações da tela de Configurações.
+  tarefa_atribuida: "Aviso de tarefa atribuída",
+  tarefa_vence_hoje: "Aviso de tarefa próxima do vencimento",
+  tarefa_atrasada: "Aviso de tarefa atrasada",
+  tarefa_aguardando_aprovacao: "Aviso de alteração pendente de aprovação",
+  acao_critica: "Aviso de ação crítica",
+  // Campos do evento de solicitação de restauração de backup.
+  justificativa: "Justificativa",
+  solicitado_em: "Solicitado em",
+  executada: "Restauração executada",
+  observacao: "Observação",
 };
 
 /** Nome de campo em português; o que não estiver no dicionário vira texto simples. */

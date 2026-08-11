@@ -23,10 +23,59 @@ export const TIPOS = {
   tarefa_devolvida: { label: "Devolvida para correção", cor: "#DC2626" },
   tarefa_aprovada: { label: "Tarefa aprovada", cor: "#15803D" },
   tarefa_aguardando_aprovacao: { label: "Aguardando aprovação", cor: "#C2410C" },
+  acao_critica: { label: "Ação crítica", cor: "#DC2626" },
 };
 
 export function tipoInfo(chave) {
   return TIPOS[chave] ?? { label: "Notificação", cor: "#475569" };
+}
+
+/* -------------------------------------------------------------------------
+ * Preferências de notificação (Configurações > Notificações)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Tipos desligados na chave 'notificacoes' de public.configuracoes_sistema.
+ *
+ * A leitura é feita uma vez por carregamento de página e guardada em cache: a
+ * geração de avisos acontece dentro de outras ações (criar tarefa, enviar para
+ * aprovação...) e não pode virar uma consulta a mais a cada linha gravada.
+ *
+ * Falha aberta de propósito: se a preferência não puder ser lida (rede, tabela
+ * ainda não migrada, permissão), o sistema segue notificando como sempre fez.
+ * Um erro de leitura nunca deve silenciar avisos da equipe.
+ */
+let preferenciasEmCache = null;
+
+/** Esquece o cache — chamado logo depois de salvar a categoria Notificações. */
+export function limparCachePreferenciasNotificacao() {
+  preferenciasEmCache = null;
+}
+
+async function tiposDesativados() {
+  if (!preferenciasEmCache) {
+    preferenciasEmCache = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("configuracoes_sistema")
+          .select("valor")
+          .eq("chave", "notificacoes")
+          .limit(1);
+        if (error) throw error;
+
+        const valor = data?.[0]?.valor;
+        if (!valor || typeof valor !== "object" || Array.isArray(valor)) return new Set();
+        return new Set(
+          Object.entries(valor)
+            .filter(([, ligado]) => ligado === false)
+            .map(([tipo]) => tipo)
+        );
+      } catch {
+        return new Set();
+      }
+    })();
+  }
+  return preferenciasEmCache;
 }
 
 export async function listarNotificacoes(usuarioId, { apenasNaoLidas = false, limite = 40 } = {}) {
@@ -60,14 +109,17 @@ export async function marcarTodasComoLidas(usuarioId) {
 }
 
 /**
- * Grava as notificações informadas. Linhas sem destinatário são descartadas e
- * um mesmo destinatário não recebe a mesma linha duas vezes na chamada.
+ * Grava as notificações informadas. Linhas sem destinatário são descartadas, um
+ * mesmo destinatário não recebe a mesma linha duas vezes na chamada e os tipos
+ * desligados em Configurações > Notificações não são gerados.
  * Devolve a mensagem de erro (ou null quando tudo foi gravado).
  */
 export async function notificar(linhas) {
+  const desativados = await tiposDesativados();
   const vistos = new Set();
   const registros = (Array.isArray(linhas) ? linhas : [linhas])
     .filter((linha) => linha?.usuario_id && linha?.tipo && linha?.mensagem)
+    .filter((linha) => !desativados.has(linha.tipo))
     .filter((linha) => {
       const chave = `${linha.usuario_id}|${linha.tipo}|${linha.tarefa_id ?? ""}`;
       if (vistos.has(chave)) return false;
