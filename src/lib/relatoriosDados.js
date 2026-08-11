@@ -16,7 +16,7 @@
 // tarefas_historico, que é a base de auditoria disponível hoje.
 
 import { supabase } from "./supabaseClient";
-import { carregarSaldosDasContas } from "./saldosContasDados";
+import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
 import { paraNumeroMoeda } from "./moeda";
 import { somar } from "./rateioPagamentos";
 import { soData } from "./relatoriosCatalogo";
@@ -76,6 +76,76 @@ export async function carregarBaseFornecedores() {
       ...f,
       secretaria: f.secretarias?.nome ?? "Sem secretaria",
     })),
+  };
+}
+
+/* -------------------------------------------------------------------------
+ * Pagamentos (fonte dos relatórios personalizados)
+ * ---------------------------------------------------------------------- */
+
+// Situação de um pagamento lançado na programação. A tela de Pagamentos
+// Diários trata "pago" como efetivado e qualquer outra coisa como pendente;
+// aqui o rótulo apenas repete essa leitura, sem recalcular nada.
+const SITUACOES_PAGAMENTO = {
+  pago: "Pago",
+  cancelado: "Cancelado",
+  pendente: "Pendente",
+};
+
+function rotuloSituacaoPagamento(situacao) {
+  return SITUACOES_PAGAMENTO[situacao] ?? "Pendente";
+}
+
+/**
+ * Pagamentos lançados nas programações, com a secretaria, a data e o fornecedor
+ * já resolvidos. Nenhum saldo é calculado aqui: o valor é o `valor_a_pagar` que
+ * a própria tela de Pagamentos Diários gravou.
+ *
+ * A leitura é paginada porque o PostgREST devolve no máximo 1000 linhas por
+ * consulta -- um histórico maior que isso viria pela metade.
+ */
+export async function carregarBasePagamentos() {
+  const { data: secs, error: erroSecretarias } = await supabase
+    .from("secretarias")
+    .select("id, nome");
+  if (erroSecretarias) throw erroSecretarias;
+
+  const programacoes = await buscarPaginado(() =>
+    supabase
+      .from("programacoes_pagamento")
+      .select("id, nome_programacao, data_programacao, secretaria_id, fechado")
+      .order("id", { ascending: true })
+  );
+
+  const pagamentos = await buscarPaginado(() =>
+    supabase
+      .from("pagamentos")
+      .select(
+        "id, programacao_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)"
+      )
+      .order("id", { ascending: true })
+  );
+
+  const nomeDaSecretaria = new Map((secs ?? []).map((s) => [String(s.id), s.nome]));
+  const programacaoPorId = new Map((programacoes ?? []).map((p) => [String(p.id), p]));
+
+  return {
+    pagamentos: (pagamentos ?? []).map((p) => {
+      const programacao = programacaoPorId.get(String(p.programacao_id)) ?? {};
+      return {
+        id: p.id,
+        fornecedor: p.fornecedores?.razao_social ?? p.nome_avulso ?? "Sem fornecedor",
+        secretaria: nomeDaSecretaria.get(String(programacao.secretaria_id)) ?? "Sem secretaria",
+        programacao: programacao.nome_programacao ?? "",
+        data: soData(programacao.data_programacao),
+        nota: p.valores_em_aberto?.numero_nota_fiscal ?? "",
+        descricao: p.descricao ?? "",
+        valor: paraNumeroMoeda(p.valor_a_pagar),
+        status: rotuloSituacaoPagamento(p.situacao),
+        status_chave: p.situacao ?? "pendente",
+        movimento: programacao.fechado === true ? "Fechado" : "Aberto",
+      };
+    }),
   };
 }
 
@@ -140,6 +210,7 @@ export async function carregarBaseTributaria() {
 
     return {
       id: v.id,
+      fornecedor_id: v.fornecedor_id ?? null,
       razao_social: f.razao_social ?? "Fornecedor não identificado",
       cpf_cnpj: f.cpf_cnpj ?? "",
       secretaria: f.secretarias?.nome ?? "Sem secretaria",

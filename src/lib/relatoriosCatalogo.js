@@ -31,7 +31,7 @@ const MESES = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
-function rotuloDoMes(valor) {
+export function rotuloDoMes(valor) {
   const iso = soData(valor);
   if (!/^\d{4}-\d{2}/.test(iso)) return "Sem data de cadastro";
   const [ano, mes] = iso.split("-");

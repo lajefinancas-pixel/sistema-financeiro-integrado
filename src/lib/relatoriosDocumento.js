@@ -93,7 +93,7 @@ function tabelaHtml({ grupo, colunas, campoTotal, larguraPorColuna, rotuloGrupo 
   const total = totalDoGrupo(grupo, campoTotal);
   const tituloGrupo = grupo.nome
     ? `<tr class="linha-titulo">
-        <th colspan="${colunas.length - 1}">${esc(
+        <th colspan="${Math.max(colunas.length - 1, 1)}">${esc(
           rotuloGrupo ? `${rotuloGrupo}: ${grupo.nome}` : grupo.nome
         )}</th>
         <th class="right">${
@@ -314,7 +314,7 @@ export function gerarPdfRelatorio({ titulo, subtitulo, resultado, arquivo, maxPa
           content: textoSimples(
             resultado.rotuloGrupo ? `${resultado.rotuloGrupo}: ${grupo.nome}` : grupo.nome
           ).toUpperCase(),
-          colSpan: colunas.length - 1,
+          colSpan: Math.max(colunas.length - 1, 1),
           styles: { halign: "left", fontStyle: "bold", fontSize: faixa.fonte + 1 },
         },
         {
