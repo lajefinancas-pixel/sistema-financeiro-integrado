@@ -3,6 +3,7 @@ import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileS
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
+import { registrarEvento } from "../lib/auditoria";
 import Layout from "../components/Layout";
 import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
 import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
@@ -505,6 +506,23 @@ export default function Fornecedores() {
       });
       if (error) throw error;
 
+      // Auditoria: cadastro de fornecedor é evento de informação.
+      await registrarEvento({
+        modulo: "fornecedores",
+        acao: "criou",
+        registroAfetado: `${form.razao_social} (${form.cpf_cnpj})`,
+        valorNovo: {
+          razao_social: form.razao_social,
+          nome_fantasia: form.nome_fantasia || null,
+          cpf_cnpj: form.cpf_cnpj,
+          secretaria: secretarias.find((s) => String(s.id) === String(form.secretaria_id))?.nome ?? null,
+          telefone: form.telefone || null,
+          email: form.email || null,
+          descricao: form.descricao || null,
+        },
+        nivel: "informacao",
+      });
+
       setForm({
         razao_social: "", nome_fantasia: "", cpf_cnpj: "", secretaria_id: "",
         descricao: "", telefone: "", email: "",
@@ -524,6 +542,18 @@ export default function Fornecedores() {
     try {
       const { error } = await supabase.from("fornecedores").update({ ativo: false }).eq("id", id);
       if (error) throw error;
+
+      // Auditoria: exclusão de fornecedor é evento de informação.
+      const fornecedor = fornecedores.find((f) => String(f.id) === String(id));
+      await registrarEvento({
+        modulo: "fornecedores",
+        acao: "excluiu",
+        registroAfetado: fornecedor?.cpf_cnpj ? `${nome} (${fornecedor.cpf_cnpj})` : String(nome ?? ""),
+        valorAnterior: { situacao: "Ativo no sistema" },
+        valorNovo: { situacao: "Excluído do sistema" },
+        nivel: "informacao",
+      });
+
       if (expandido === id) setExpandido(null);
       await carregarDados();
     } catch (e) {
@@ -607,6 +637,30 @@ export default function Fornecedores() {
         if (fixarIr) updates.aliquota_ir_fixa = irAliquota;
         if (Object.keys(updates).length > 0) {
           await supabase.from("fornecedores").update(updates).eq("id", formValor.fornecedor_id);
+
+          // Auditoria: fixar alíquota altera o cadastro do fornecedor. Só entram
+          // na trilha as alíquotas que mudaram de valor.
+          const fornecedor = fornecedores.find((f) => String(f.id) === String(formValor.fornecedor_id));
+          const antes = {};
+          const depois = {};
+          Object.keys(updates).forEach((campo) => {
+            const anterior = fornecedor?.[campo] ?? null;
+            if (Number(anterior) === Number(updates[campo])) return;
+            antes[campo] = anterior;
+            depois[campo] = updates[campo];
+          });
+          if (Object.keys(depois).length > 0) {
+            await registrarEvento({
+              modulo: "fornecedores",
+              acao: "alterou",
+              registroAfetado: fornecedor
+                ? `${fornecedor.razao_social} (${fornecedor.cpf_cnpj})`
+                : "Fornecedor",
+              valorAnterior: antes,
+              valorNovo: depois,
+              nivel: "informacao",
+            });
+          }
         }
       }
 
