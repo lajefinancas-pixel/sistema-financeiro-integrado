@@ -1080,10 +1080,10 @@ export default function Saldos() {
                         </span>
                         {sec.nome.toUpperCase()}
                       </span>
+                      {/* A secretaria é só o agrupador visual das contas: o cabeçalho
+                          não exibe subtotal. O total continua sendo calculado para a
+                          impressão, o PDF e a planilha. */}
                       <div className="flex items-center gap-3">
-                        <span className="text-sm font-semibold" style={{ color: sec.cor }}>
-                          Total: {formatBRL(sec.total)}
-                        </span>
                         <div className="flex items-center gap-3 print:hidden">
                         {emLote ? (
                           <>
@@ -1334,9 +1334,6 @@ export default function Saldos() {
                           {sec.nome.toUpperCase()}
                         </span>
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold" style={{ color: sec.cor }}>
-                            Total: {formatBRL(sec.total)}
-                          </span>
                           <button
                             onClick={() => imprimirSecretaria(sec)}
                             className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10 print:hidden"

@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown, History } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
@@ -7,7 +7,9 @@ import { registrarEvento } from "../lib/auditoria";
 import Layout from "../components/Layout";
 import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
 import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
+import VidaDoFornecedor from "../components/fornecedores/VidaDoFornecedor";
 import ModalHistoricoFornecedor from "../components/historico/ModalHistoricoFornecedor";
+import { carregarPagamentosPorFornecedor } from "../lib/vidaFornecedor";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 function formatBRL(v) {
@@ -217,6 +219,11 @@ function situacaoDeReferencia(f) {
     .filter((i) => i >= 0);
   return indices.length > 0 ? Math.min(...indices) : SITUACOES.length;
 }
+// Mesma leitura, pronta para o rótulo da listagem recolhida (null = sem lançamentos).
+function situacaoResumo(f) {
+  const indice = situacaoDeReferencia(f);
+  return indice < SITUACOES.length ? SITUACOES[indice] : null;
+}
 function compararFornecedores(a, b, ordenacao) {
   const porNome = () => nomeDoFornecedor(a).localeCompare(nomeDoFornecedor(b), "pt-BR", { sensitivity: "base" });
   const porCadastro = () => String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
@@ -288,6 +295,28 @@ function textoBancario(f, campo) {
   });
   // Sem chave reconhecida, procura no conteúdo inteiro para não perder o filtro.
   return encontrados.length > 0 ? encontrados.join(" ") : JSON.stringify(dados);
+}
+
+// Dados bancários prontos para exibição na vida do fornecedor. O cadastro pode
+// gravar o campo como texto livre ou como objeto: quando a chave não é
+// reconhecida, o bloco mostra o conteúdo como texto em vez de JSON cru.
+function dadosBancariosExibicao(f) {
+  const dados = f.dados_bancarios;
+  if (!dados) return { banco: "", agencia: "", conta: "" };
+  if (typeof dados !== "object") return { texto: String(dados) };
+
+  const ler = (campo) => {
+    const texto = textoBancario(f, campo);
+    return texto.trim().startsWith("{") ? "" : texto;
+  };
+  const banco = ler("banco");
+  const agencia = ler("agencia");
+  const conta = ler("conta");
+  if (banco || agencia || conta) return { banco, agencia, conta };
+  const partes = Object.entries(dados)
+    .filter(([, valor]) => valor !== null && valor !== undefined && typeof valor !== "object" && String(valor).trim() !== "")
+    .map(([chave, valor]) => `${chave}: ${valor}`);
+  return partes.length > 0 ? { texto: partes.join(" · ") } : { banco: "", agencia: "", conta: "" };
 }
 
 // Datas de validade que existirem no cadastro (inclusive dentro de campos em JSON).
@@ -398,9 +427,16 @@ export default function Fornecedores() {
   // Datas de pagamento (data da programação em que o valor foi pago), por valor em aberto.
   const [datasPagamento, setDatasPagamento] = React.useState({});
 
+  // Pagamentos já efetivados, por fornecedor: base do bloco "Pagamentos
+  // realizados" e do total já pago da vida do fornecedor.
+  const [pagamentosPorFornecedor, setPagamentosPorFornecedor] = React.useState({});
+  const [carregandoPagamentos, setCarregandoPagamentos] = React.useState(true);
+  const [erroPagamentos, setErroPagamentos] = React.useState(null);
+
   React.useEffect(() => {
     carregarDados();
     carregarDatasPagamento();
+    carregarPagamentosRealizados();
     carregarFavoritos();
   }, []);
 
@@ -449,6 +485,23 @@ export default function Fornecedores() {
       setDatasPagamento(porValor);
     } catch {
       setDatasPagamento({});
+    }
+  }
+
+  // Consulta isolada: se falhar, só o bloco de pagamentos realizados da vida do
+  // fornecedor fica sem base; o resto da tela continua igual.
+  async function carregarPagamentosRealizados() {
+    setCarregandoPagamentos(true);
+    setErroPagamentos(null);
+    try {
+      setPagamentosPorFornecedor(await carregarPagamentosPorFornecedor());
+    } catch (e) {
+      setPagamentosPorFornecedor({});
+      setErroPagamentos(
+        mensagemAmigavel(e, "Não foi possível carregar os pagamentos realizados deste fornecedor.")
+      );
+    } finally {
+      setCarregandoPagamentos(false);
     }
   }
 
@@ -1820,113 +1873,74 @@ export default function Fornecedores() {
           </div>
         ) : (
           <div className="space-y-3">
-            {listaExibida.map((f) => (
-              <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
-                <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
-                  <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="flex-1 text-left">
-                    <div className="text-sm font-semibold text-[#0F2A44]">{f.razao_social}</div>
-                    <div className="text-xs text-[#0F2A44]/50">
-                      {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
-                      {(f.aliquota_iss_fixa || f.aliquota_ir_fixa) && (
-                        <span className="ml-2 text-[10px] text-[#0F2A44]/40">
-                          {f.aliquota_iss_fixa ? `ISS fixo: ${f.aliquota_iss_fixa}%` : ""}
-                          {f.aliquota_iss_fixa && f.aliquota_ir_fixa ? " · " : ""}
-                          {f.aliquota_ir_fixa ? `IR fixo: ${f.aliquota_ir_fixa}%` : ""}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-[#0F2A44]">{formatBRL(f.totalAberto)}</span>
+            {listaExibida.map((f) => {
+              // Um fornecedor aberto por vez: abrir outro recolhe o anterior.
+              const aberto = expandido === f.id;
+              const alternar = () => setExpandido(aberto ? null : f.id);
+              const situacao = situacaoResumo(f);
+              return (
+                <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
+                  <div className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-black/[0.02]">
                     <button
-                      onClick={() => excluirFornecedor(f.id, f.razao_social)}
-                      className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
-                      title="Excluir fornecedor"
+                      onClick={alternar}
+                      aria-expanded={aberto}
+                      title={aberto ? "Ocultar detalhes" : "Ver detalhes"}
+                      className="flex-1 min-w-0 text-left"
                     >
-                      <Trash2 size={15} />
+                      <div className="text-sm font-semibold text-[#0F2A44] truncate">{f.razao_social}</div>
+                      <div className="text-xs text-[#0F2A44]/50 truncate">
+                        {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
+                      </div>
                     </button>
-                    <button onClick={() => setExpandido(expandido === f.id ? null : f.id)} className="print:hidden">
-                      {expandido === f.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </button>
-                  </div>
-                </div>
-
-                {expandido === f.id && (
-                  <div className="border-t border-black/5 px-4 py-3">
-                    {f.valores.length === 0 ? (
-                      <div className="text-xs text-[#0F2A44]/40">Nenhum valor cadastrado.</div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                            <th className="py-1.5 font-medium">NF</th>
-                            <th className="py-1.5 font-medium">Vencimento</th>
-                            <th className="py-1.5 font-medium text-right">Bruto</th>
-                            <th className="py-1.5 font-medium text-right">ISS</th>
-                            <th className="py-1.5 font-medium text-right">IR</th>
-                            <th className="py-1.5 font-medium text-right">Líquido</th>
-                            <th className="py-1.5 font-medium text-right">Situação</th>
-                            <th className="py-1.5 font-medium text-right print:hidden">Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {f.valores.map((v) => {
-                            const info = situacaoInfo(v.situacao);
-                            return (
-                              <tr key={v.id} className="border-t border-black/5">
-                                <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {v.numero_nota_fiscal || "--"}{v.parcela ? ` (${v.parcela})` : ""}
-                                </td>
-                                <td className="py-2 text-xs text-[#0F2A44]/70">
-                                  {v.data_vencimento ? new Date(v.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR") : "--"}
-                                </td>
-                                <td className="py-2 text-right tabular-nums text-xs">{formatBRL(v.valor_bruto ?? v.valor)}</td>
-                                <td className="py-2 text-right tabular-nums text-xs text-red-600">
-                                  {v.desconto_iss > 0 ? `${formatBRL(v.desconto_iss)} (${v.aliquota_iss}%)` : "--"}
-                                </td>
-                                <td className="py-2 text-right tabular-nums text-xs text-red-600">
-                                  {v.desconto_ir > 0 ? `${formatBRL(v.desconto_ir)} (${v.aliquota_ir}%)` : "--"}
-                                </td>
-                                <td className="py-2 text-right tabular-nums font-medium">{formatBRL(v.valor)}</td>
-                                <td className="py-2 text-right">
-                                  <select
-                                    value={v.situacao}
-                                    onChange={(e) => mudarSituacao(v.id, e.target.value)}
-                                    style={{ color: info.cor, backgroundColor: info.bg }}
-                                    className="text-xs font-medium px-2 py-1 rounded-md border-none"
-                                  >
-                                    {SITUACOES.map((s) => (
-                                      <option key={s.value} value={s.value}>{s.label}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td className="py-2 text-right print:hidden">
-                                  <button onClick={() => excluirValor(v.id)} className="text-[#0F2A44]/30 hover:text-red-500">
-                                    <Trash2 size={14} />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-
-                    {/* Atalho discreto para a trilha deste cadastro: abre as
-                        movimentações do fornecedor sem sair da tela. */}
-                    <div className="mt-3 pt-3 border-t border-black/5 flex justify-end print:hidden">
-                      <button
-                        type="button"
-                        onClick={() => setHistoricoDe(f)}
-                        className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span
+                        className="hidden sm:inline text-[11px] font-medium px-2 py-1 rounded-md"
+                        style={
+                          situacao
+                            ? { color: situacao.cor, backgroundColor: situacao.bg }
+                            : { color: "#0F2A44", backgroundColor: "rgba(15,42,68,0.06)" }
+                        }
                       >
-                        <History size={13} /> Ver Histórico
+                        {situacao ? situacao.label : "Sem lançamentos"}
+                      </span>
+                      <span className="text-sm font-semibold text-[#0F2A44] tabular-nums">{formatBRL(f.totalAberto)}</span>
+                      <button
+                        onClick={() => excluirFornecedor(f.id, f.razao_social)}
+                        className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
+                        title="Excluir fornecedor"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                      <button
+                        onClick={alternar}
+                        aria-expanded={aberto}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5 print:hidden"
+                      >
+                        <span className="hidden sm:inline">{aberto ? "Ocultar detalhes" : "Ver detalhes"}</span>
+                        {aberto ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </button>
                     </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {aberto && (
+                    <VidaDoFornecedor
+                      fornecedor={f}
+                      secretariaNome={f.secretarias?.nome ?? ""}
+                      tipo={tipoDoFornecedor(f, campoTipo)}
+                      bancario={dadosBancariosExibicao(f)}
+                      situacoes={SITUACOES}
+                      situacaoInfo={situacaoInfo}
+                      pagamentos={pagamentosPorFornecedor[String(f.id)] ?? []}
+                      carregandoPagamentos={carregandoPagamentos}
+                      erroPagamentos={erroPagamentos}
+                      onMudarSituacao={mudarSituacao}
+                      onExcluirValor={excluirValor}
+                      onVerHistorico={() => setHistoricoDe(f)}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
