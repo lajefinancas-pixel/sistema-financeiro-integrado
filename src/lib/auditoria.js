@@ -60,6 +60,7 @@ const ACOES = {
   rejeitou: "Rejeitou",
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
+  exportou_auditoria: "Exportou relatório de auditoria",
 };
 
 export function acaoLabel(valor) {
@@ -94,6 +95,10 @@ export const FILTROS_VAZIOS = {
   nivel: "",
   resultado: "",
   busca: "",
+  // Instante (ISO) a partir do qual os eventos entram. Não existe no formulário
+  // de filtros: quem preenche é o atalho do alerta de ações críticas, que precisa
+  // de uma janela em horas ("últimas 24 horas") e não em dias.
+  desde: "",
 };
 
 /** Algum filtro está preenchido? (usado no contador e no aviso de "nada encontrado") */
@@ -273,6 +278,8 @@ export async function listarEventos({ pagina = 0, porPagina = POR_PAGINA, filtro
   const ate = f.dataFinal ? fimDoDia(f.dataFinal) : null;
   if (de) consulta = consulta.gte("data_hora", de);
   if (ate) consulta = consulta.lte("data_hora", ate);
+  // Janela em horas do alerta de ações críticas; soma-se ao período, quando os dois vêm juntos.
+  if (f.desde) consulta = consulta.gte("data_hora", f.desde);
   if (f.usuarioId) consulta = consulta.eq("usuario_id", f.usuarioId);
   if (f.modulo) consulta = consulta.eq("modulo", f.modulo);
   if (f.acao) consulta = consulta.eq("acao", f.acao);
@@ -298,6 +305,135 @@ export async function listarEventos({ pagina = 0, porPagina = POR_PAGINA, filtro
 /** Nome de quem fez a ação, já com o texto de apoio para eventos sem autor. */
 export function nomeDoAutor(evento) {
   return evento?.usuarios?.nome_completo || "Usuário não identificado";
+}
+
+// ---------------------------------------------------------------------------
+// Alerta de ações críticas recentes
+// ---------------------------------------------------------------------------
+
+/** Janela do destaque que abre a lista de Auditoria. */
+export const HORAS_ALERTA_CRITICO = 24;
+
+/** Instante de início da janela do alerta, em ISO (o que vai para o banco). */
+function inicioDaJanela(horas, agora = new Date()) {
+  return new Date(agora.getTime() - horas * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Quantos eventos de nível 'critico' foram registrados nas últimas horas.
+ *
+ * A contagem é feita no banco (head + count), sem trazer os eventos, e ignora os
+ * filtros da tela: o alerta avisa sobre o sistema inteiro, não sobre o recorte
+ * que está sendo consultado. A leitura passa pela mesma política de select, então
+ * quem não tem permissão de auditoria também não conta eventos.
+ */
+export async function contarCriticosRecentes({ horas = HORAS_ALERTA_CRITICO } = {}) {
+  const desde = inicioDaJanela(horas);
+  const { count, error } = await supabase
+    .from(TABELA)
+    .select("id", { count: "exact", head: true })
+    .eq("nivel", "critico")
+    .gte("data_hora", desde);
+  if (error) throw error;
+  return { total: count ?? 0, desde };
+}
+
+/** Filtros que deixam na lista apenas as ações críticas da janela do alerta. */
+export function filtrosCriticosRecentes({ horas = HORAS_ALERTA_CRITICO, desde = null } = {}) {
+  return { ...FILTROS_VAZIOS, nivel: "critico", desde: desde ?? inicioDaJanela(horas) };
+}
+
+/** O atalho do alerta está valendo, sozinho, na consulta atual? */
+export function ehFiltroCriticosRecentes(filtros) {
+  if (filtros?.nivel !== "critico" || String(filtros?.desde ?? "").trim() === "") return false;
+  // Com qualquer outro filtro por cima, a lista já não é mais "só as críticas recentes".
+  return Object.keys(FILTROS_VAZIOS)
+    .filter((campo) => campo !== "nivel" && campo !== "desde")
+    .every((campo) => String(filtros?.[campo] ?? "").trim() === "");
+}
+
+// ---------------------------------------------------------------------------
+// Exportação da trilha
+// ---------------------------------------------------------------------------
+
+/** Teto de eventos por documento exportado (impressão, PDF ou planilha). */
+export const LIMITE_EXPORTACAO = 2000;
+
+/** Tamanho de cada consulta da exportação, para não pedir tudo de uma vez. */
+const LOTE_EXPORTACAO = 500;
+
+/**
+ * Todos os eventos que atendem aos filtros aplicados, para gerar o documento.
+ *
+ * A tela mostra a trilha em lotes de 30 ("Carregar mais"), mas o relatório precisa
+ * do recorte completo: os lotes são buscados em sequência até acabarem ou até o
+ * teto de segurança. `limitado` avisa que o documento saiu com os eventos mais
+ * recentes do recorte, e não com todos.
+ *
+ * @returns { eventos, limitado }
+ */
+export async function listarEventosParaExportacao({ filtros = null, limite = LIMITE_EXPORTACAO } = {}) {
+  const eventos = [];
+  let pagina = 0;
+  let temMais = true;
+
+  while (temMais && eventos.length < limite) {
+    const lote = await listarEventos({ pagina, porPagina: LOTE_EXPORTACAO, filtros });
+    eventos.push(...lote.eventos);
+    temMais = lote.temMais;
+    pagina += 1;
+  }
+
+  return { eventos: eventos.slice(0, limite), limitado: temMais || eventos.length > limite };
+}
+
+/** Como cada formato de exportação é descrito na trilha. */
+const FORMATOS_EXPORTACAO = {
+  impressao: "Impressão",
+  pdf: "PDF",
+  excel: "Excel",
+};
+
+export function formatoExportacaoLabel(formato) {
+  return FORMATOS_EXPORTACAO[formato] ?? "Documento";
+}
+
+/**
+ * Registra na própria trilha que um relatório de auditoria foi emitido.
+ *
+ * Consultar a auditoria é uma ação sensível: quem exportou, quando, com quais
+ * filtros e quantos eventos saíram ficam gravados como 'atencao'. Vale a regra de
+ * ouro do módulo — se o registro falhar, o documento já foi gerado e a tela apenas
+ * avisa.
+ *
+ * @returns null quando registrou; mensagem pronta para exibição quando falhou.
+ */
+export function registrarExportacaoAuditoria({
+  formato,
+  periodo = "",
+  filtros = "",
+  quantidade = 0,
+  limitado = false,
+  usuarioId = null,
+}) {
+  const rotulo = formatoExportacaoLabel(formato);
+  return registrarEvento({
+    modulo: "auditoria",
+    acao: "exportou_auditoria",
+    nivel: "atencao",
+    registroAfetado: `Relatório de auditoria (${rotulo}) — ${quantidade} ${
+      quantidade === 1 ? "evento" : "eventos"
+    }`,
+    valorNovo: {
+      formato: rotulo,
+      periodo: periodo || "Todo o período registrado",
+      filtros: filtros || "Nenhum filtro aplicado",
+      eventos_exportados: quantidade,
+      // Só aparece no detalhe quando o recorte passou do teto e o documento saiu cortado.
+      ...(limitado ? { limite_aplicado: LIMITE_EXPORTACAO } : {}),
+    },
+    usuarioId,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +470,12 @@ const CAMPOS = {
   data_pagamento: "Data do pagamento",
   aliquota_iss_fixa: "Alíquota ISS fixa",
   aliquota_ir_fixa: "Alíquota IR fixa",
+  // Campos do evento de exportação da própria auditoria.
+  formato: "Formato",
+  periodo: "Período",
+  filtros: "Filtros",
+  eventos_exportados: "Eventos exportados",
+  limite_aplicado: "Limite aplicado",
 };
 
 /** Nome de campo em português; o que não estiver no dicionário vira texto simples. */
