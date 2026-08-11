@@ -1,5 +1,6 @@
 import React from "react";
-import { Clock3, ImageOff, Lock, Trash2, Upload, Wrench } from "lucide-react";
+import { AlertTriangle, Clock3, ImageOff, Lock, Trash2, Upload, Wrench } from "lucide-react";
+import { ModalShell } from "../equipe/comuns";
 
 // Blocos visuais reaproveitados pelas categorias da tela de Configurações.
 // Os campos de formulário (Campo, CLASSE_ENTRADA) e o aviso (Alerta) vêm de
@@ -156,5 +157,92 @@ export function SeletorLogomarca({ urlAtual, arquivo, onSelecionar, onRemover, d
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Etiqueta de situação (Ativo / Inativo) usada nas listas das configurações.
+ * Mesmas cores das demais telas do sistema: verde para ativo, cinza para inativo.
+ */
+export function BadgeAtivo({ ativo }) {
+  const info = ativo
+    ? { label: "Ativa", cor: "#16A34A", bg: "#EAFBF0" }
+    : { label: "Inativa", cor: "#64748B", bg: "#F1F5F9" };
+  return (
+    <span
+      style={{ color: info.cor, backgroundColor: info.bg }}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: info.cor }} />
+      {info.label}
+    </span>
+  );
+}
+
+/**
+ * "Tem certeza?" — confirmação explícita antes de uma gravação sensível.
+ *
+ * `detalhes` recebe o que vai mudar ([{ label, antes, depois }]) e é mostrado
+ * como um antes/depois, para que ninguém confirme sem ver o número que está
+ * saindo e o que está entrando.
+ */
+export function ModalConfirmacao({
+  titulo = "Tem certeza?",
+  subtitulo,
+  aviso,
+  detalhes = [],
+  confirmarLabel = "Confirmar",
+  confirmandoLabel = "Salvando...",
+  confirmando = false,
+  onConfirmar,
+  onCancelar,
+}) {
+  return (
+    <ModalShell titulo={titulo} subtitulo={subtitulo} largura="max-w-lg" onFechar={onCancelar}>
+      <div className="space-y-4">
+        {aviso && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-[#DC2626]/25 bg-[#FEF2F2] px-4 py-3 text-[#B91C1C]">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            <p className="text-xs leading-relaxed">{aviso}</p>
+          </div>
+        )}
+
+        {detalhes.length > 0 && (
+          <ul className="divide-y divide-black/5 rounded-xl border border-black/5 overflow-hidden">
+            {detalhes.map((item) => (
+              <li key={item.label} className="px-4 py-3 bg-white">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-[#0F2A44]/40">
+                  {item.label}
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-sm">
+                  <span className="text-[#0F2A44]/45 line-through">{item.antes}</span>
+                  <span className="text-[#0F2A44]/30">→</span>
+                  <span className="text-[#0F2A44] font-medium">{item.depois}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
+        <button
+          type="button"
+          onClick={onCancelar}
+          disabled={confirmando}
+          className="text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={onConfirmar}
+          disabled={confirmando}
+          className="text-sm px-5 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
+        >
+          {confirmando ? confirmandoLabel : confirmarLabel}
+        </button>
+      </div>
+    </ModalShell>
   );
 }

@@ -470,6 +470,9 @@ const CAMPOS = {
   data_pagamento: "Data do pagamento",
   aliquota_iss_fixa: "Alíquota ISS fixa",
   aliquota_ir_fixa: "Alíquota IR fixa",
+  // Parâmetros tributários da tela de Configurações.
+  aliquota_iss_padrao: "Alíquota padrão de ISS (%)",
+  aliquota_ir_padrao: "Alíquota padrão de IRPJ (%)",
   // Campos do evento de exportação da própria auditoria.
   formato: "Formato",
   periodo: "Período",
