@@ -1,24 +1,49 @@
 import React from "react";
-import { AlertTriangle, Eye, RefreshCw, SearchX, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  Eye,
+  FileSpreadsheet,
+  FileText,
+  Printer,
+  RefreshCw,
+  SearchX,
+  ShieldCheck,
+} from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
+import AlertaCriticos from "../components/auditoria/AlertaCriticos";
 import FiltrosAuditoria from "../components/auditoria/FiltrosAuditoria";
 import ModalDetalheEvento from "../components/auditoria/ModalDetalheEvento";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { mensagemAmigavel } from "../lib/erros";
+import { agoraBR } from "../lib/saldosDocumento";
 import {
   acaoLabel,
+  contarCriticosRecentes,
+  ehFiltroCriticosRecentes,
   eventoCritico,
   FILTROS_VAZIOS,
   filtroPreenchido,
+  filtrosCriticosRecentes,
   formatarDataHora,
+  HORAS_ALERTA_CRITICO,
+  LIMITE_EXPORTACAO,
   listarEventos,
+  listarEventosParaExportacao,
   listarUsuariosParaFiltro,
   moduloLabel,
   nivelInfo,
   nomeDoAutor,
+  registrarExportacaoAuditoria,
   resultadoLabel,
 } from "../lib/auditoria";
+import {
+  exportarExcelAuditoria,
+  gerarPdfAuditoria,
+  imprimirAuditoria,
+  periodoDosFiltros,
+  resumoDosFiltros,
+} from "../lib/auditoriaDocumento";
 
 const MODULO = "auditoria";
 
@@ -84,8 +109,14 @@ export default function Auditoria() {
   const [erroUsuarios, setErroUsuarios] = React.useState(null);
   const [eventoDetalhe, setEventoDetalhe] = React.useState(null);
 
+  // Alerta de ações críticas recentes e estado da exportação.
+  const [criticos, setCriticos] = React.useState(null);
+  const [exportando, setExportando] = React.useState(null);
+  const [avisoExportacao, setAvisoExportacao] = React.useState(null);
+
   const chaveFiltros = JSON.stringify(aplicados);
   const comFiltro = filtroPreenchido(aplicados);
+  const soCriticosRecentes = ehFiltroCriticosRecentes(aplicados);
 
   // Usuários do select de filtro.
   React.useEffect(() => {
@@ -104,6 +135,26 @@ export default function Auditoria() {
       ativo = false;
     };
   }, [podeVisualizar]);
+
+  // Contagem das ações críticas recentes que alimenta o destaque no topo da lista.
+  // Independe dos filtros: o alerta é sobre o sistema, não sobre o recorte atual.
+  React.useEffect(() => {
+    if (!podeVisualizar) return undefined;
+    let ativo = true;
+
+    contarCriticosRecentes({ horas: HORAS_ALERTA_CRITICO })
+      .then((resumo) => {
+        if (ativo) setCriticos(resumo);
+      })
+      .catch(() => {
+        // Um alerta que não pôde ser contado não atrapalha a consulta da trilha.
+        if (ativo) setCriticos(null);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [podeVisualizar, recarga]);
 
   // A pesquisa livre vale na hora (com uma pausa para não consultar a cada tecla);
   // os demais filtros só entram ao clicar em "Aplicar Filtros".
@@ -172,6 +223,78 @@ export default function Auditoria() {
     setAplicados(FILTROS_VAZIOS);
   }
 
+  /** Atalho do alerta: deixa na lista apenas as ações críticas das últimas 24 horas. */
+  function verSomenteCriticosRecentes() {
+    const recorte = filtrosCriticosRecentes({
+      horas: HORAS_ALERTA_CRITICO,
+      desde: criticos?.desde ?? null,
+    });
+    setFiltros(recorte);
+    setAplicados(recorte);
+  }
+
+  /**
+   * Documento da trilha no formato pedido, sempre com o recorte que está valendo na
+   * tela: os filtros aplicados vão para a consulta da exportação e para o cabeçalho
+   * do documento (período, filtros, data/hora da emissão e quem emitiu).
+   *
+   * A própria emissão é registrada na trilha logo depois, como 'atencao'. Se esse
+   * registro falhar, o documento já foi gerado e a tela apenas avisa.
+   */
+  async function exportar(formato) {
+    if (exportando) return;
+    setExportando(formato);
+    setAvisoExportacao(null);
+    setErro(null);
+
+    try {
+      const { eventos: paraDocumento, limitado } = await listarEventosParaExportacao({
+        filtros: aplicados,
+      });
+
+      if (paraDocumento.length === 0) {
+        setAvisoExportacao("Não há eventos para exportar com os filtros atuais.");
+        return;
+      }
+
+      const periodo = periodoDosFiltros(aplicados);
+      const filtrosUsados = resumoDosFiltros(aplicados, usuarios);
+      const documento = {
+        eventos: paraDocumento,
+        filtros: aplicados,
+        usuarios,
+        usuario: usuarioLogado,
+        geradoEm: agoraBR(),
+      };
+
+      if (formato === "impressao") imprimirAuditoria(documento);
+      else if (formato === "pdf") gerarPdfAuditoria(documento);
+      else exportarExcelAuditoria(documento);
+
+      const falhaNoRegistro = await registrarExportacaoAuditoria({
+        formato,
+        periodo,
+        filtros: filtrosUsados,
+        quantidade: paraDocumento.length,
+        limitado,
+        usuarioId: usuarioLogado?.id ?? null,
+      });
+
+      const avisos = [];
+      if (limitado) {
+        avisos.push(
+          `O documento saiu com os ${LIMITE_EXPORTACAO} eventos mais recentes deste recorte. Estreite o período para exportar o restante.`,
+        );
+      }
+      if (falhaNoRegistro) avisos.push(falhaNoRegistro);
+      setAvisoExportacao(avisos.length > 0 ? avisos.join(" ") : null);
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível exportar a trilha de auditoria."));
+    } finally {
+      setExportando(null);
+    }
+  }
+
   const infoLayout = usuarioLogado ? { nome: usuarioLogado.nome_completo } : undefined;
 
   if (verificando) {
@@ -220,15 +343,46 @@ export default function Auditoria() {
                   : `${eventos.length} ${eventos.length === 1 ? "evento carregado" : "eventos carregados"}${comFiltro ? " com os filtros atuais" : ""}, do mais recente para o mais antigo`}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setRecarga((n) => n + 1)}
-            disabled={carregando}
-            className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44] hover:bg-black/5 disabled:opacity-40"
-          >
-            <RefreshCw size={15} className={carregando ? "animate-spin" : undefined} />
-            Atualizar
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start">
+            <button
+              type="button"
+              onClick={() => setRecarga((n) => n + 1)}
+              disabled={carregando}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44] hover:bg-black/5 disabled:opacity-40"
+            >
+              <RefreshCw size={15} className={carregando ? "animate-spin" : undefined} />
+              Atualizar
+            </button>
+            {/* Exportação do que está sendo consultado: os três documentos usam os
+                filtros aplicados no momento e ficam registrados na própria trilha. */}
+            <button
+              type="button"
+              onClick={() => exportar("impressao")}
+              disabled={carregando || exportando !== null}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+            >
+              <Printer size={15} />
+              {exportando === "impressao" ? "Preparando..." : "🖨 Imprimir"}
+            </button>
+            <button
+              type="button"
+              onClick={() => exportar("pdf")}
+              disabled={carregando || exportando !== null}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+            >
+              <FileText size={15} />
+              {exportando === "pdf" ? "Gerando..." : "PDF"}
+            </button>
+            <button
+              type="button"
+              onClick={() => exportar("excel")}
+              disabled={carregando || exportando !== null}
+              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+            >
+              <FileSpreadsheet size={15} />
+              {exportando === "excel" ? "Exportando..." : "Excel"}
+            </button>
+          </div>
         </div>
 
         <FiltrosAuditoria
@@ -245,6 +399,27 @@ export default function Auditoria() {
               : `${eventos.length}${temMais ? "+" : ""} ${eventos.length === 1 ? "evento" : "eventos"}`
           }
         />
+
+        <AlertaCriticos
+          total={criticos?.total ?? 0}
+          horas={HORAS_ALERTA_CRITICO}
+          ativo={soCriticosRecentes}
+          onFiltrar={verSomenteCriticosRecentes}
+          onLimpar={limparFiltros}
+        />
+
+        {avisoExportacao && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3 mb-5 flex items-start justify-between gap-3">
+            <span>{avisoExportacao}</span>
+            <button
+              type="button"
+              onClick={() => setAvisoExportacao(null)}
+              className="text-xs text-amber-800/70 hover:text-amber-900 shrink-0"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {erro && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5">
