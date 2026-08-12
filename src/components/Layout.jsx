@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   Home, Landmark, Users, Calendar, History, BarChart2, Settings,
-  LogOut, ShieldCheck, UserCog, ClipboardList,
+  LogOut, ShieldCheck, ClipboardList,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -16,10 +16,6 @@ const navItems = [
   { to: "/relatorios", label: "Relatórios", icon: BarChart2 },
   { to: "/auditoria", label: "Auditoria", icon: ShieldCheck },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
-];
-
-const equipeItems = [
-  { to: "/equipe/usuarios", label: "Usuários", icon: UserCog },
 ];
 
 export default function Layout({ children, usuario }) {
@@ -48,16 +44,6 @@ export default function Layout({ children, usuario }) {
         <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={classeLink}>
-              <item.icon size={18} />
-              {item.label}
-            </NavLink>
-          ))}
-
-          <div className="pt-4 pb-1 px-3 text-[10px] uppercase tracking-[0.18em] text-[#C9A227]">
-            Equipe
-          </div>
-          {equipeItems.map((item) => (
-            <NavLink key={item.to} to={item.to} className={classeLink}>
               <item.icon size={18} />
               {item.label}
             </NavLink>

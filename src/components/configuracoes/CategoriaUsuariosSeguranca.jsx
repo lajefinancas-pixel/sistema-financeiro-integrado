@@ -25,7 +25,7 @@ const ATALHOS = [
     icone: ShieldCheck,
     titulo: "Cargos e Permissões",
     descricao:
-      "Perfis de acesso e permissões por módulo: abra o usuário em Equipe > Usuários e use a aba Permissões.",
+      "Perfis de acesso e permissões por módulo: abra o usuário no atalho Usuários acima e use a aba Permissões.",
   },
 ];
 
@@ -165,7 +165,7 @@ export default function CategoriaUsuariosSeguranca({ valores, autoria, podeEdita
     <div className="space-y-5">
       <Cartao
         titulo="Atalhos de acesso"
-        descricao="O cadastro de usuários e a definição de permissões continuam sendo feitos nas telas de Equipe."
+        descricao="O cadastro de usuários e a definição de permissões são feitos na tela de Usuários, acessada pelos atalhos abaixo."
         icone={UserCog}
       >
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -240,7 +240,8 @@ export default function CategoriaUsuariosSeguranca({ valores, autoria, podeEdita
 
             <p className="text-[11px] text-[#0F2A44]/45 leading-relaxed">
               As senhas dos usuários nunca são exibidas em nenhuma tela do sistema. Para dar um novo
-              acesso a alguém, use "Redefinir senha" no cadastro do usuário, em Equipe &gt; Usuários.
+              acesso a alguém, use "Redefinir senha" no cadastro do usuário, no atalho Usuários
+              desta página.
             </p>
           </div>
         </Cartao>
