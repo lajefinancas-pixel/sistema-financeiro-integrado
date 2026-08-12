@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Brasão da Secretaria de Finanças">
+  <rect width="512" height="512" fill="#0F2A44"/>
+  <g transform="translate(40,44) scale(3.6)">
+    <path d="M60 6 L63 15 L72 15 L65 21 L67 30 L60 25 L53 30 L55 21 L48 15 L57 15 Z" fill="#C9A227"/>
+    <path d="M60 22 L92 32 V70 C92 96 78 112 60 122 C42 112 28 96 28 70 V32 Z" fill="#FBFAF7" stroke="#0F2A44" stroke-width="3.5"/>
+    <text x="60" y="82" text-anchor="middle" font-size="46" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#0F2A44">F</text>
+  </g>
+</svg>
