@@ -182,7 +182,7 @@ export default function CategoriaSistema() {
                   detalhe={
                     usuariosAtivos === null || usuariosAtivos === undefined
                       ? "A contagem de usuários não pôde ser lida agora."
-                      : "Cadastros com situação ativa. Usuários bloqueados e inativos não entram na conta — a gestão continua em Equipe > Usuários."
+                      : "Cadastros com situação ativa. Usuários bloqueados e inativos não entram na conta — a gestão continua em Configurações > Usuários e Segurança > Usuários."
                   }
                 />
               </ul>
