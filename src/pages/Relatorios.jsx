@@ -461,6 +461,26 @@ export default function Relatorios() {
     [criteriosGerados, bases]
   );
 
+  // --- Rolagem automática até o resultado ---
+  // Assim que os dados terminam de carregar, a tela desce sozinha até o topo do
+  // bloco de resultado (pronto ou personalizado), sem precisar rolar à mão.
+  const areaResultadoRef = React.useRef(null);
+  // Rola uma vez por relatório escolhido: atualizar os dados do mesmo relatório
+  // não puxa a tela de novo.
+  const ultimoResultadoRolado = React.useRef(null);
+
+  React.useEffect(() => {
+    if (carregando) return;
+    const alvo = resultadoPersonalizado
+      ? criteriosGerados
+      : relatorio && resultado
+        ? selecionado
+        : null;
+    if (!alvo || ultimoResultadoRolado.current === alvo) return;
+    ultimoResultadoRolado.current = alvo;
+    areaResultadoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [carregando, selecionado, relatorio, resultado, criteriosGerados, resultadoPersonalizado]);
+
   function gerarPersonalizado(config, nome = null) {
     const pronta = normalizarConfiguracao(config ?? configuracao);
     if (pronta.colunas.length === 0) {
@@ -780,6 +800,9 @@ export default function Relatorios() {
         </section>
 
         {/* Resultado do relatório selecionado, na mesma tela. */}
+        {/* Âncora da rolagem automática: topo da área de resultado. */}
+        <div ref={areaResultadoRef} className="scroll-mt-4" />
+
         {!relatorio && !resultadoPersonalizado && (
           <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center">
             <BarChart2 size={26} className="text-[#0F2A44]/20 mx-auto mb-3" />

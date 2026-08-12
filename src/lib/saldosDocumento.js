@@ -47,7 +47,7 @@ function alturaEstimada(secoes, faixa, alturaLinha) {
   let altura = faixa.fonte * 2.4 + 8; // cabeçalho do documento
   for (const sec of secoes) {
     altura += (faixa.fonte + 1) * 1.5 + faixa.pad * 2; // título da secretaria
-    altura += alturaLinha * (sec.contas.length + 2); // cabeçalho da tabela + linhas + total
+    altura += alturaLinha * (sec.contas.length + 1); // cabeçalho da tabela + linhas
     altura += faixa.gap;
   }
   return altura + faixa.fonte * 2.2; // total geral
@@ -74,26 +74,20 @@ function blocoHtml(sec, faixa) {
     )
     .join("");
 
+  // A secretaria é apenas o agrupador das contas: o bloco não exibe subtotal,
+  // igual à tela. O total continua sendo calculado para o total geral.
   return `<section class="bloco">
     <table>
       <colgroup><col class="c-banco"><col class="c-numero"><col class="c-saldo"><col class="c-nome"></colgroup>
       <thead>
         <tr class="linha-titulo">
-          <th colspan="3">${esc(sec.nome)}</th>
-          <th class="saldo">Total: ${esc(formatBRL(totalDaSecao(sec)))}</th>
+          <th colspan="4">${esc(sec.nome)}</th>
         </tr>
         <tr>
           <th>Banco</th><th>Número da Conta</th><th class="saldo">Saldo</th><th>Nome da Conta</th>
         </tr>
       </thead>
       <tbody>${linhas}</tbody>
-      <tfoot>
-        <tr>
-          <td colspan="2">Total da secretaria</td>
-          <td class="saldo">${esc(formatBRL(totalDaSecao(sec)))}</td>
-          <td></td>
-        </tr>
-      </tfoot>
     </table>
   </section>`;
 }
@@ -126,7 +120,6 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   /* O nome da secretaria e o cabeçalho das colunas ficam no <thead>: se a tabela
      continuar na página seguinte, os dois se repetem e nada fica órfão. */
   thead { display: table-header-group; break-inside: avoid; page-break-inside: avoid; break-after: avoid; }
-  tfoot { display: table-row-group; } /* o total da secretaria aparece uma única vez, no fim */
   tr { break-inside: avoid; page-break-inside: avoid; }
   th {
     text-align: left; font-weight: 600; font-size: ${Math.max(faixa.fonte - 1, 7)}px;
@@ -146,7 +139,6 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
     text-transform: uppercase; border-bottom: 0; padding: ${faixa.pad}px 5px;
   }
   .linha-titulo th:first-child { border-left: 3px solid #0F2A44; }
-  tfoot td { border-top: 1.2px solid #0F2A44; border-bottom: 0; font-weight: 700; }
   .total-geral {
     margin-top: ${faixa.gap}px; padding-top: 3px; text-align: right;
     border-top: 1.5px solid #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
@@ -229,7 +221,7 @@ function escolherFaixaPdf(secoes, maxPaginas) {
   for (const faixa of FAIXAS_PDF) {
     const alturaLinha = faixa.fonte * 1.15 + faixa.pad * 2 + 1;
     let altura = 0;
-    for (const sec of secoes) altura += alturaLinha * (sec.contas.length + 3) + faixa.gap;
+    for (const sec of secoes) altura += alturaLinha * (sec.contas.length + 2) + faixa.gap;
     if (altura + 40 <= limite) return faixa;
   }
   return FAIXAS_PDF[FAIXAS_PDF.length - 1];
@@ -263,7 +255,6 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
   let posicao = margem + 20;
 
   lista.forEach((sec) => {
-    const total = totalDaSecao(sec);
     autoTable(doc, {
       startY: posicao,
       margin: { top: margem + 20, left: margem, right: margem, bottom: margem },
@@ -277,7 +268,6 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
         overflow: "ellipsize",
       },
       headStyles: { fillColor: [238, 241, 245], textColor: [15, 42, 68], fontStyle: "bold" },
-      footStyles: { fillColor: [255, 255, 255], textColor: [15, 42, 68], fontStyle: "bold" },
       columnStyles: {
         0: { cellWidth: larguraUtil * 0.28 },
         1: { cellWidth: larguraUtil * 0.2 },
@@ -290,16 +280,14 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
       // Cada secretaria começa logo abaixo da anterior; só vai para a próxima página
       // quando não sobra espaço nenhum na atual.
       pageBreak: "auto",
+      // A secretaria é apenas o agrupador das contas: o bloco não exibe subtotal,
+      // igual à tela.
       head: [
         [
           {
             content: textoSimples(sec.nome).toUpperCase(),
-            colSpan: 3,
+            colSpan: 4,
             styles: { halign: "left", fontStyle: "bold", fontSize: faixa.fonte + 1 },
-          },
-          {
-            content: `Total: ${textoSimples(formatBRL(total))}`,
-            styles: { halign: "right", fontStyle: "bold", fontSize: faixa.fonte + 1 },
           },
         ],
         COLUNAS_SALDOS,
@@ -310,13 +298,6 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
         textoSimples(formatBRL(c.saldo)),
         textoSimples(c.nome_conta || "--"),
       ]),
-      foot: [
-        [
-          { content: "Total da secretaria", colSpan: 2 },
-          { content: textoSimples(formatBRL(total)), styles: { halign: "right" } },
-          "",
-        ],
-      ],
       didDrawPage: desenharCabecalho,
     });
     posicao = doc.lastAutoTable.finalY + faixa.gap;
