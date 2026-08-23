@@ -44,6 +44,7 @@ const MODULOS = {
   relatorios: "Relatórios",
   auditoria: "Auditoria",
   administracao: "Administração",
+  backup: "Backup",
   usuarios: "Usuários",
   tarefas: "Tarefas",
   acesso: "Acesso",
@@ -71,6 +72,9 @@ const ACOES = {
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
   exportou_auditoria: "Exportou relatório de auditoria",
+  // Configurações > Backup: gerar é ação administrativa registrada em nível de
+  // atenção; pedir restauração continua sendo ação crítica.
+  gerou_backup: "Gerou backup manual",
   restauracao_backup: "Solicitou restauração de backup",
 };
 

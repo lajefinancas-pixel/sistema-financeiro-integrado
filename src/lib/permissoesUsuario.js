@@ -27,6 +27,7 @@ export const MODULOS = [
   { id: "auditoria", label: "Auditoria" },
   { id: "administracao", label: "Administração" },
   { id: "tarefas", label: "Tarefas" },
+  { id: "backup", label: "Backup" },
 ];
 
 export const ACOES = [
@@ -42,10 +43,35 @@ export const ACOES = [
 export const CAMPO_VALORES = "pode_visualizar_valores";
 export const MODULO_COM_VALORES = "saldos";
 
+/**
+ * Backup usa as mesmas cinco colunas dos demais módulos, mas as ações da
+ * categoria não são "cadastrar/editar/excluir/aprovar" — são gerar, restaurar,
+ * ver o histórico e administrar. Os rótulos abaixo dizem, em cada checkbox, o
+ * que a permissão realmente concede, para que quem administra não precise
+ * decorar o mapeamento.
+ *
+ * O mesmo mapa está escrito na migration 20260823180000 e em lib/backups.js.
+ * As cinco são independentes: dá para conceder "Gerar backup manual" sem
+ * conceder "Restaurar backup".
+ */
+export const MODULO_BACKUP = "backup";
+
+const ACOES_BACKUP = [
+  { campo: "pode_visualizar", label: "Visualizar backups" },
+  { campo: "pode_cadastrar", label: "Gerar backup manual" },
+  { campo: "pode_aprovar", label: "Visualizar histórico" },
+  { campo: "pode_excluir", label: "Restaurar backup" },
+  { campo: "pode_editar", label: "Administrar configurações de backup" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
-/** Ações exibidas na seção do módulo, incluindo "Visualizar valores" em Saldos. */
+/**
+ * Ações exibidas na seção do módulo: as cinco padrão, mais "Visualizar valores"
+ * em Saldos, ou os rótulos próprios do Backup.
+ */
 export function acoesDoModulo(modulo) {
+  if (modulo === MODULO_BACKUP) return ACOES_BACKUP;
   if (modulo !== MODULO_COM_VALORES) return ACOES;
   return [...ACOES, { campo: CAMPO_VALORES, label: "Visualizar valores" }];
 }
