@@ -6,6 +6,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import CardCertidoes from "../components/certidoes/CardCertidoes";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
@@ -358,6 +359,9 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+            {/* Resumo do módulo Certidões — só o total, sem listar documentos. */}
+            <CardCertidoes />
+
             <div className="grid grid-cols-3 gap-5">
               <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5">
                 <h2 className="text-base font-semibold mb-3">Pendências e Alertas</h2>

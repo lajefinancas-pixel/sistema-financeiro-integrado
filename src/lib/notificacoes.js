@@ -24,6 +24,8 @@ export const TIPOS = {
   tarefa_aprovada: { label: "Tarefa aprovada", cor: "#15803D" },
   tarefa_aguardando_aprovacao: { label: "Aguardando aprovação", cor: "#C2410C" },
   acao_critica: { label: "Ação crítica", cor: "#DC2626" },
+  certidao_a_vencer: { label: "Certidão a vencer", cor: "#A16207" },
+  certidao_vencida: { label: "Certidão vencida", cor: "#DC2626" },
 };
 
 export function tipoInfo(chave) {
@@ -113,6 +115,10 @@ export async function marcarTodasComoLidas(usuarioId) {
  * mesmo destinatário não recebe a mesma linha duas vezes na chamada e os tipos
  * desligados em Configurações > Notificações não são gerados.
  * Devolve a mensagem de erro (ou null quando tudo foi gravado).
+ *
+ * Além dos avisos de tarefa, a mesma função grava os avisos de vencimento de
+ * certidão (src/lib/alertasCertidoes.js): nesses casos a linha traz
+ * certidao_id/certidao_estagio no lugar de tarefa_id.
  */
 export async function notificar(linhas) {
   const desativados = await tiposDesativados();
@@ -121,7 +127,7 @@ export async function notificar(linhas) {
     .filter((linha) => linha?.usuario_id && linha?.tipo && linha?.mensagem)
     .filter((linha) => !desativados.has(linha.tipo))
     .filter((linha) => {
-      const chave = `${linha.usuario_id}|${linha.tipo}|${linha.tarefa_id ?? ""}`;
+      const chave = `${linha.usuario_id}|${linha.tipo}|${linha.tarefa_id ?? ""}|${linha.certidao_id ?? ""}`;
       if (vistos.has(chave)) return false;
       vistos.add(chave);
       return true;
@@ -129,6 +135,8 @@ export async function notificar(linhas) {
     .map((linha) => ({
       usuario_id: linha.usuario_id,
       tarefa_id: linha.tarefa_id ?? null,
+      certidao_id: linha.certidao_id ?? null,
+      certidao_estagio: linha.certidao_estagio ?? null,
       tipo: linha.tipo,
       mensagem: linha.mensagem,
       lida: false,

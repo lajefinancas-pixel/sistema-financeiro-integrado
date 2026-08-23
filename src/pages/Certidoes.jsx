@@ -1,12 +1,15 @@
 import React from "react";
-import { Download, Eye, FileCheck2, Pencil, Plus, Settings2 } from "lucide-react";
+import { Download, Eye, FileCheck2, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import ModalCertidao from "../components/certidoes/ModalCertidao";
 import ModalDetalheCertidao from "../components/certidoes/ModalDetalheCertidao";
+import ModalExcluirCertidao from "../components/certidoes/ModalExcluirCertidao";
 import ModalTipoCertidao from "../components/certidoes/ModalTipoCertidao";
+import PainelAlertas from "../components/certidoes/PainelAlertas";
 import TiposCertidao from "../components/certidoes/TiposCertidao";
 import { BadgeSituacao } from "../components/certidoes/badges";
+import { sincronizarAlertasCertidoes } from "../lib/alertasCertidoes";
 import { usePermissaoModulo } from "../lib/permissoes";
 import {
   MODULO,
@@ -32,6 +35,7 @@ export default function Certidoes() {
   const podeVisualizar = permissao?.pode_visualizar === true;
   const podeCadastrar = permissao?.pode_cadastrar === true;
   const podeEditar = permissao?.pode_editar === true;
+  const podeExcluir = permissao?.pode_excluir === true;
 
   const [aba, setAba] = React.useState("certidoes");
   const [carregando, setCarregando] = React.useState(true);
@@ -40,8 +44,12 @@ export default function Certidoes() {
   const [tipos, setTipos] = React.useState([]);
   const [fornecedores, setFornecedores] = React.useState([]);
 
+  const [alertas, setAlertas] = React.useState([]);
+  const [erroAlertas, setErroAlertas] = React.useState(null);
+
   const [certidaoEmEdicao, setCertidaoEmEdicao] = React.useState(null);
   const [certidaoDetalhe, setCertidaoDetalhe] = React.useState(null);
+  const [certidaoParaExcluir, setCertidaoParaExcluir] = React.useState(null);
   const [tipoEmEdicao, setTipoEmEdicao] = React.useState(null);
 
   React.useEffect(() => {
@@ -74,10 +82,37 @@ export default function Certidoes() {
     };
   }, [podeVisualizar]);
 
+  /**
+   * Acerta os alertas de vencimento sempre que a lista muda: abrir a tela, criar,
+   * editar ou excluir uma certidão. A varredura não duplica pendência — quando o
+   * aviso já existe, ela apenas o mantém (ou o atualiza, se o prazo apertou).
+   */
+  const usuarioId = usuarioLogado?.id ?? null;
+  React.useEffect(() => {
+    if (!podeVisualizar || carregando || !usuarioId) return undefined;
+    let ativo = true;
+
+    (async () => {
+      const { alertas: ativos, erro: falha } = await sincronizarAlertasCertidoes(usuarioId, certidoes);
+      if (!ativo) return;
+      setAlertas(ativos);
+      setErroAlertas(falha);
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [podeVisualizar, carregando, usuarioId, certidoes]);
+
   function aoSalvarCertidao(salva, edicao) {
     setCertidoes((atual) =>
       edicao ? atual.map((c) => (c.id === salva.id ? salva : c)) : [salva, ...atual],
     );
+  }
+
+  function aoExcluirCertidao(id) {
+    setCertidoes((atual) => atual.filter((c) => c.id !== id));
+    setAlertas((atual) => atual.filter((a) => a.certidao_id !== id));
   }
 
   function aoSalvarTipo(salvo, edicao) {
@@ -178,13 +213,31 @@ export default function Certidoes() {
             onEditar={(tipo) => setTipoEmEdicao(tipo)}
           />
         ) : (
-          <ListaCertidoes
-            certidoes={certidoes}
-            carregando={carregando}
-            podeEditar={podeEditar}
-            onVisualizar={setCertidaoDetalhe}
-            onEditar={setCertidaoEmEdicao}
-          />
+          <>
+            {erroAlertas && (
+              <div className="mb-5 border border-amber-200 bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3">
+                {erroAlertas}
+              </div>
+            )}
+
+            {certidoes.length > 0 && (
+              <PainelAlertas
+                alertas={alertas}
+                carregando={carregando}
+                onDispensado={(id) => setAlertas((atual) => atual.filter((a) => a.id !== id))}
+              />
+            )}
+
+            <ListaCertidoes
+              certidoes={certidoes}
+              carregando={carregando}
+              podeEditar={podeEditar}
+              podeExcluir={podeExcluir}
+              onVisualizar={setCertidaoDetalhe}
+              onEditar={setCertidaoEmEdicao}
+              onExcluir={setCertidaoParaExcluir}
+            />
+          </>
         )}
       </div>
 
@@ -203,6 +256,15 @@ export default function Certidoes() {
         <ModalDetalheCertidao certidao={certidaoDetalhe} onFechar={() => setCertidaoDetalhe(null)} />
       )}
 
+      {certidaoParaExcluir && (
+        <ModalExcluirCertidao
+          certidao={certidaoParaExcluir}
+          usuario={usuarioLogado}
+          onFechar={() => setCertidaoParaExcluir(null)}
+          onExcluida={aoExcluirCertidao}
+        />
+      )}
+
       {tipoEmEdicao && (
         <ModalTipoCertidao
           tipo={tipoEmEdicao.id ? tipoEmEdicao : null}
@@ -215,7 +277,15 @@ export default function Certidoes() {
 }
 
 /** Listagem principal: tabela nas telas médias e cartões no celular. */
-function ListaCertidoes({ certidoes, carregando, podeEditar, onVisualizar, onEditar }) {
+function ListaCertidoes({
+  certidoes,
+  carregando,
+  podeEditar,
+  podeExcluir,
+  onVisualizar,
+  onEditar,
+  onExcluir,
+}) {
   if (carregando) {
     return (
       <div className="bg-white rounded-2xl border border-black/5 shadow-sm px-6 py-12 text-center text-sm text-[#0F2A44]/40">
@@ -280,8 +350,10 @@ function ListaCertidoes({ certidoes, carregando, podeEditar, onVisualizar, onEdi
                   <Acoes
                     certidao={certidao}
                     podeEditar={podeEditar}
+                    podeExcluir={podeExcluir}
                     onVisualizar={onVisualizar}
                     onEditar={onEditar}
+                    onExcluir={onExcluir}
                   />
                 </td>
               </tr>
@@ -324,8 +396,10 @@ function ListaCertidoes({ certidoes, carregando, podeEditar, onVisualizar, onEdi
               <Acoes
                 certidao={certidao}
                 podeEditar={podeEditar}
+                podeExcluir={podeExcluir}
                 onVisualizar={onVisualizar}
                 onEditar={onEditar}
+                onExcluir={onExcluir}
               />
             </div>
           </div>
@@ -335,7 +409,7 @@ function ListaCertidoes({ certidoes, carregando, podeEditar, onVisualizar, onEdi
   );
 }
 
-function Acoes({ certidao, podeEditar, onVisualizar, onEditar }) {
+function Acoes({ certidao, podeEditar, podeExcluir, onVisualizar, onEditar, onExcluir }) {
   const classe =
     "w-9 h-9 rounded-lg flex items-center justify-center text-[#0F2A44]/50 hover:text-[#0F2A44] hover:bg-black/5";
 
@@ -381,6 +455,21 @@ function Acoes({ certidao, podeEditar, onVisualizar, onEditar }) {
           className={classe}
         >
           <Pencil size={16} />
+        </button>
+      )}
+
+      {/* Só aparece para quem tem pode_excluir no módulo; a exclusão em si
+          ainda passa pela confirmação e pelo RLS de delete. */}
+      {podeExcluir && (
+        <button
+          type="button"
+          onClick={() => onExcluir(certidao)}
+          title="Excluir certidão"
+          aria-label="Excluir certidão"
+          className="h-9 px-2.5 md:w-9 md:px-0 rounded-lg flex items-center justify-center gap-1.5 text-[#0F2A44]/50 hover:text-[#DC2626] hover:bg-[#DC2626]/5"
+        >
+          <Trash2 size={16} />
+          <span className="text-xs md:hidden">Excluir</span>
         </button>
       )}
     </div>

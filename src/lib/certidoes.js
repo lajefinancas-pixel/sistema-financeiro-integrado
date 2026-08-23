@@ -256,6 +256,19 @@ export async function atualizarCertidao(id, campos, tipo) {
   return data;
 }
 
+/**
+ * Apaga a certidão. A tela só oferece a ação a quem tem pode_excluir no módulo
+ * e sempre depois de uma confirmação; o RLS de delete confere a permissão de
+ * novo no banco.
+ *
+ * Os alertas de vencimento gerados para essa certidão saem junto: a coluna
+ * notificacoes.certidao_id é "on delete cascade".
+ */
+export async function excluirCertidao(id) {
+  const { error } = await supabase.from("certidoes").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ---------------------------------------------------------------------------
 // Anexo
 // ---------------------------------------------------------------------------
