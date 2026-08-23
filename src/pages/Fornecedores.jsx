@@ -15,6 +15,14 @@ import { MODULO as MODULO_CERTIDOES, listarTipos as listarTiposCertidao } from "
 import { carregarCertidoesPorFornecedor, detalheDocumental, resumoDocumental } from "../lib/certidoesFornecedor";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
+import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import {
+  auditarExclusao,
+  excluirRegistro,
+  filtroVigentes,
+  textoDosVinculos,
+  vinculosDoFornecedor,
+} from "../lib/exclusaoRegistros";
 
 function formatBRL(v) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -434,6 +442,14 @@ export default function Fornecedores() {
   const [carregandoPagamentos, setCarregandoPagamentos] = React.useState(true);
   const [erroPagamentos, setErroPagamentos] = React.useState(null);
 
+  // Exclusão: nada é excluído no clique. O modal padrão confirma, pede o motivo
+  // (fornecedor é registro sensível) e, quando há pagamentos ou certidões
+  // ligados, bloqueia a exclusão e oferece a inativação no lugar.
+  const [exclusaoPendente, setExclusaoPendente] = React.useState(null);
+  const { usuario: usuarioLogado, permissao: permissaoFornecedores } =
+    usePermissaoModulo("fornecedores");
+  const podeExcluirFornecedor = permissaoFornecedores?.pode_excluir === true;
+
   // Documentação: as certidões vêm da mesma tabela do módulo de Certidões e só
   // são pedidas para quem enxerga o módulo (pode_visualizar em 'certidoes').
   const { usuario: usuarioCertidoes, permissao: permissaoCertidoes } =
@@ -527,10 +543,13 @@ export default function Fornecedores() {
   // Consulta isolada: se falhar, só o filtro por data de pagamento fica sem base, sem afetar a tela.
   async function carregarDatasPagamento() {
     try {
-      const { data, error } = await supabase
-        .from("pagamentos")
-        .select("valor_em_aberto_id, programacoes_pagamento(data_programacao)")
-        .eq("situacao", "pago");
+      const vigentes = await filtroVigentes("pagamentos");
+      const { data, error } = await vigentes(
+        supabase
+          .from("pagamentos")
+          .select("valor_em_aberto_id, programacoes_pagamento(data_programacao)")
+          .eq("situacao", "pago"),
+      );
       if (error) throw error;
 
       const porValor = {};
@@ -571,11 +590,15 @@ export default function Fornecedores() {
       if (e1) throw e1;
 
       // "*" traz também os campos usados só nos filtros (ex: dados bancários), sem mudar o cadastro.
-      const { data: forns, error: e2 } = await supabase
-        .from("fornecedores")
-        .select("*, secretarias(nome)")
-        .eq("ativo", true)
-        .order("razao_social");
+      // Os fornecedores excluídos (exclusão lógica) ficam de fora da listagem.
+      const fornecedoresVigentes = await filtroVigentes("fornecedores");
+      const { data: forns, error: e2 } = await fornecedoresVigentes(
+        supabase
+          .from("fornecedores")
+          .select("*, secretarias(nome)")
+          .eq("ativo", true)
+          .order("razao_social"),
+      );
       if (e2) throw e2;
 
       const { data: valores, error: e3 } = await supabase
@@ -649,29 +672,85 @@ export default function Fornecedores() {
     }
   }
 
-  async function excluirFornecedor(id, nome) {
-    if (!confirm(`Excluir o fornecedor "${nome}"? Os valores em aberto dele deixarão de aparecer no sistema.`)) return;
-    setErro(null);
-    try {
-      const { error } = await supabase.from("fornecedores").update({ ativo: false }).eq("id", id);
-      if (error) throw error;
+  /** Como o fornecedor é identificado na trilha de auditoria. */
+  function rotuloDoFornecedor(fornecedor, nome) {
+    const identificacao = String(nome ?? fornecedor?.razao_social ?? "").trim();
+    return fornecedor?.cpf_cnpj ? `${identificacao} (${fornecedor.cpf_cnpj})` : identificacao;
+  }
 
-      // Auditoria: exclusão de fornecedor é evento de informação.
-      const fornecedor = fornecedores.find((f) => String(f.id) === String(id));
-      await registrarEvento({
-        modulo: "fornecedores",
-        acao: "excluiu",
-        registroAfetado: fornecedor?.cpf_cnpj ? `${nome} (${fornecedor.cpf_cnpj})` : String(nome ?? ""),
-        valorAnterior: { situacao: "Ativo no sistema" },
-        valorNovo: { situacao: "Excluído do sistema" },
-        nivel: "informacao",
+  /**
+   * Abre a confirmação de exclusão do fornecedor e, em paralelo, confere os
+   * vínculos: existindo pagamento ou certidão ligado ao cadastro, a exclusão é
+   * bloqueada e o modal passa a oferecer "Inativar fornecedor" no lugar — um
+   * pagamento não pode ficar apontando para um cadastro que sumiu.
+   */
+  function excluirFornecedor(id, nome) {
+    const fornecedor = fornecedores.find((f) => String(f.id) === String(id));
+    const rotulo = rotuloDoFornecedor(fornecedor, nome);
+    setExclusaoPendente({
+      tipo: "fornecedor",
+      id,
+      rotulo,
+      registro: `o fornecedor ${nome}`,
+      aviso: "Os valores em aberto dele deixarão de aparecer no sistema.",
+      exigirMotivo: true,
+      verificando: true,
+      bloqueio: null,
+      detalhes: [
+        { rotulo: "CNPJ/CPF", valor: fornecedor?.cpf_cnpj ?? "--" },
+        { rotulo: "Secretaria", valor: fornecedor?.secretarias?.nome ?? "--" },
+        { rotulo: "Total em aberto", valor: formatBRL(fornecedor?.totalAberto ?? 0) },
+      ],
+      anterior: { fornecedor: rotulo, situacao: "Ativo no sistema" },
+    });
+
+    vinculosDoFornecedor(id).then((vinculos) => {
+      const texto = textoDosVinculos(vinculos);
+      setExclusaoPendente((atual) => {
+        if (!atual || atual.tipo !== "fornecedor" || String(atual.id) !== String(id)) return atual;
+        if (!texto) return { ...atual, verificando: false, bloqueio: null };
+        return {
+          ...atual,
+          verificando: false,
+          anterior: { ...atual.anterior, vinculos: texto },
+          bloqueio: {
+            texto: `Este fornecedor tem ${texto} no sistema e por isso não pode ser excluído.`,
+            acao: {
+              rotulo: "Inativar fornecedor",
+              descricao:
+                "Inativar tira o fornecedor das listagens e de novos lançamentos, mantendo o cadastro ligado aos registros que já existem.",
+              onAcionar: (motivo) => inativarFornecedor(id, rotulo, motivo, texto),
+            },
+          },
+        };
       });
+    });
+  }
 
-      if (expandido === id) setExpandido(null);
-      await carregarDados();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao excluir fornecedor."));
-    }
+  /** Alternativa à exclusão bloqueada: o cadastro fica inativo, sem exclusão lógica. */
+  async function inativarFornecedor(id, rotulo, motivo, vinculos) {
+    setErro(null);
+
+    const { error } = await supabase.from("fornecedores").update({ ativo: false }).eq("id", id);
+    if (error) throw error;
+
+    await registrarEvento({
+      modulo: "fornecedores",
+      acao: "alterou",
+      registroAfetado: rotulo,
+      valorAnterior: { situacao: "Ativo no sistema" },
+      valorNovo: {
+        situacao: "Inativo (exclusão bloqueada por vínculos)",
+        vinculos: vinculos ?? null,
+        motivo_exclusao: motivo || "Não informado",
+      },
+      nivel: "atencao",
+      usuarioId: usuarioLogado?.id ?? null,
+    });
+
+    setExclusaoPendente(null);
+    if (expandido === id) setExpandido(null);
+    await carregarDados();
   }
 
   function aliquotaIssFinal() {
@@ -789,16 +868,39 @@ export default function Fornecedores() {
     }
   }
 
-  async function excluirValor(id) {
-    if (!confirm("Excluir este valor em aberto?")) return;
-    setErro(null);
-    try {
-      const { error } = await supabase.from("valores_em_aberto").delete().eq("id", id);
-      if (error) throw error;
-      await carregarDados();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao excluir valor."));
-    }
+  function excluirValor(id) {
+    let valor = null;
+    let dono = null;
+    fornecedores.forEach((f) => {
+      const encontrado = (f.valores ?? []).find((v) => String(v.id) === String(id));
+      if (encontrado) {
+        valor = encontrado;
+        dono = f;
+      }
+    });
+
+    const situacao = SITUACOES.find((op) => op.value === valor?.situacao);
+    setExclusaoPendente({
+      tipo: "valor",
+      id,
+      rotulo: `${dono?.razao_social ?? "Fornecedor"} — NF ${valor?.numero_nota_fiscal ?? "--"}`,
+      registro: valor?.numero_nota_fiscal
+        ? `o valor em aberto da NF ${valor.numero_nota_fiscal}`
+        : "este valor em aberto",
+      aviso: "O lançamento sai do sistema e deixa de compor o total em aberto do fornecedor.",
+      exigirMotivo: false,
+      detalhes: [
+        { rotulo: "Fornecedor", valor: dono?.razao_social ?? "--" },
+        { rotulo: "Nota fiscal", valor: valor?.numero_nota_fiscal ?? "--" },
+        { rotulo: "Valor", valor: formatBRL(valor?.valor ?? 0) },
+        { rotulo: "Situação", valor: situacao?.label ?? valor?.situacao ?? "--" },
+      ],
+      anterior: {
+        fornecedor: dono?.razao_social ?? null,
+        valor: formatBRL(valor?.valor ?? 0),
+        situacao: situacao?.label ?? valor?.situacao ?? null,
+      },
+    });
   }
 
   async function mudarSituacao(valorId, novaSituacao) {
@@ -1041,15 +1143,90 @@ export default function Fornecedores() {
     setBuscaRapida(typeof criterios.buscaRapida === "string" ? criterios.buscaRapida : "");
     setOrdenacao(ordenacaoValida(criterios.ordenacao));
   }
-  async function excluirFavorito(favorito) {
-    if (!confirm(`Excluir o filtro salvo "${favorito.nome}"?`)) return;
-    setErroFavoritos(null);
-    try {
-      await excluirFiltroFavorito(favorito.id);
-      setFavoritos((atuais) => atuais.filter((f) => f.id !== favorito.id));
-    } catch (erroExcluir) {
-      setErroFavoritos(mensagemAmigavel(erroExcluir, "Não foi possível excluir o filtro salvo."));
+  function excluirFavorito(favorito) {
+    setExclusaoPendente({
+      tipo: "favorito",
+      id: favorito.id,
+      rotulo: favorito.nome,
+      registro: `o filtro salvo "${favorito.nome}"`,
+      aviso: "O filtro deixa de aparecer na lista de filtros salvos. Os cadastros não são afetados.",
+      exigirMotivo: false,
+      detalhes: [{ rotulo: "Filtro salvo", valor: favorito.nome }],
+      anterior: { titulo: favorito.nome },
+    });
+  }
+
+  /**
+   * Executa a exclusão confirmada no modal e registra o evento na auditoria.
+   *
+   * Fornecedor é exclusão lógica (excluido_em/excluido_por, com o cadastro
+   * também marcado como inativo); valor em aberto e filtro salvo continuam
+   * sendo exclusão física, como sempre foram.
+   */
+  async function confirmarExclusao(motivo) {
+    const pendente = exclusaoPendente;
+    if (!pendente) return;
+
+    if (pendente.tipo === "favorito") {
+      setErroFavoritos(null);
+      await excluirFiltroFavorito(pendente.id);
+      setFavoritos((atuais) => atuais.filter((f) => f.id !== pendente.id));
+      await auditarExclusao({
+        modulo: "fornecedores",
+        registroAfetado: `Filtro salvo: ${pendente.rotulo}`,
+        motivo,
+        valorAnterior: pendente.anterior,
+        logica: false,
+        nivel: "informacao",
+        usuarioId: usuarioLogado?.id ?? null,
+      });
+      setExclusaoPendente(null);
+      return;
     }
+
+    setErro(null);
+
+    if (pendente.tipo === "valor") {
+      const { error } = await supabase.from("valores_em_aberto").delete().eq("id", pendente.id);
+      if (error) throw error;
+      await auditarExclusao({
+        modulo: "fornecedores",
+        registroAfetado: pendente.rotulo,
+        motivo,
+        valorAnterior: pendente.anterior,
+        logica: false,
+        usuarioId: usuarioLogado?.id ?? null,
+      });
+      setExclusaoPendente(null);
+      await carregarDados();
+      return;
+    }
+
+    // Fornecedor: o cadastro sai das listagens pelas duas vias — inativo e
+    // marcado como excluído —, mas continua no banco.
+    const { logica } = await excluirRegistro({
+      tabela: "fornecedores",
+      id: pendente.id,
+      usuarioId: usuarioLogado?.id ?? null,
+      camposExtras: { ativo: false },
+      aoNaoSuportar: async () => {
+        const { error } = await supabase.from("fornecedores").update({ ativo: false }).eq("id", pendente.id);
+        if (error) throw error;
+      },
+    });
+
+    await auditarExclusao({
+      modulo: "fornecedores",
+      registroAfetado: pendente.rotulo,
+      motivo,
+      valorAnterior: pendente.anterior,
+      logica,
+      usuarioId: usuarioLogado?.id ?? null,
+    });
+
+    setExclusaoPendente(null);
+    if (expandido === pendente.id) setExpandido(null);
+    await carregarDados();
   }
   // Tira um filtro específico já aplicado, mantendo todos os outros.
   function removerFiltro(alteracao) {
@@ -1978,13 +2155,15 @@ export default function Fornecedores() {
                         {situacao ? situacao.label : "Sem lançamentos"}
                       </span>
                       <span className="text-sm font-semibold text-[#0F2A44] tabular-nums">{formatBRL(f.totalAberto)}</span>
-                      <button
-                        onClick={() => excluirFornecedor(f.id, f.razao_social)}
-                        className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
-                        title="Excluir fornecedor"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      {podeExcluirFornecedor && (
+                        <button
+                          onClick={() => excluirFornecedor(f.id, f.razao_social)}
+                          className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
+                          title="Excluir fornecedor"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                       <button
                         onClick={alternar}
                         aria-expanded={aberto}
@@ -2036,6 +2215,19 @@ export default function Fornecedores() {
 
       {historicoDe && (
         <ModalHistoricoFornecedor fornecedor={historicoDe} onFechar={() => setHistoricoDe(null)} />
+      )}
+
+      {exclusaoPendente && (
+        <ModalConfirmarExclusao
+          registro={exclusaoPendente.registro}
+          aviso={exclusaoPendente.aviso}
+          exigirMotivo={exclusaoPendente.exigirMotivo}
+          detalhes={exclusaoPendente.detalhes}
+          verificando={exclusaoPendente.verificando === true}
+          bloqueio={exclusaoPendente.bloqueio ?? null}
+          onCancelar={() => setExclusaoPendente(null)}
+          onConfirmar={confirmarExclusao}
+        />
       )}
 
       {/* Mesmo modal de cadastro de /certidoes, já com este fornecedor escolhido. */}

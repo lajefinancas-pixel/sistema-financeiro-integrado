@@ -500,6 +500,9 @@ const CAMPOS = {
   observacoes: "Observações",
   arquivo: "Documento anexado",
   certidao_anterior: "Emissão anterior",
+  // Campos comuns a todas as exclusões (lógicas ou físicas).
+  motivo_exclusao: "Motivo da exclusão",
+  vinculos: "Registros ligados",
   // Campos do evento de solicitação de restauração de backup.
   justificativa: "Justificativa",
   solicitado_em: "Solicitado em",

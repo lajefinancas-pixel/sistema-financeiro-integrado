@@ -12,6 +12,7 @@ import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
 import { emCentavos, somar } from "../lib/rateioPagamentos";
+import { filtroVigentes } from "../lib/exclusaoRegistros";
 
 const ICONES_SECRETARIA = {
   finan: Landmark,
@@ -174,12 +175,15 @@ export default function Dashboard() {
 
       const eventos = [];
 
-      const { data: pagosRecentes } = await supabase
-        .from("pagamentos")
-        .select("valor_a_pagar, updated_at, nome_avulso, fornecedores(razao_social)")
-        .eq("situacao", "pago")
-        .order("updated_at", { ascending: false })
-        .limit(5);
+      const pagamentosVigentes = await filtroVigentes("pagamentos");
+      const { data: pagosRecentes } = await pagamentosVigentes(
+        supabase
+          .from("pagamentos")
+          .select("valor_a_pagar, updated_at, nome_avulso, fornecedores(razao_social)")
+          .eq("situacao", "pago")
+          .order("updated_at", { ascending: false })
+          .limit(5),
+      );
       (pagosRecentes ?? []).forEach((p) => {
         eventos.push({
           tipo: "Pagamento realizado",
@@ -203,11 +207,14 @@ export default function Dashboard() {
         });
       });
 
-      const { data: fornsRecentes } = await supabase
-        .from("fornecedores")
-        .select("razao_social, created_at")
-        .order("created_at", { ascending: false })
-        .limit(5);
+      const fornecedoresVigentes = await filtroVigentes("fornecedores");
+      const { data: fornsRecentes } = await fornecedoresVigentes(
+        supabase
+          .from("fornecedores")
+          .select("razao_social, created_at")
+          .order("created_at", { ascending: false })
+          .limit(5),
+      );
       (fornsRecentes ?? []).forEach((f) => {
         eventos.push({
           tipo: "Fornecedor cadastrado",
@@ -220,12 +227,14 @@ export default function Dashboard() {
       eventos.sort((a, b) => new Date(b.data) - new Date(a.data));
       setUltimosRegistros(eventos.slice(0, 5));
 
-      const { data: progVals } = await supabase
-        .from("pagamentos")
-        .select("valor_a_pagar, situacao, fornecedores(razao_social, secretarias(nome)), programacoes_pagamento(data_programacao)")
-        .in("situacao", ["pendente", "programado"])
-        .order("created_at", { ascending: false })
-        .limit(20);
+      const { data: progVals } = await pagamentosVigentes(
+        supabase
+          .from("pagamentos")
+          .select("valor_a_pagar, situacao, fornecedores(razao_social, secretarias(nome)), programacoes_pagamento(data_programacao)")
+          .in("situacao", ["pendente", "programado"])
+          .order("created_at", { ascending: false })
+          .limit(20),
+      );
 
       const proximos = (progVals ?? [])
         .filter((p) => p.programacoes_pagamento?.data_programacao)

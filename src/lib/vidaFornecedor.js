@@ -11,6 +11,7 @@
 import { supabase } from "./supabaseClient";
 import { buscarPaginado } from "./saldosContasDados";
 import { paraNumeroMoeda } from "./moeda";
+import { filtroVigentes } from "./exclusaoRegistros";
 
 const SITUACOES_PAGAMENTO = {
   pago: "Pago",
@@ -38,12 +39,16 @@ function nomeDaConta(conta) {
  * avulso): é por ele que a lista de notas mostra o pagamento relacionado.
  */
 export async function carregarPagamentosPorFornecedor() {
+  // Pagamento excluído não entra no histórico do fornecedor.
+  const vigentes = await filtroVigentes("pagamentos");
   const pagamentos = await buscarPaginado(() =>
-    supabase
-      .from("pagamentos")
-      .select("id, fornecedor_id, valor_em_aberto_id, programacao_id, valor_a_pagar, situacao, descricao")
-      .eq("situacao", "pago")
-      .order("id", { ascending: true })
+    vigentes(
+      supabase
+        .from("pagamentos")
+        .select("id, fornecedor_id, valor_em_aberto_id, programacao_id, valor_a_pagar, situacao, descricao")
+        .eq("situacao", "pago")
+        .order("id", { ascending: true })
+    )
   );
   if (pagamentos.length === 0) return {};
 
