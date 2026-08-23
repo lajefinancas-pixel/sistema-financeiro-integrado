@@ -173,6 +173,39 @@ function fornecedoresDistintos(resultado) {
   return String(nomes.size);
 }
 
+// --- Colunas e apoio da categoria Certidões ---
+//
+// As linhas chegam prontas de carregarBaseCertidoes: `situacao` é a etiqueta que
+// o módulo Certidões exibe e `situacao_prazo` é a leitura pela data (a mesma dos
+// alertas de vencimento). Os recortes abaixo usam `situacao_prazo` justamente
+// para que uma certidão marcada como "Em renovação" e fora do prazo continue
+// aparecendo entre as vencidas.
+const COL_CERTIDAO_TIPO = { chave: "tipo", label: "Tipo de certidão", peso: 20 };
+const COL_CERTIDAO_NUMERO = { chave: "numero_documento", label: "Número", peso: 14 };
+const COL_CERTIDAO_EMISSAO = { chave: "data_emissao", label: "Emissão", tipo: "data", peso: 11 };
+const COL_CERTIDAO_VENCIMENTO = { chave: "data_vencimento", label: "Vencimento", tipo: "data", peso: 12 };
+const COL_CERTIDAO_SITUACAO = { ...COL_SITUACAO, peso: 12 };
+const COL_CERTIDAO_PRAZO = { chave: "prazo", label: "Prazo", peso: 15 };
+
+const certidoesDe = (bases) => bases?.certidoes?.certidoes ?? [];
+const documentacaoDe = (bases) => bases?.certidoes?.documentacao ?? [];
+
+/** Vencimento mais próximo primeiro; sem vencimento vai para o fim. */
+function porVencimento(a, b) {
+  return (
+    String(a.data_vencimento || "9999-12-31").localeCompare(String(b.data_vencimento || "9999-12-31")) ||
+    porRazaoSocial(a, b) ||
+    compararTexto(a.tipo, b.tipo)
+  );
+}
+
+/** Quantas linhas do resultado estão em cada situação de prazo. */
+function quantidadePorPrazo(resultado, situacao) {
+  return resultado.grupos
+    .flatMap((g) => g.linhas)
+    .filter((l) => l.situacao_prazo === situacao).length;
+}
+
 // --- Relatórios ---
 export const CATEGORIAS = [
   {
@@ -199,6 +232,12 @@ export const CATEGORIAS = [
     id: "auditoria",
     nome: "Auditoria",
     descricao: "Trilha das alterações registradas no sistema e as aprovações concedidas.",
+  },
+  {
+    id: "certidoes",
+    nome: "Certidões",
+    descricao:
+      "Certidões dos fornecedores, vencimentos, documentação obrigatória e a visão por secretaria.",
   },
 ];
 
@@ -600,6 +639,122 @@ export const RELATORIOS = [
           .filter((t) => t.aprovada === true)
           .sort(porMaisRecente("aprovada_em"))
       ),
+  },
+  {
+    id: "certidoes-por-fornecedor",
+    categoria: "certidoes",
+    base: "certidoes",
+    nome: "Certidões por fornecedor",
+    descricao: "Certidões cadastradas agrupadas por fornecedor, com tipo, emissão, vencimento e situação.",
+    colunas: [
+      COL_CERTIDAO_TIPO,
+      COL_CERTIDAO_NUMERO,
+      COL_CERTIDAO_EMISSAO,
+      COL_CERTIDAO_VENCIMENTO,
+      COL_CERTIDAO_SITUACAO,
+      COL_CERTIDAO_PRAZO,
+    ],
+    rotuloGrupo: "Fornecedor",
+    montar: (bases) => agrupar(certidoesDe(bases), "razao_social", { ordenarLinhas: porVencimento }),
+    resumo: (resultado) => [
+      { label: "Fornecedores", valor: String(resultado.grupos.length) },
+      { label: "Vencidas", valor: String(quantidadePorPrazo(resultado, "vencida")) },
+    ],
+  },
+  {
+    id: "certidoes-vencidas",
+    categoria: "certidoes",
+    base: "certidoes",
+    nome: "Certidões vencidas",
+    descricao: "Certidões cuja data de vencimento já passou, da mais antiga para a mais recente.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 18 },
+      COL_CERTIDAO_TIPO,
+      COL_CERTIDAO_EMISSAO,
+      COL_CERTIDAO_VENCIMENTO,
+      COL_CERTIDAO_PRAZO,
+    ],
+    montar: (bases) =>
+      blocoUnico(certidoesDe(bases).filter((c) => c.situacao_prazo === "vencida").sort(porVencimento)),
+    resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
+  },
+  {
+    id: "certidoes-a-vencer",
+    categoria: "certidoes",
+    base: "certidoes",
+    nome: "Certidões próximas do vencimento",
+    descricao:
+      "Certidões dentro da janela de alerta do módulo Certidões -- as que aparecem como \"a vencer\".",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 18 },
+      COL_CERTIDAO_TIPO,
+      COL_CERTIDAO_EMISSAO,
+      COL_CERTIDAO_VENCIMENTO,
+      COL_CERTIDAO_PRAZO,
+    ],
+    montar: (bases) =>
+      blocoUnico(certidoesDe(bases).filter((c) => c.situacao_prazo === "a_vencer").sort(porVencimento)),
+    resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
+  },
+  {
+    id: "documentacao-fornecedores",
+    categoria: "certidoes",
+    base: "certidoes",
+    nome: "Documentação completa / incompleta",
+    descricao:
+      "Por fornecedor: quantas certidões obrigatórias estão em dia e quantas faltam ou estão vencidas.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_DOCUMENTO,
+      { ...COL_SECRETARIA, peso: 16 },
+      { chave: "obrigatorias", label: "Obrigatórias", tipo: "numero", somavel: true, peso: 10 },
+      { chave: "validas", label: "Em dia", tipo: "numero", somavel: true, peso: 8 },
+      { chave: "vencidas", label: "Vencidas", tipo: "numero", somavel: true, peso: 9 },
+      { chave: "faltando", label: "Faltando", tipo: "numero", somavel: true, peso: 9 },
+      { chave: "pendencias", label: "Pendências", peso: 24 },
+    ],
+    rotuloGrupo: "Documentação",
+    montar: (bases) =>
+      agrupar(documentacaoDe(bases), "situacao", {
+        ordem: ["Incompleta", "Completa"],
+        ordenarLinhas: (a, b) =>
+          b.vencidas + b.faltando - (a.vencidas + a.faltando) || porRazaoSocial(a, b),
+      }),
+    resumo: (resultado) => {
+      const quantidade = (nome) => resultado.grupos.find((g) => g.nome === nome)?.linhas.length ?? 0;
+      return [
+        { label: "Completa", valor: String(quantidade("Completa")) },
+        { label: "Incompleta", valor: String(quantidade("Incompleta")), destaque: true },
+      ];
+    },
+  },
+  {
+    id: "certidoes-por-secretaria",
+    categoria: "certidoes",
+    base: "certidoes",
+    nome: "Certidões por secretaria",
+    descricao: "Certidões agrupadas pela secretaria do fornecedor vinculado.",
+    colunas: [
+      { ...COL_FORNECEDOR, peso: 24 },
+      COL_CERTIDAO_TIPO,
+      COL_CERTIDAO_EMISSAO,
+      COL_CERTIDAO_VENCIMENTO,
+      COL_CERTIDAO_SITUACAO,
+      COL_CERTIDAO_PRAZO,
+    ],
+    rotuloGrupo: "Secretaria",
+    montar: (bases) =>
+      agrupar(certidoesDe(bases), "secretaria", {
+        ordenarLinhas: (a, b) => porRazaoSocial(a, b) || porVencimento(a, b),
+      }),
+    resumo: (resultado) => [
+      { label: "Secretarias", valor: String(resultado.grupos.length) },
+      { label: "Vencidas", valor: String(quantidadePorPrazo(resultado, "vencida")) },
+    ],
   },
 ];
 
