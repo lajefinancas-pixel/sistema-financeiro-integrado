@@ -8,6 +8,7 @@ import {
   ServerCog,
   RefreshCw,
   Stethoscope,
+  Trash2,
   Users,
 } from "lucide-react";
 import { Cartao } from "./comuns";
@@ -58,7 +59,7 @@ function EtiquetaBanco({ conectado }) {
   );
 }
 
-export default function CategoriaSistema() {
+export default function CategoriaSistema({ podeGerenciarLixeira = false }) {
   const [aberto, setAberto] = React.useState(false);
   const [informacoes, setInformacoes] = React.useState(null);
   const [carregando, setCarregando] = React.useState(false);
@@ -189,6 +190,31 @@ export default function CategoriaSistema() {
             ))}
         </div>
       </Cartao>
+
+      {podeGerenciarLixeira && (
+        <Cartao
+          titulo="Lixeira"
+          descricao="Fornecedores, certidões e pagamentos excluídos do sistema, com a opção de restaurar."
+          icone={Trash2}
+        >
+          <Link
+            to="/configuracoes/lixeira"
+            className="flex items-center gap-3 rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3.5 hover:bg-[#F5F3EF]"
+          >
+            <div className="w-9 h-9 rounded-xl bg-white border border-[#C9A227]/30 flex items-center justify-center shrink-0">
+              <Trash2 size={16} className="text-[#0F2A44]" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[#0F2A44]">Abrir a Lixeira do sistema</div>
+              <div className="text-[11px] text-[#0F2A44]/55 mt-0.5 leading-relaxed">
+                Mostra o que foi excluído, quem excluiu, quando e por quê. Registros excluídos continuam
+                no banco e podem voltar às listagens.
+              </div>
+            </div>
+            <ChevronRight size={16} className="text-[#0F2A44]/25 ml-auto shrink-0" />
+          </Link>
+        </Cartao>
+      )}
 
       <Cartao
         titulo="Conferência"

@@ -13,6 +13,7 @@ import Relatorios from "./pages/Relatorios";
 import Auditoria from "./pages/Auditoria";
 import Configuracoes from "./pages/Configuracoes";
 import DiagnosticoPagamentos from "./pages/DiagnosticoPagamentos";
+import Lixeira from "./pages/Lixeira";
 import Usuarios from "./pages/equipe/Usuarios";
 
 function RotaProtegida({ children }) {
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/relatorios" element={<RotaProtegida><Relatorios /></RotaProtegida>} />
       <Route path="/auditoria" element={<RotaProtegida><Auditoria /></RotaProtegida>} />
       <Route path="/configuracoes" element={<RotaProtegida><Configuracoes /></RotaProtegida>} />
+      <Route path="/configuracoes/lixeira" element={<RotaProtegida><Lixeira /></RotaProtegida>} />
       <Route
         path="/diagnostico-pagamentos"
         element={<RotaProtegida><DiagnosticoPagamentos /></RotaProtegida>}
