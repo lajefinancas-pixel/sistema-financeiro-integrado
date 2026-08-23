@@ -5,11 +5,15 @@ import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
 import { registrarEvento } from "../lib/auditoria";
 import Layout from "../components/Layout";
+import ModalCertidao from "../components/certidoes/ModalCertidao";
 import FiltrosSalvos from "../components/fornecedores/FiltrosSalvos";
 import ModalEscopoExportacao from "../components/fornecedores/ModalEscopoExportacao";
 import VidaDoFornecedor from "../components/fornecedores/VidaDoFornecedor";
 import ModalHistoricoFornecedor from "../components/historico/ModalHistoricoFornecedor";
 import { carregarPagamentosPorFornecedor } from "../lib/vidaFornecedor";
+import { MODULO as MODULO_CERTIDOES, listarTipos as listarTiposCertidao } from "../lib/certidoes";
+import { carregarCertidoesPorFornecedor, detalheDocumental, resumoDocumental } from "../lib/certidoesFornecedor";
+import { usePermissaoModulo } from "../lib/permissoes";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 
 function formatBRL(v) {
@@ -433,12 +437,68 @@ export default function Fornecedores() {
   const [carregandoPagamentos, setCarregandoPagamentos] = React.useState(true);
   const [erroPagamentos, setErroPagamentos] = React.useState(null);
 
+  // Documentação: as certidões vêm da mesma tabela do módulo de Certidões e só
+  // são pedidas para quem enxerga o módulo (pode_visualizar em 'certidoes').
+  const { usuario: usuarioCertidoes, permissao: permissaoCertidoes } =
+    usePermissaoModulo(MODULO_CERTIDOES);
+  const podeVerCertidoes = permissaoCertidoes?.pode_visualizar === true;
+  const podeCadastrarCertidao = permissaoCertidoes?.pode_cadastrar === true;
+
+  const [certidoesPorFornecedor, setCertidoesPorFornecedor] = React.useState({});
+  const [tiposCertidao, setTiposCertidao] = React.useState([]);
+  const [carregandoCertidoes, setCarregandoCertidoes] = React.useState(true);
+  const [erroCertidoes, setErroCertidoes] = React.useState(null);
+  // Fornecedor que terá uma certidão cadastrada (null = modal fechado).
+  const [novaCertidaoPara, setNovaCertidaoPara] = React.useState(null);
+
   React.useEffect(() => {
     carregarDados();
     carregarDatasPagamento();
     carregarPagamentosRealizados();
     carregarFavoritos();
   }, []);
+
+  // Consulta isolada: se falhar, só a documentação fica sem base; o restante da
+  // tela de fornecedores continua igual.
+  React.useEffect(() => {
+    if (!podeVerCertidoes) return undefined;
+    let ativo = true;
+
+    (async () => {
+      setCarregandoCertidoes(true);
+      setErroCertidoes(null);
+      try {
+        const [porFornecedor, tipos] = await Promise.all([
+          carregarCertidoesPorFornecedor(),
+          listarTiposCertidao(),
+        ]);
+        if (!ativo) return;
+        setCertidoesPorFornecedor(porFornecedor);
+        setTiposCertidao(tipos);
+      } catch (e) {
+        if (!ativo) return;
+        setCertidoesPorFornecedor({});
+        setErroCertidoes(mensagemAmigavel(e, "Não foi possível carregar as certidões deste fornecedor."));
+      } finally {
+        if (ativo) setCarregandoCertidoes(false);
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [podeVerCertidoes]);
+
+  /** Certidão criada pela vida do fornecedor: entra na lista já carregada. */
+  function aoSalvarCertidao(salva) {
+    setCertidoesPorFornecedor((atual) => {
+      const chave = String(salva.fornecedor_id);
+      const lista = [...(atual[chave] ?? []).filter((c) => c.id !== salva.id), salva].sort((a, b) =>
+        soData(a.data_vencimento || "9999-12-31").localeCompare(soData(b.data_vencimento || "9999-12-31"))
+      );
+      return { ...atual, [chave]: lista };
+    });
+  }
 
   React.useEffect(() => {
     gravarEstadoSalvo({ buscaRapida, filtros, filtrosAplicados, mostrarFiltros, ordenacao, expandido });
@@ -1878,6 +1938,12 @@ export default function Fornecedores() {
               const aberto = expandido === f.id;
               const alternar = () => setExpandido(aberto ? null : f.id);
               const situacao = situacaoResumo(f);
+              // Indicador documental: só para quem enxerga o módulo de
+              // Certidões e só depois de a leitura das certidões terminar.
+              const documental =
+                podeVerCertidoes && !carregandoCertidoes && !erroCertidoes
+                  ? resumoDocumental(certidoesPorFornecedor[String(f.id)])
+                  : null;
               return (
                 <div key={f.id} className="rounded-xl border border-black/5 overflow-hidden bg-white print:break-inside-avoid">
                   <div className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-black/[0.02]">
@@ -1893,6 +1959,17 @@ export default function Fornecedores() {
                       </div>
                     </button>
                     <div className="flex items-center gap-3 shrink-0">
+                      {documental && (
+                        <span
+                          title={detalheDocumental(documental)}
+                          className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
+                          style={{ color: documental.cor, backgroundColor: documental.bg }}
+                        >
+                          <span aria-hidden="true">{documental.emoji}</span>
+                          <span className="hidden lg:inline">{documental.texto}</span>
+                          <span className="lg:hidden sr-only">{documental.texto}</span>
+                        </span>
+                      )}
                       <span
                         className="hidden sm:inline text-[11px] font-medium px-2 py-1 rounded-md"
                         style={
@@ -1933,6 +2010,12 @@ export default function Fornecedores() {
                       pagamentos={pagamentosPorFornecedor[String(f.id)] ?? []}
                       carregandoPagamentos={carregandoPagamentos}
                       erroPagamentos={erroPagamentos}
+                      certidoes={certidoesPorFornecedor[String(f.id)] ?? []}
+                      carregandoCertidoes={carregandoCertidoes}
+                      erroCertidoes={erroCertidoes}
+                      podeVerCertidoes={podeVerCertidoes}
+                      podeCadastrarCertidao={podeCadastrarCertidao}
+                      onNovaCertidao={() => setNovaCertidaoPara(f)}
                       onMudarSituacao={mudarSituacao}
                       onExcluirValor={excluirValor}
                       onVerHistorico={() => setHistoricoDe(f)}
@@ -1957,6 +2040,18 @@ export default function Fornecedores() {
 
       {historicoDe && (
         <ModalHistoricoFornecedor fornecedor={historicoDe} onFechar={() => setHistoricoDe(null)} />
+      )}
+
+      {/* Mesmo modal de cadastro de /certidoes, já com este fornecedor escolhido. */}
+      {novaCertidaoPara && (
+        <ModalCertidao
+          certidao={{ fornecedor_id: novaCertidaoPara.id }}
+          fornecedores={fornecedores}
+          tipos={tiposCertidao}
+          usuario={usuarioCertidoes}
+          onFechar={() => setNovaCertidaoPara(null)}
+          onSalva={aoSalvarCertidao}
+        />
       )}
     </Layout>
   );

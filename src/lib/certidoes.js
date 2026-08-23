@@ -39,8 +39,28 @@ export const SITUACOES = {
  */
 const SITUACOES_MANUAIS = ["em_renovacao"];
 
+/**
+ * Situação usada só na exibição: o fornecedor que ainda não tem nenhuma
+ * certidão registrada. Não é um valor gravável em certidoes.situacao — o banco
+ * aceita apenas os cinco de SITUACOES —, por isso fica fora do catálogo e não
+ * aparece no cadastro; serve aos filtros e à listagem.
+ */
+export const SITUACAO_NAO_CADASTRADA = "nao_cadastrada";
+
+const SITUACOES_EXIBICAO = {
+  ...SITUACOES,
+  [SITUACAO_NAO_CADASTRADA]: {
+    label: "Não cadastrada",
+    cor: "#7C3AED",
+    bg: "#F3EDFF",
+    ponto: "#7C3AED",
+  },
+};
+
 export function situacaoInfo(valor) {
-  return SITUACOES[valor] ?? { label: valor ?? "--", cor: "#64748B", bg: "#F1F5F9", ponto: "#94A3B8" };
+  return (
+    SITUACOES_EXIBICAO[valor] ?? { label: valor ?? "--", cor: "#64748B", bg: "#F1F5F9", ponto: "#94A3B8" }
+  );
 }
 
 /** Opções do select de situação no cadastro. */
@@ -164,9 +184,11 @@ export async function atualizarTipo(id, campos) {
 // ---------------------------------------------------------------------------
 
 export async function listarFornecedores() {
+  // A secretaria vem junto porque a listagem de certidões filtra por ela — o
+  // vínculo é o do cadastro do fornecedor, sem coluna nova em certidoes.
   const { data, error } = await supabase
     .from("fornecedores")
-    .select("id, razao_social, nome_fantasia, cpf_cnpj, ativo")
+    .select("id, razao_social, nome_fantasia, cpf_cnpj, ativo, secretaria_id, secretarias ( id, nome )")
     .order("razao_social");
   if (error) throw error;
   return data ?? [];
@@ -174,6 +196,23 @@ export async function listarFornecedores() {
 
 export function nomeFornecedor(fornecedor) {
   return String(fornecedor?.razao_social || fornecedor?.nome_fantasia || "").trim() || "Fornecedor sem nome";
+}
+
+/** Nome da secretaria vinculada ao fornecedor (vazio quando não há vínculo). */
+export function nomeSecretaria(fornecedor) {
+  return String(fornecedor?.secretarias?.nome ?? "").trim();
+}
+
+/** Lista de secretarias distintas presentes nos fornecedores, para o filtro. */
+export function secretariasDosFornecedores(fornecedores) {
+  const porId = new Map();
+  (fornecedores ?? []).forEach((f) => {
+    const id = f?.secretaria_id;
+    const nome = nomeSecretaria(f);
+    if (!id || !nome || porId.has(String(id))) return;
+    porId.set(String(id), { id: String(id), nome });
+  });
+  return [...porId.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }
 
 // ---------------------------------------------------------------------------

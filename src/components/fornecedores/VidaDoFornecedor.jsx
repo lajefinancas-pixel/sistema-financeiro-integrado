@@ -1,6 +1,26 @@
 import React from "react";
-import { AlertTriangle, Banknote, Contact, History, Landmark, Receipt, Trash2, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  Banknote,
+  Contact,
+  FileCheck2,
+  History,
+  Landmark,
+  Paperclip,
+  Plus,
+  Receipt,
+  Trash2,
+  Wallet,
+} from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
+import { BadgeSituacao } from "../certidoes/badges";
+import {
+  formatarData as formatarDataCertidao,
+  nomeDoAnexo,
+  situacaoEfetiva,
+  urlDeDownload,
+} from "../../lib/certidoes";
+import { resumoDocumental } from "../../lib/certidoesFornecedor";
 
 /**
  * "Vida do fornecedor": o que a listagem mostra quando um cadastro é aberto.
@@ -55,12 +75,15 @@ function temPendenciaTributaria(v) {
   );
 }
 
-function Bloco({ icone: Icone, titulo, children }) {
+function Bloco({ icone: Icone, titulo, acao, children }) {
   return (
     <section className="rounded-xl border border-black/5 bg-white print:break-inside-avoid">
-      <h4 className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#0F2A44]/50 border-b border-black/5">
-        <Icone size={13} /> {titulo}
-      </h4>
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-black/5">
+        <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#0F2A44]/50">
+          <Icone size={13} /> {titulo}
+        </h4>
+        {acao}
+      </div>
       <div className="px-3 py-3">{children}</div>
     </section>
   );
@@ -98,6 +121,12 @@ export default function VidaDoFornecedor({
   pagamentos,
   carregandoPagamentos,
   erroPagamentos,
+  certidoes,
+  carregandoCertidoes,
+  erroCertidoes,
+  podeVerCertidoes,
+  podeCadastrarCertidao,
+  onNovaCertidao,
   onMudarSituacao,
   onExcluirValor,
   onVerHistorico,
@@ -380,6 +409,19 @@ export default function VidaDoFornecedor({
         )}
       </Bloco>
 
+      {/* Documentação do fornecedor. Os dados vêm da mesma tabela do módulo de
+          Certidões -- aqui só se lê e se mostra; cadastrar abre o modal de
+          /certidoes já com este fornecedor escolhido. */}
+      {podeVerCertidoes && (
+        <CertidoesDoFornecedor
+          certidoes={certidoes}
+          carregando={carregandoCertidoes}
+          erro={erroCertidoes}
+          podeCadastrar={podeCadastrarCertidao}
+          onNovaCertidao={onNovaCertidao}
+        />
+      )}
+
       {/* Atalho discreto para a trilha deste cadastro: abre as
           movimentações do fornecedor sem sair da tela. */}
       <div className="flex justify-end print:hidden">
@@ -392,5 +434,97 @@ export default function VidaDoFornecedor({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Seção "Certidões e documentos" da vida do fornecedor.
+ *
+ * Lê a lista que a tela já carregou da tabela `certidoes` (a mesma do módulo)
+ * e mostra tipo, emissão, vencimento, situação e o anexo. A situação segue a
+ * mesma regra da tela de Certidões: a manual prevalece e o resto vem das datas.
+ */
+function CertidoesDoFornecedor({ certidoes, carregando, erro, podeCadastrar, onNovaCertidao }) {
+  const lista = certidoes ?? [];
+  const resumo = resumoDocumental(lista);
+
+  const botaoNova = podeCadastrar ? (
+    <button
+      type="button"
+      onClick={onNovaCertidao}
+      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5 whitespace-nowrap print:hidden"
+    >
+      <Plus size={13} /> Nova Certidão
+    </button>
+  ) : null;
+
+  return (
+    <Bloco icone={FileCheck2} titulo="Certidões e documentos" acao={botaoNova}>
+      {carregando ? (
+        <Vazio>Carregando certidões...</Vazio>
+      ) : erro ? (
+        <div className="text-xs text-red-600">{erro}</div>
+      ) : lista.length === 0 ? (
+        <Vazio>Nenhuma certidão cadastrada para este fornecedor.</Vazio>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                  <th className="py-1.5 pr-3 font-medium">Tipo</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Emissão</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Vencimento</th>
+                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Situação</th>
+                  <th className="py-1.5 font-medium">Documento</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((certidao) => (
+                  <tr key={certidao.id} className="border-t border-black/5">
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
+                      {certidao.tipos_certidao?.nome ?? "--"}
+                      {certidao.numero_documento && (
+                        <span className="block text-[11px] text-[#0F2A44]/40">
+                          nº {certidao.numero_documento}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                      {formatarDataCertidao(certidao.data_emissao)}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
+                      {certidao.data_vencimento ? formatarDataCertidao(certidao.data_vencimento) : "--"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <BadgeSituacao situacao={situacaoEfetiva(certidao)} />
+                    </td>
+                    <td className="py-2 text-xs">
+                      {certidao.arquivo_url ? (
+                        <a
+                          href={urlDeDownload(certidao.arquivo_url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-[#0F2A44]/70 underline underline-offset-2 hover:text-[#0F2A44] break-all"
+                        >
+                          <Paperclip size={12} className="shrink-0" />
+                          {nomeDoAnexo(certidao.arquivo_url)}
+                        </a>
+                      ) : (
+                        <span className="text-[#0F2A44]/35">Sem anexo</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-2 text-[11px] text-[#0F2A44]/45">
+            {resumo.emoji} {resumo.texto}
+          </p>
+        </>
+      )}
+    </Bloco>
   );
 }
