@@ -222,15 +222,31 @@ export function secretariasDosFornecedores(fornecedores) {
 const COLUNAS_CERTIDAO = `
   id, fornecedor_id, tipo_certidao_id, numero_documento, data_emissao, data_vencimento,
   situacao, observacoes, arquivo_url, responsavel_id, criado_em, atualizado_em,
+  substituida_por, substituida_em,
   fornecedores ( id, razao_social, nome_fantasia, cpf_cnpj ),
   tipos_certidao ( id, nome, possui_vencimento, prazo_padrao_dias, obrigatorio ),
   usuarios ( id, nome_completo )
 `;
 
+/**
+ * Certidão que já foi renovada: continua no banco, mas só para consulta de
+ * histórico. Quem vale é a que a substituiu.
+ */
+export function ehHistorica(certidao) {
+  return Boolean(certidao?.substituida_por);
+}
+
+/**
+ * As certidões VIGENTES — as versões antigas de um documento renovado ficam de
+ * fora. É a lista da tela do módulo, do card do Painel Principal e da Vida do
+ * Fornecedor: em nenhuma delas uma emissão substituída deveria contar como
+ * documento do fornecedor.
+ */
 export async function listarCertidoes() {
   const { data, error } = await supabase
     .from("certidoes")
     .select(COLUNAS_CERTIDAO)
+    .is("substituida_por", null)
     .order("data_vencimento", { ascending: true, nullsFirst: false })
     .order("criado_em", { ascending: false });
   if (error) throw error;
@@ -306,6 +322,132 @@ export async function atualizarCertidao(id, campos, tipo) {
 export async function excluirCertidao(id) {
   const { error } = await supabase.from("certidoes").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Renovação (com histórico preservado)
+// ---------------------------------------------------------------------------
+
+/**
+ * Renova uma certidão: cadastra a nova emissão e marca a anterior como
+ * substituída por ela.
+ *
+ * A anterior NÃO é apagada nem sobrescrita — ela sai da listagem (que só pede
+ * as vigentes) e passa a existir apenas como versão de histórico. O fornecedor
+ * e o tipo são sempre os da certidão original: renovar é emitir de novo o mesmo
+ * documento, não trocar de documento.
+ *
+ * Sem arquivo novo, a nova emissão reaproveita o anexo da anterior — quem
+ * chama decide isso ao montar `campos.arquivo_url`.
+ *
+ * O vínculo é feito logo depois do insert. Se ele falhar, a nova emissão é
+ * desfeita: o fornecedor não pode terminar a operação com duas certidões
+ * vigentes do mesmo documento.
+ */
+export async function renovarCertidao(anterior, campos, tipo, responsavelId) {
+  if (!anterior?.id) throw erroAmigavel("Não foi possível identificar a certidão que será renovada.");
+  if (ehHistorica(anterior)) {
+    throw erroAmigavel("Esta certidão já foi renovada. Abra a versão vigente para renová-la de novo.");
+  }
+
+  const linha = {
+    ...prepararCertidao(
+      {
+        ...campos,
+        fornecedor_id: anterior.fornecedor_id,
+        tipo_certidao_id: anterior.tipo_certidao_id,
+      },
+      tipo,
+    ),
+    arquivo_url: campos.arquivo_url ?? null,
+    responsavel_id: responsavelId ?? null,
+  };
+
+  const { data: nova, error } = await supabase
+    .from("certidoes")
+    .insert(linha)
+    .select(COLUNAS_CERTIDAO)
+    .single();
+  if (error) throw error;
+
+  // A condição "ainda vigente" evita que duas renovações simultâneas quebrem a
+  // cadeia de versões: a segunda não encontra linha para atualizar.
+  const { data: vinculada, error: erroVinculo } = await supabase
+    .from("certidoes")
+    .update({ substituida_por: nova.id, substituida_em: new Date().toISOString() })
+    .eq("id", anterior.id)
+    .is("substituida_por", null)
+    .select("id");
+
+  if (erroVinculo || !vinculada?.length) {
+    await supabase.from("certidoes").delete().eq("id", nova.id);
+    throw (
+      erroVinculo ??
+      erroAmigavel("A certidão anterior não pôde ser marcada como substituída. Nada foi alterado.")
+    );
+  }
+
+  return nova;
+}
+
+/**
+ * As versões anteriores de uma certidão, da mais antiga para a mais recente.
+ *
+ * A cadeia é montada a partir das certidões substituídas do mesmo fornecedor,
+ * seguindo os vínculos `substituida_por` para trás desde a versão vigente.
+ * Devolve lista vazia quando o documento nunca foi renovado.
+ */
+export async function listarHistoricoCertidao(certidao) {
+  if (!certidao?.id || !certidao?.fornecedor_id) return [];
+
+  const { data, error } = await supabase
+    .from("certidoes")
+    .select(COLUNAS_CERTIDAO)
+    .eq("fornecedor_id", certidao.fornecedor_id)
+    .not("substituida_por", "is", null);
+  if (error) throw error;
+
+  const anteriorDe = new Map((data ?? []).map((linha) => [String(linha.substituida_por), linha]));
+  const cadeia = [];
+  const visitados = new Set();
+  let alvo = String(certidao.id);
+
+  while (anteriorDe.has(alvo) && !visitados.has(alvo)) {
+    visitados.add(alvo);
+    const anterior = anteriorDe.get(alvo);
+    cadeia.unshift(anterior);
+    alvo = String(anterior.id);
+  }
+
+  return cadeia;
+}
+
+// ---------------------------------------------------------------------------
+// Auditoria
+// ---------------------------------------------------------------------------
+
+/**
+ * Como a certidão é identificada na trilha de auditoria: "Certidão Federal —
+ * XYZ LTDA". `fornecedor` só é usado quando a linha veio sem o cadastro junto.
+ */
+export function descricaoParaAuditoria(certidao, fornecedor = null) {
+  const tipo = certidao?.tipos_certidao?.nome ?? "Certidão";
+  return `${tipo} — ${nomeFornecedor(certidao?.fornecedores ?? fornecedor)}`;
+}
+
+/**
+ * Foto da certidão nos campos que interessam à trilha (o antes/depois da tela
+ * de Auditoria compara exatamente estas chaves).
+ */
+export function dadosParaAuditoria(certidao) {
+  return {
+    numero_documento: certidao?.numero_documento ?? null,
+    data_emissao: certidao?.data_emissao ?? null,
+    data_vencimento: certidao?.data_vencimento ?? null,
+    situacao: certidao?.situacao ?? null,
+    observacoes: certidao?.observacoes ?? null,
+    arquivo: nomeDoAnexo(certidao?.arquivo_url),
+  };
 }
 
 // ---------------------------------------------------------------------------

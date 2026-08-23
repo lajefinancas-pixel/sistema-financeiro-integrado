@@ -5,9 +5,12 @@ import {
   Eye,
   FileCheck2,
   FilePlus2,
+  FileSpreadsheet,
+  FileText,
   LayoutList,
   Pencil,
   Plus,
+  Printer,
   Rows3,
   Settings2,
   Trash2,
@@ -18,6 +21,7 @@ import FiltrosCertidoes from "../components/certidoes/FiltrosCertidoes";
 import ModalCertidao from "../components/certidoes/ModalCertidao";
 import ModalDetalheCertidao from "../components/certidoes/ModalDetalheCertidao";
 import ModalExcluirCertidao from "../components/certidoes/ModalExcluirCertidao";
+import ModalRenovarCertidao from "../components/certidoes/ModalRenovarCertidao";
 import ModalTipoCertidao from "../components/certidoes/ModalTipoCertidao";
 import PainelAlertas from "../components/certidoes/PainelAlertas";
 import TiposCertidao from "../components/certidoes/TiposCertidao";
@@ -45,6 +49,12 @@ import {
   ordenarCertidoes,
   situacaoDaLinha,
 } from "../lib/filtrosCertidoes";
+import {
+  exportarExcelCertidoes,
+  gerarPdfCertidoes,
+  imprimirCertidoes,
+} from "../lib/certidoesDocumento";
+import { agoraBR } from "../lib/saldosDocumento";
 import { mensagemAmigavel } from "../lib/erros";
 
 const ABAS = [
@@ -60,6 +70,9 @@ export default function Certidoes() {
   const podeCadastrar = permissao?.pode_cadastrar === true;
   const podeEditar = permissao?.pode_editar === true;
   const podeExcluir = permissao?.pode_excluir === true;
+  // Renovar é cadastrar a nova emissão e marcar a anterior como substituída:
+  // exige as duas permissões, sem criar nenhuma regra nova de acesso.
+  const podeRenovar = podeCadastrar && podeEditar;
 
   const [aba, setAba] = React.useState("certidoes");
   const [carregando, setCarregando] = React.useState(true);
@@ -74,7 +87,12 @@ export default function Certidoes() {
   const [certidaoEmEdicao, setCertidaoEmEdicao] = React.useState(null);
   const [certidaoDetalhe, setCertidaoDetalhe] = React.useState(null);
   const [certidaoParaExcluir, setCertidaoParaExcluir] = React.useState(null);
+  const [certidaoParaRenovar, setCertidaoParaRenovar] = React.useState(null);
   const [tipoEmEdicao, setTipoEmEdicao] = React.useState(null);
+
+  // Exportação: qual documento está sendo gerado e o aviso de recorte vazio.
+  const [exportando, setExportando] = React.useState(null);
+  const [avisoExportacao, setAvisoExportacao] = React.useState(null);
 
   // Filtros: o formulário só passa a valer em "Aplicar Filtros"; os atalhos
   // rápidos valem no clique.
@@ -149,6 +167,27 @@ export default function Certidoes() {
     setAlertas((atual) => atual.filter((a) => a.certidao_id !== id));
   }
 
+  /**
+   * Abre a renovação a partir do detalhe ou da edição: os dois modais saem de
+   * cena para a tela não ficar com duas janelas do mesmo documento abertas.
+   */
+  function abrirRenovacao(certidao) {
+    if (!certidao?.id) return;
+    setCertidaoEmEdicao(null);
+    setCertidaoDetalhe(null);
+    setCertidaoParaRenovar(certidao);
+  }
+
+  /**
+   * Renovada: a emissão anterior sai da listagem (continua no banco, agora como
+   * histórico) e a nova ocupa o lugar dela. O alerta de vencimento da antiga é
+   * recolhido na varredura que roda logo em seguida, junto com a lista nova.
+   */
+  function aoRenovarCertidao(nova, anterior) {
+    setCertidoes((atual) => [nova, ...atual.filter((c) => c.id !== anterior?.id)]);
+    setAlertas((atual) => atual.filter((a) => a.certidao_id !== anterior?.id));
+  }
+
   // Secretarias oferecidas no filtro: as que aparecem nos fornecedores carregados.
   const secretarias = React.useMemo(() => secretariasDosFornecedores(fornecedores), [fornecedores]);
 
@@ -170,6 +209,44 @@ export default function Certidoes() {
     const cadastro = fornecedores.find((f) => String(f.id) === String(fornecedorFoco));
     return cadastro ? nomeFornecedor(cadastro) : "";
   }, [fornecedorFoco, fornecedores]);
+
+  /**
+   * Impressão, PDF e planilha do que está na tela: o documento sai com as mesmas
+   * certidões da listagem, na ordem escolhida e com os filtros aplicados no
+   * momento — inclusive o agrupamento por fornecedor, quando é a visão em uso.
+   */
+  function exportar(formato) {
+    if (exportando) return;
+    setExportando(formato);
+    setAvisoExportacao(null);
+
+    try {
+      const paraDocumento = agrupado ? grupos.flatMap((g) => g.certidoes) : listaVisivel;
+
+      if (paraDocumento.length === 0) {
+        setAvisoExportacao("Não há certidões para exportar com os filtros atuais.");
+        return;
+      }
+
+      const documento = {
+        certidoes: paraDocumento,
+        filtros: filtrosAplicados,
+        secretarias,
+        tipos,
+        usuario: usuarioLogado,
+        geradoEm: agoraBR(),
+        agrupado,
+      };
+
+      if (formato === "impressao") imprimirCertidoes(documento);
+      else if (formato === "pdf") gerarPdfCertidoes(documento);
+      else exportarExcelCertidoes(documento);
+    } catch (e) {
+      setAvisoExportacao(mensagemAmigavel(e, "Não foi possível gerar o documento das certidões."));
+    } finally {
+      setExportando(null);
+    }
+  }
 
   function aplicarFiltros() {
     setFiltrosAplicados(filtros);
@@ -245,15 +322,49 @@ export default function Certidoes() {
             </p>
           </div>
 
-          {podeCadastrar && aba === "certidoes" && (
-            <button
-              type="button"
-              onClick={() => setCertidaoEmEdicao({})}
-              className="self-start flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 whitespace-nowrap"
-            >
-              <Plus size={16} />
-              Cadastrar Certidão
-            </button>
+          {aba === "certidoes" && (
+            <div className="flex flex-wrap items-center gap-2 self-start">
+              {/* Impressão e exportação do recorte que está na tela: os três
+                  documentos saem com os filtros aplicados no momento. */}
+              <button
+                type="button"
+                onClick={() => exportar("impressao")}
+                disabled={carregando || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <Printer size={15} />
+                {exportando === "impressao" ? "Preparando..." : "🖨 Imprimir"}
+              </button>
+              <button
+                type="button"
+                onClick={() => exportar("pdf")}
+                disabled={carregando || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <FileText size={15} />
+                {exportando === "pdf" ? "Gerando..." : "PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => exportar("excel")}
+                disabled={carregando || exportando !== null}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 bg-white text-[#0F2A44]/70 hover:bg-black/5 disabled:opacity-40"
+              >
+                <FileSpreadsheet size={15} />
+                {exportando === "excel" ? "Exportando..." : "Excel"}
+              </button>
+
+              {podeCadastrar && (
+                <button
+                  type="button"
+                  onClick={() => setCertidaoEmEdicao({})}
+                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 whitespace-nowrap"
+                >
+                  <Plus size={16} />
+                  Cadastrar Certidão
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -298,6 +409,12 @@ export default function Certidoes() {
             {erroAlertas && (
               <div className="mb-5 border border-amber-200 bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3">
                 {erroAlertas}
+              </div>
+            )}
+
+            {avisoExportacao && (
+              <div className="mb-5 border border-amber-200 bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3">
+                {avisoExportacao}
               </div>
             )}
 
@@ -412,13 +529,30 @@ export default function Certidoes() {
           fornecedores={fornecedores}
           tipos={tipos}
           usuario={usuarioLogado}
+          podeRenovar={podeRenovar}
           onFechar={() => setCertidaoEmEdicao(null)}
           onSalva={aoSalvarCertidao}
+          onRenovar={abrirRenovacao}
         />
       )}
 
       {certidaoDetalhe && (
-        <ModalDetalheCertidao certidao={certidaoDetalhe} onFechar={() => setCertidaoDetalhe(null)} />
+        <ModalDetalheCertidao
+          certidao={certidaoDetalhe}
+          podeRenovar={podeRenovar}
+          onFechar={() => setCertidaoDetalhe(null)}
+          onRenovar={abrirRenovacao}
+        />
+      )}
+
+      {certidaoParaRenovar && (
+        <ModalRenovarCertidao
+          certidao={certidaoParaRenovar}
+          tipos={tipos}
+          usuario={usuarioLogado}
+          onFechar={() => setCertidaoParaRenovar(null)}
+          onRenovada={aoRenovarCertidao}
+        />
       )}
 
       {certidaoParaExcluir && (

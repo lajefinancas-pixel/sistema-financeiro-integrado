@@ -1,11 +1,13 @@
 import React from "react";
-import { FileText, Paperclip, Trash2, Upload } from "lucide-react";
+import { FileText, Paperclip, RefreshCw, Trash2, Upload } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell } from "../equipe/comuns";
 import {
   MODULO,
   OPCOES_SITUACAO,
   atualizarCertidao,
   criarCertidao,
+  dadosParaAuditoria,
+  descricaoParaAuditoria,
   enviarArquivo,
   hojeISO,
   nomeDoAnexo,
@@ -25,7 +27,16 @@ import { mensagemAmigavel } from "../../lib/erros";
  *   * a situação acompanha as datas enquanto a pessoa não escolher um estado
  *     manual ("Em renovação").
  */
-export default function ModalCertidao({ certidao, fornecedores, tipos, usuario, onFechar, onSalva }) {
+export default function ModalCertidao({
+  certidao,
+  fornecedores,
+  tipos,
+  usuario,
+  podeRenovar = false,
+  onFechar,
+  onSalva,
+  onRenovar,
+}) {
   const edicao = Boolean(certidao?.id);
 
   const [campos, setCampos] = React.useState({
@@ -112,26 +123,69 @@ export default function ModalCertidao({ certidao, fornecedores, tipos, usuario, 
         : await criarCertidao(valores, tipoEscolhido, usuario?.id ?? null);
 
       const fornecedor = fornecedores.find((f) => f.id === salva.fornecedor_id);
-      registrarEvento({
-        modulo: MODULO,
-        acao: edicao ? "alterou" : "criou",
-        registroAfetado: `${tipoEscolhido?.nome ?? "Certidão"} — ${nomeFornecedor(
-          salva.fornecedores ?? fornecedor,
-        )}`,
-        valorNovo: {
-          numero_documento: salva.numero_documento,
-          data_emissao: salva.data_emissao,
-          data_vencimento: salva.data_vencimento,
-          situacao: salva.situacao,
-        },
-        usuarioId: usuario?.id ?? null,
-      });
+      registrarAuditoria(salva, fornecedor);
 
       onSalva?.(salva, edicao);
       onFechar();
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível salvar a certidão."));
       setSalvando(false);
+    }
+  }
+
+  /**
+   * Trilha de auditoria do que acabou de ser gravado.
+   *
+   * O cadastro gera um evento 'criou'. Na edição, a mudança de situação ganha
+   * evento próprio ('alterou_situacao'): marcar um documento como "Em renovação"
+   * é uma decisão de acompanhamento e precisa ser localizável na trilha sem se
+   * perder no meio de uma alteração de datas. As demais mudanças continuam em um
+   * evento 'alterou', sempre com o valor anterior e o novo.
+   */
+  function registrarAuditoria(salva, fornecedor) {
+    const registroAfetado = descricaoParaAuditoria(
+      { ...salva, tipos_certidao: salva.tipos_certidao ?? tipoEscolhido },
+      fornecedor,
+    );
+    const depois = dadosParaAuditoria(salva);
+
+    if (!edicao) {
+      registrarEvento({
+        modulo: MODULO,
+        acao: "criou",
+        registroAfetado,
+        valorNovo: depois,
+        usuarioId: usuario?.id ?? null,
+      });
+      return;
+    }
+
+    const antes = dadosParaAuditoria(certidao);
+    const mudouSituacao = antes.situacao !== depois.situacao;
+    const mudouOResto = Object.keys(depois).some(
+      (campo) => campo !== "situacao" && antes[campo] !== depois[campo],
+    );
+
+    if (mudouSituacao) {
+      registrarEvento({
+        modulo: MODULO,
+        acao: "alterou_situacao",
+        registroAfetado,
+        valorAnterior: { situacao: antes.situacao },
+        valorNovo: { situacao: depois.situacao },
+        usuarioId: usuario?.id ?? null,
+      });
+    }
+
+    if (mudouOResto || !mudouSituacao) {
+      registrarEvento({
+        modulo: MODULO,
+        acao: "alterou",
+        registroAfetado,
+        valorAnterior: antes,
+        valorNovo: depois,
+        usuarioId: usuario?.id ?? null,
+      });
     }
   }
 
@@ -144,6 +198,20 @@ export default function ModalCertidao({ certidao, fornecedores, tipos, usuario, 
       onFechar={onFechar}
       rodape={
         <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+          {/* Atalho para a renovação: cadastra uma nova emissão e guarda a atual
+              como histórico. Só na edição — uma certidão que ainda não existe
+              não tem o que renovar. */}
+          {edicao && podeRenovar && onRenovar && (
+            <button
+              type="button"
+              onClick={() => onRenovar(certidao)}
+              disabled={salvando}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border border-[#C9A227]/50 bg-[#FBF4DE] text-sm text-[#8A7526] hover:bg-[#F7EAC6] disabled:opacity-40 sm:mr-auto"
+            >
+              <RefreshCw size={15} />
+              🔄 Renovar Certidão
+            </button>
+          )}
           <button
             type="button"
             onClick={onFechar}
