@@ -31,9 +31,6 @@ const SITUACOES = [
   { value: "suspenso", label: "Suspenso", cor: "#64748B", bg: "#F1F5F9" },
   { value: "cancelado", label: "Cancelado", cor: "#DC2626", bg: "#FEF2F2" },
 ];
-function situacaoInfo(v) {
-  return SITUACOES.find((s) => s.value === v) ?? SITUACOES[0];
-}
 
 const ALIQUOTAS_PADRAO = [2, 3, 4, 5];
 
@@ -2006,7 +2003,6 @@ export default function Fornecedores() {
                       tipo={tipoDoFornecedor(f, campoTipo)}
                       bancario={dadosBancariosExibicao(f)}
                       situacoes={SITUACOES}
-                      situacaoInfo={situacaoInfo}
                       pagamentos={pagamentosPorFornecedor[String(f.id)] ?? []}
                       carregandoPagamentos={carregandoPagamentos}
                       erroPagamentos={erroPagamentos}
