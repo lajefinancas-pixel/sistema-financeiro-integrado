@@ -14,6 +14,9 @@ import { supabase } from "./supabaseClient";
  * de exceção é apagada.
  */
 
+// Módulos ajustáveis individualmente nesta aba. A lista vale para tudo:
+// leitura do padrão do perfil, exibição das seções, gravação da exceção e o
+// botão "Restaurar padrão do perfil". Certidões entra aqui como os demais.
 export const MODULOS = [
   { id: "saldos", label: "Saldos" },
   { id: "fornecedores", label: "Fornecedores" },
