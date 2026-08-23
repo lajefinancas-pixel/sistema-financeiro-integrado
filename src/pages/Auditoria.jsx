@@ -223,6 +223,16 @@ export default function Auditoria() {
     setAplicados(FILTROS_VAZIOS);
   }
 
+  /**
+   * Remoção de um filtro pelo chip, com o painel fechado. Mexe no formulário e
+   * no que está aplicado ao mesmo tempo, como "Limpar Filtros" já fazia --
+   * nenhum critério novo entra aqui.
+   */
+  function removerFiltro(alteracao) {
+    setFiltros((atuais) => ({ ...atuais, ...alteracao }));
+    setAplicados((atuais) => ({ ...atuais, ...alteracao }));
+  }
+
   /** Atalho do alerta: deixa na lista apenas as ações críticas das últimas 24 horas. */
   function verSomenteCriticosRecentes() {
     const recorte = filtrosCriticosRecentes({
@@ -391,6 +401,7 @@ export default function Auditoria() {
           onAlterar={setFiltros}
           onAplicar={aplicarFiltros}
           onLimpar={limparFiltros}
+          onRemover={removerFiltro}
           usuarios={usuarios}
           erroUsuarios={erroUsuarios}
           resumo={

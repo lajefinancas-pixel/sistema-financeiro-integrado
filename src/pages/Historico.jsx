@@ -236,6 +236,17 @@ export default function Historico() {
     setMostrarMovimentacoes(false);
   }
 
+  /**
+   * Remoção de um filtro pelo chip, com o painel fechado. Mexe no formulário e
+   * no que está aplicado ao mesmo tempo, como "Aplicar Filtros" já fazia --
+   * nenhum critério novo entra aqui.
+   */
+  function removerFiltro(alteracao) {
+    setFiltros((atuais) => ({ ...atuais, ...alteracao }));
+    setAplicados((atuais) => ({ ...atuais, ...alteracao }));
+    setPaginaMovimentacoes(0);
+  }
+
   /** Abre a listagem detalhada sem nenhum filtro, a pedido do usuário. */
   function verUltimasMovimentacoes() {
     setPaginaMovimentacoes(0);
@@ -731,9 +742,11 @@ export default function Historico() {
 
           <FiltrosHistorico
             filtros={filtros}
+            aplicados={aplicados}
             onAlterar={setFiltros}
             onAplicar={aplicarFiltros}
             onLimpar={limparFiltros}
+            onRemover={removerFiltro}
             usuarios={usuariosFiltro}
             secretarias={secretariasFiltro}
             erroUsuarios={erroUsuariosFiltro}

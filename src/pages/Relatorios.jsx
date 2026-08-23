@@ -11,6 +11,7 @@ import ResultadoPersonalizado from "../components/relatorios/ResultadoPersonaliz
 import GraficoRelatorio from "../components/relatorios/GraficoRelatorio";
 import OpcoesImpressao from "../components/relatorios/OpcoesImpressao";
 import PainelComparativo from "../components/relatorios/PainelComparativo";
+import PainelFiltros from "../components/comuns/PainelFiltros";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
@@ -326,6 +327,28 @@ export default function Relatorios() {
   /** Período do relatório em texto, quando ele tem filtro de datas. */
   const periodoDoRelatorio =
     relatorio?.temPeriodo ? textoPeriodo(periodo.inicio, periodo.fim) : "";
+
+  /** Volta ao mesmo recorte com que a tela abre -- é o que "Ano corrente" já faz. */
+  function voltarAoPeriodoPadrao() {
+    setPeriodo({ inicio: primeiroDiaDoAno(), fim: hojeISO() });
+  }
+
+  const periodoEhOPadrao = periodo.inicio === primeiroDiaDoAno() && periodo.fim === hojeISO();
+
+  /**
+   * Chip do período do relatório pronto. O período sempre tem um valor, então o
+   * chip é só informativo (como na tela de Pagamentos): nada é removido dele,
+   * quem devolve o recorte inicial é o "Limpar filtros" da barra.
+   */
+  const chipsDoPeriodo = React.useMemo(
+    () => [
+      {
+        chave: "periodo",
+        rotulo: `Período: ${formatarCelula(periodo.inicio, "data")} a ${formatarCelula(periodo.fim, "data")}`,
+      },
+    ],
+    [periodo]
+  );
 
   /**
    * Filtros do relatório pronto em texto: são a categoria e o agrupamento que ele
@@ -911,34 +934,43 @@ export default function Relatorios() {
                 </div>
               </div>
 
+              {/* Período do relatório: recolhido por padrão, com o recorte
+                  atual à vista no chip da barra. */}
               {relatorio.temPeriodo && (
-                <div className="flex flex-wrap items-end gap-3 mt-5">
-                  <label className="text-xs text-[#0F2A44]/60">
-                    <span className="block mb-1">Data inicial</span>
-                    <input
-                      type="date"
-                      value={periodo.inicio}
-                      onChange={(e) => setPeriodo({ ...periodo, inicio: e.target.value })}
-                      className="text-sm px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] bg-white"
-                    />
-                  </label>
-                  <label className="text-xs text-[#0F2A44]/60">
-                    <span className="block mb-1">Data final</span>
-                    <input
-                      type="date"
-                      value={periodo.fim}
-                      onChange={(e) => setPeriodo({ ...periodo, fim: e.target.value })}
-                      className="text-sm px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] bg-white"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setPeriodo({ inicio: primeiroDiaDoAno(), fim: hojeISO() })}
-                    className="text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
-                  >
-                    Ano corrente
-                  </button>
-                </div>
+                <PainelFiltros
+                  className="mt-5"
+                  rotulo="Período"
+                  chips={chipsDoPeriodo}
+                  onLimpar={periodoEhOPadrao ? undefined : voltarAoPeriodoPadrao}
+                >
+                  <div className="flex flex-wrap items-end gap-3 pt-3">
+                    <label className="text-xs text-[#0F2A44]/60">
+                      <span className="block mb-1">Data inicial</span>
+                      <input
+                        type="date"
+                        value={periodo.inicio}
+                        onChange={(e) => setPeriodo({ ...periodo, inicio: e.target.value })}
+                        className="text-sm px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] bg-white"
+                      />
+                    </label>
+                    <label className="text-xs text-[#0F2A44]/60">
+                      <span className="block mb-1">Data final</span>
+                      <input
+                        type="date"
+                        value={periodo.fim}
+                        onChange={(e) => setPeriodo({ ...periodo, fim: e.target.value })}
+                        className="text-sm px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] bg-white"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={voltarAoPeriodoPadrao}
+                      className="text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                    >
+                      Ano corrente
+                    </button>
+                  </div>
+                </PainelFiltros>
               )}
 
               <div className="flex flex-wrap gap-3 mt-5">

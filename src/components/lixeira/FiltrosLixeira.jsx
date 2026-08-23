@@ -1,6 +1,7 @@
 import React from "react";
-import { ChevronDown, ChevronUp, Eraser, SlidersHorizontal } from "lucide-react";
+import { Eraser } from "lucide-react";
 import { OPCOES_TIPO, quantidadeDeFiltros } from "../../lib/lixeira";
+import PainelFiltros from "../comuns/PainelFiltros";
 
 const CLASSE_CAMPO = "w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm text-[#0F2A44]";
 
@@ -13,119 +14,150 @@ function Campo({ label, children }) {
   );
 }
 
+/** Data ISO no formato de leitura da tela; vazio vira reticências no chip. */
+function dataBR(valor) {
+  if (!valor) return "...";
+  const [ano, mes, dia] = String(valor).slice(0, 10).split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+/**
+ * Chips do recorte que está valendo na lista. Aqui o filtro vale na hora, então
+ * o que está no formulário é o que está filtrando. Só monta rótulos: nenhum
+ * critério é criado, removido ou reinterpretado aqui.
+ */
+function montarChips({ filtros, usuarios, onRemover }) {
+  const f = filtros ?? {};
+  const chips = [];
+
+  if (f.tipo) {
+    const label = OPCOES_TIPO.find((o) => o.valor === f.tipo)?.label ?? f.tipo;
+    chips.push({ chave: "tipo", rotulo: label, remover: () => onRemover({ tipo: "" }) });
+  }
+  if (f.usuarioId) {
+    const nome = usuarios.find((u) => String(u.id) === String(f.usuarioId))?.nome ?? "Usuário";
+    chips.push({ chave: "usuario", rotulo: `Excluído por: ${nome}`, remover: () => onRemover({ usuarioId: "" }) });
+  }
+  if (f.dataInicial || f.dataFinal) {
+    chips.push({
+      chave: "periodo",
+      rotulo: `Excluído entre ${dataBR(f.dataInicial)} e ${dataBR(f.dataFinal)}`,
+      remover: () => onRemover({ dataInicial: "", dataFinal: "" }),
+    });
+  }
+  return chips;
+}
+
 /**
  * Filtros da Lixeira: tipo de registro, quem excluiu e período da exclusão.
  *
  * Diferente da Auditoria, aqui o filtro vale na hora: a lista inteira já está
  * carregada na tela e o recorte é feito em memória, sem nova consulta.
+ *
+ * A área usa o PainelFiltros compartilhado das demais telas: recolhida por
+ * padrão, com contagem e chips removíveis quando fechada.
  */
 export default function FiltrosLixeira({ filtros, onAlterar, onLimpar, usuarios = [], total, exibidos }) {
-  const [aberto, setAberto] = React.useState(false);
   const emUso = quantidadeDeFiltros(filtros);
 
   function alterar(campo, valor) {
     onAlterar({ ...filtros, [campo]: valor });
   }
 
+  const remover = React.useCallback(
+    (alteracao) => onAlterar({ ...filtros, ...alteracao }),
+    [filtros, onAlterar],
+  );
+
+  const chips = React.useMemo(
+    () => montarChips({ filtros, usuarios, onRemover: remover }),
+    [filtros, usuarios, remover],
+  );
+
   return (
-    <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-5">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
-        <p className="text-sm text-[#0F2A44]/60">
-          {emUso > 0 ? (
-            <>
-              Mostrando <strong className="text-[#0F2A44]">{exibidos}</strong> de {total}{" "}
-              {total === 1 ? "registro excluído" : "registros excluídos"}.
-            </>
-          ) : (
-            <>
-              <strong className="text-[#0F2A44]">{total}</strong>{" "}
-              {total === 1 ? "registro excluído" : "registros excluídos"} na Lixeira.
-            </>
-          )}
-        </p>
-
-        <button
-          type="button"
-          onClick={() => setAberto((v) => !v)}
-          className={`flex items-center justify-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border ${
-            aberto || emUso > 0
-              ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-              : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-          }`}
-        >
-          <SlidersHorizontal size={15} />
-          Filtros
-          {emUso > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20">{emUso}</span>
-          )}
-          {aberto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
-      </div>
-
-      {aberto && (
-        <div className="mt-4 pt-4 border-t border-black/5 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Campo label="Tipo de registro">
-              <select
-                value={filtros.tipo}
-                onChange={(e) => alterar("tipo", e.target.value)}
-                className={CLASSE_CAMPO}
-              >
-                <option value="">Todos os tipos</option>
-                {OPCOES_TIPO.map((opcao) => (
-                  <option key={opcao.valor} value={opcao.valor}>
-                    {opcao.label}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-
-            <Campo label="Excluído por">
-              <select
-                value={filtros.usuarioId}
-                onChange={(e) => alterar("usuarioId", e.target.value)}
-                className={CLASSE_CAMPO}
-              >
-                <option value="">Qualquer usuário</option>
-                {usuarios.map((usuario) => (
-                  <option key={usuario.id} value={usuario.id}>
-                    {usuario.nome}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-
-            <Campo label="Excluído a partir de">
-              <input
-                type="date"
-                value={filtros.dataInicial}
-                onChange={(e) => alterar("dataInicial", e.target.value)}
-                className={CLASSE_CAMPO}
-              />
-            </Campo>
-
-            <Campo label="Excluído até">
-              <input
-                type="date"
-                value={filtros.dataFinal}
-                onChange={(e) => alterar("dataFinal", e.target.value)}
-                className={CLASSE_CAMPO}
-              />
-            </Campo>
-          </div>
-
-          {emUso > 0 && (
-            <button
-              type="button"
-              onClick={onLimpar}
-              className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+    <PainelFiltros
+      className="mb-5"
+      chips={chips}
+      // O contador segue a contagem de sempre: cada campo preenchido conta um,
+      // inclusive as duas pontas do período.
+      totalAtivos={emUso}
+      onLimpar={onLimpar}
+      resumo={
+        emUso > 0 ? (
+          <>
+            Mostrando <strong className="text-[#0F2A44]">{exibidos}</strong> de {total}{" "}
+            {total === 1 ? "registro excluído" : "registros excluídos"}.
+          </>
+        ) : (
+          <>
+            <strong className="text-[#0F2A44]">{total}</strong>{" "}
+            {total === 1 ? "registro excluído" : "registros excluídos"} na Lixeira.
+          </>
+        )
+      }
+    >
+      <div className="space-y-4 pt-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Campo label="Tipo de registro">
+            <select
+              value={filtros.tipo}
+              onChange={(e) => alterar("tipo", e.target.value)}
+              className={CLASSE_CAMPO}
             >
-              <Eraser size={13} />
-              Limpar filtros
-            </button>
-          )}
+              <option value="">Todos os tipos</option>
+              {OPCOES_TIPO.map((opcao) => (
+                <option key={opcao.valor} value={opcao.valor}>
+                  {opcao.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Excluído por">
+            <select
+              value={filtros.usuarioId}
+              onChange={(e) => alterar("usuarioId", e.target.value)}
+              className={CLASSE_CAMPO}
+            >
+              <option value="">Qualquer usuário</option>
+              {usuarios.map((usuario) => (
+                <option key={usuario.id} value={usuario.id}>
+                  {usuario.nome}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Excluído a partir de">
+            <input
+              type="date"
+              value={filtros.dataInicial}
+              onChange={(e) => alterar("dataInicial", e.target.value)}
+              className={CLASSE_CAMPO}
+            />
+          </Campo>
+
+          <Campo label="Excluído até">
+            <input
+              type="date"
+              value={filtros.dataFinal}
+              onChange={(e) => alterar("dataFinal", e.target.value)}
+              className={CLASSE_CAMPO}
+            />
+          </Campo>
         </div>
-      )}
-    </div>
+
+        {emUso > 0 && (
+          <button
+            type="button"
+            onClick={onLimpar}
+            className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+          >
+            <Eraser size={13} />
+            Limpar filtros
+          </button>
+        )}
+      </div>
+    </PainelFiltros>
   );
 }

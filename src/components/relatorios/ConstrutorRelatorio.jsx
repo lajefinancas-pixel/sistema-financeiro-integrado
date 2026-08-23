@@ -8,6 +8,7 @@ import {
   opcoesDeFiltro,
   ordenacoesDaFonte,
 } from "../../lib/relatoriosPersonalizados";
+import PainelFiltros from "../comuns/PainelFiltros";
 
 const ROTULO_CAMPO = "block text-xs font-medium text-[#0F2A44]/70 mb-1";
 const CAMPO =
@@ -22,6 +23,13 @@ function hojeISO() {
 }
 function primeiroDiaDoAno() {
   return `${new Date().getFullYear()}-01-01`;
+}
+
+/** Data ISO no formato de leitura da tela; vazio vira reticências no chip. */
+function dataBR(valor) {
+  if (!valor) return "...";
+  const [ano, mes, dia] = String(valor).slice(0, 10).split("-");
+  return `${dia}/${mes}/${ano}`;
 }
 
 /**
@@ -108,6 +116,40 @@ export default function ConstrutorRelatorio({
     onAlterar(configuracaoPadrao(id));
   }
 
+  /**
+   * Chips do período e dos filtros da fonte que estão escolhidos agora. Remover
+   * um chip devolve aquele critério ao "Todos"/"Sem período" que os próprios
+   * campos já oferecem -- nenhum critério novo entra aqui.
+   */
+  const chipsDosCriterios = [];
+  if (fonte.temPeriodo && (configuracao?.periodo?.inicio || configuracao?.periodo?.fim)) {
+    chipsDosCriterios.push({
+      chave: "periodo",
+      rotulo: `${fonte.rotuloPeriodo}: ${dataBR(configuracao.periodo.inicio)} a ${dataBR(configuracao.periodo.fim)}`,
+      remover: () => alterar({ periodo: { inicio: "", fim: "" } }),
+    });
+  }
+  fonte.filtros.forEach((filtro) => {
+    const valor = configuracao?.filtros?.[filtro.id] ?? "";
+    if (!valor) return;
+    chipsDosCriterios.push({
+      chave: `filtro-${filtro.id}`,
+      rotulo: `${filtro.label}: ${valor}`,
+      remover: () => alterar({ filtros: { ...configuracao.filtros, [filtro.id]: "" } }),
+    });
+  });
+
+  /** "Limpar filtros" da barra: o mesmo que remover todos os chips de uma vez. */
+  function limparPeriodoEFiltros() {
+    const filtrosVazios = {};
+    fonte.filtros.forEach((filtro) => {
+      filtrosVazios[filtro.id] = "";
+    });
+    const mudanca = { filtros: { ...configuracao.filtros, ...filtrosVazios } };
+    if (fonte.temPeriodo) mudanca.periodo = { inicio: "", fim: "" };
+    alterar(mudanca);
+  }
+
   function alternarColuna(chave) {
     const atuais = new Set(colunasEscolhidas);
     if (atuais.has(chave)) atuais.delete(chave);
@@ -183,80 +225,95 @@ export default function ConstrutorRelatorio({
         </div>
       </div>
 
-      {/* Período: só nas fontes em que existe uma data a delimitar. */}
-      {fonte.temPeriodo ? (
-        <div className="flex flex-wrap items-end gap-3 mt-4">
-          <div>
-            <label className={ROTULO_CAMPO} htmlFor="inicio-personalizado">
-              Data inicial — {fonte.rotuloPeriodo}
-            </label>
-            <input
-              id="inicio-personalizado"
-              type="date"
-              value={configuracao?.periodo?.inicio ?? ""}
-              onChange={(e) =>
-                alterar({ periodo: { ...configuracao.periodo, inicio: e.target.value } })
-              }
-              className={CAMPO}
-            />
+      {/* Período e filtros da fonte, no painel recolhível compartilhado: os
+          critérios escolhidos continuam à vista nos chips quando fechado. */}
+      {fonte.temPeriodo || fonte.filtros.length > 0 ? (
+        <PainelFiltros
+          className="mt-4"
+          rotulo="Período e filtros"
+          chips={chipsDosCriterios}
+          onLimpar={chipsDosCriterios.length > 0 ? limparPeriodoEFiltros : undefined}
+        >
+          <div className="space-y-4 pt-3">
+            {/* Período: só nas fontes em que existe uma data a delimitar. */}
+            {fonte.temPeriodo ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className={ROTULO_CAMPO} htmlFor="inicio-personalizado">
+                    Data inicial — {fonte.rotuloPeriodo}
+                  </label>
+                  <input
+                    id="inicio-personalizado"
+                    type="date"
+                    value={configuracao?.periodo?.inicio ?? ""}
+                    onChange={(e) =>
+                      alterar({ periodo: { ...configuracao.periodo, inicio: e.target.value } })
+                    }
+                    className={CAMPO}
+                  />
+                </div>
+                <div>
+                  <label className={ROTULO_CAMPO} htmlFor="fim-personalizado">
+                    Data final
+                  </label>
+                  <input
+                    id="fim-personalizado"
+                    type="date"
+                    value={configuracao?.periodo?.fim ?? ""}
+                    onChange={(e) => alterar({ periodo: { ...configuracao.periodo, fim: e.target.value } })}
+                    className={CAMPO}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => alterar({ periodo: { inicio: primeiroDiaDoAno(), fim: hojeISO() } })}
+                  className={BOTAO_SECUNDARIO}
+                >
+                  Ano corrente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => alterar({ periodo: { inicio: "", fim: "" } })}
+                  className={BOTAO_SECUNDARIO}
+                >
+                  Sem período
+                </button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-[#0F2A44]/45">{fonte.aviso}</p>
+            )}
+
+            {/* Filtros da fonte escolhida. */}
+            {fonte.filtros.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {fonte.filtros.map((filtro) => (
+                  <div key={filtro.id}>
+                    <label className={ROTULO_CAMPO} htmlFor={`filtro-${filtro.id}`}>
+                      {filtro.label}
+                    </label>
+                    <select
+                      id={`filtro-${filtro.id}`}
+                      value={configuracao?.filtros?.[filtro.id] ?? ""}
+                      onChange={(e) =>
+                        alterar({ filtros: { ...configuracao.filtros, [filtro.id]: e.target.value } })
+                      }
+                      className={CAMPO}
+                    >
+                      <option value="">Todos</option>
+                      {(opcoes[filtro.id] ?? []).map((valor) => (
+                        <option key={valor} value={valor}>
+                          {valor}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div>
-            <label className={ROTULO_CAMPO} htmlFor="fim-personalizado">
-              Data final
-            </label>
-            <input
-              id="fim-personalizado"
-              type="date"
-              value={configuracao?.periodo?.fim ?? ""}
-              onChange={(e) => alterar({ periodo: { ...configuracao.periodo, fim: e.target.value } })}
-              className={CAMPO}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => alterar({ periodo: { inicio: primeiroDiaDoAno(), fim: hojeISO() } })}
-            className={BOTAO_SECUNDARIO}
-          >
-            Ano corrente
-          </button>
-          <button
-            type="button"
-            onClick={() => alterar({ periodo: { inicio: "", fim: "" } })}
-            className={BOTAO_SECUNDARIO}
-          >
-            Sem período
-          </button>
-        </div>
+        </PainelFiltros>
       ) : (
         <p className="text-[11px] text-[#0F2A44]/45 mt-4">{fonte.aviso}</p>
-      )}
-
-      {/* Filtros da fonte escolhida. */}
-      {fonte.filtros.length > 0 && (
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {fonte.filtros.map((filtro) => (
-            <div key={filtro.id}>
-              <label className={ROTULO_CAMPO} htmlFor={`filtro-${filtro.id}`}>
-                {filtro.label}
-              </label>
-              <select
-                id={`filtro-${filtro.id}`}
-                value={configuracao?.filtros?.[filtro.id] ?? ""}
-                onChange={(e) =>
-                  alterar({ filtros: { ...configuracao.filtros, [filtro.id]: e.target.value } })
-                }
-                className={CAMPO}
-              >
-                <option value="">Todos</option>
-                {(opcoes[filtro.id] ?? []).map((valor) => (
-                  <option key={valor} value={valor}>
-                    {valor}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
-        </div>
       )}
 
       {/* Colunas do relatório: valem para a tela e para impressão, PDF e Excel. */}
