@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Saldos from "./pages/Saldos";
 import Fornecedores from "./pages/Fornecedores";
+import Certidoes from "./pages/Certidoes";
 import Pagamentos from "./pages/Pagamentos";
 import Tarefas from "./pages/Tarefas";
 import Historico from "./pages/Historico";
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/" element={<RotaProtegida><Dashboard /></RotaProtegida>} />
       <Route path="/saldos" element={<RotaProtegida><Saldos /></RotaProtegida>} />
       <Route path="/fornecedores" element={<RotaProtegida><Fornecedores /></RotaProtegida>} />
+      <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/tarefas" element={<RotaProtegida><Tarefas /></RotaProtegida>} />
       <Route path="/equipe/usuarios" element={<RotaProtegida><Usuarios /></RotaProtegida>} />
