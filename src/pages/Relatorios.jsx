@@ -2,6 +2,7 @@ import React from "react";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, ChevronDown,
   RefreshCw, Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare, Star,
+  FileCheck2,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
@@ -13,7 +14,7 @@ import PainelComparativo from "../components/relatorios/PainelComparativo";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
-  carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos,
+  carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos, carregarBaseCertidoes,
 } from "../lib/relatoriosDados";
 import {
   CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
@@ -38,20 +39,22 @@ const ICONES_CATEGORIA = {
   tributario: Receipt,
   usuarios: UserCog,
   auditoria: ShieldCheck,
+  certidoes: FileCheck2,
 };
 
 /**
- * Bases das categorias Tributário, Usuários e Gestão e Auditoria, mais a de
- * Pagamentos usada pelos relatórios personalizados. Cada uma é carregada por
- * conta própria: se uma tabela estiver indisponível (permissão do usuário, banco
- * sem o recurso), só a categoria dela fica sem registros -- as categorias
- * Financeiro e Fornecedores continuam intactas.
+ * Bases das categorias Tributário, Usuários e Gestão, Auditoria e Certidões,
+ * mais a de Pagamentos usada pelos relatórios personalizados. Cada uma é
+ * carregada por conta própria: se uma tabela estiver indisponível (permissão do
+ * usuário, banco sem o recurso), só a categoria dela fica sem registros -- as
+ * categorias Financeiro e Fornecedores continuam intactas.
  */
 const BASES_COMPLEMENTARES = [
   { chave: "tributaria", nome: "Tributário", carregar: carregarBaseTributaria },
   { chave: "tarefas", nome: "Usuários e Gestão", carregar: carregarBaseTarefas },
   { chave: "historico", nome: "Atividades e Auditoria", carregar: carregarBaseHistorico },
   { chave: "pagamentos", nome: "Pagamentos", carregar: carregarBasePagamentos },
+  { chave: "certidoes", nome: "Certidões", carregar: carregarBaseCertidoes },
 ];
 
 function hojeISO() {
@@ -199,6 +202,7 @@ export default function Relatorios() {
     tarefas: null,
     historico: null,
     pagamentos: null,
+    certidoes: null,
   });
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -241,6 +245,18 @@ export default function Relatorios() {
   function alternarCategoria(id) {
     setCategoriaAberta((atual) => (atual === id ? null : id));
   }
+
+  /**
+   * Categorias que este usuário vê. Certidões é a única com dono fora da
+   * Central: ela só entra para quem tem pode_visualizar no módulo "certidoes",
+   * que é o que a base confirma antes de trazer qualquer linha. Enquanto a
+   * confirmação não chega (ou se a base falhar), a categoria fica de fora --
+   * mostrá-la vazia daria a entender que o fornecedor não tem certidão.
+   */
+  const categoriasVisiveis = React.useMemo(
+    () => CATEGORIAS.filter((c) => c.id !== "certidoes" || bases.certidoes?.permitido === true),
+    [bases.certidoes]
+  );
 
   const carregarBases = React.useCallback(async () => {
     setCarregando(true);
@@ -697,7 +713,7 @@ export default function Relatorios() {
 
         {/* Central recolhida: um card fechado por grupo, aberto só ao clicar. */}
         <div className="space-y-3 mb-6">
-          {CATEGORIAS.map((categoria) => (
+          {categoriasVisiveis.map((categoria) => (
             <GrupoRelatorios
               key={categoria.id}
               categoria={categoria}

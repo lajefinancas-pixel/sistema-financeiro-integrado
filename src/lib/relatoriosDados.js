@@ -14,6 +14,10 @@
 // tributários --, identificando o fornecedor pelo cadastro. As tarefas vêm de
 // listarTarefas (a consulta da própria página Tarefas) e a trilha vem de
 // tarefas_historico, que é a base de auditoria disponível hoje.
+//
+// Certidões segue a mesma regra: a base reaproveita as consultas do próprio
+// módulo (listarCertidoes, listarTipos e listarFornecedores), então a exclusão
+// lógica e as emissões já renovadas ficam de fora sem nenhum critério novo.
 
 import { supabase } from "./supabaseClient";
 import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
@@ -21,6 +25,18 @@ import { paraNumeroMoeda } from "./moeda";
 import { filtroVigentes } from "./exclusaoRegistros";
 import { somar } from "./rateioPagamentos";
 import { soData } from "./relatoriosCatalogo";
+import {
+  MODULO as MODULO_CERTIDOES,
+  diasAte,
+  listarCertidoes,
+  listarFornecedores as listarFornecedoresDeCertidoes,
+  listarTipos as listarTiposDeCertidao,
+  nomeFornecedor,
+  nomeSecretaria,
+  situacaoEfetiva,
+  situacaoInfo,
+  situacaoPorData,
+} from "./certidoes";
 import {
   categoriaLabel,
   estaAtrasada,
@@ -370,5 +386,173 @@ export async function carregarBaseHistorico() {
     registros,
     limite: LIMITE_HISTORICO,
     truncado: registros.length >= LIMITE_HISTORICO,
+  };
+}
+
+/* -------------------------------------------------------------------------
+ * Certidões
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Quem enxerga os relatórios de certidões.
+ *
+ * A Central abre para quem tem "relatorios" (ou o equivalente temporário), mas
+ * a documentação dos fornecedores é do módulo Certidões: a categoria só aparece
+ * para quem tem pode_visualizar = true nele. O RLS do banco já devolveria lista
+ * vazia a quem não tem acesso -- esta conferência evita mostrar uma categoria
+ * inteira que nunca teria linha nenhuma.
+ */
+async function podeVisualizarCertidoes() {
+  const { data: auth, error: erroAuth } = await supabase.auth.getUser();
+  if (erroAuth || !auth?.user) return false;
+
+  const { data: usuarios, error: erroUsuario } = await supabase
+    .from("usuarios")
+    .select("id")
+    .eq("auth_id", auth.user.id)
+    .limit(1);
+  if (erroUsuario || !usuarios?.[0]) return false;
+
+  const { data: permissoes, error: erroPermissao } = await supabase
+    .from("permissoes_efetivas")
+    .select("pode_visualizar")
+    .eq("usuario_id", usuarios[0].id)
+    .eq("modulo", MODULO_CERTIDOES)
+    .limit(1);
+  if (erroPermissao) return false;
+
+  return permissoes?.[0]?.pode_visualizar === true;
+}
+
+/** "Vence em 12 dias" / "Vencida há 3 dias" -- a leitura rápida do prazo. */
+function textoDoPrazo(dias) {
+  if (dias === null || dias === undefined) return "Sem vencimento";
+  if (dias === 0) return "Vence hoje";
+  const quantidade = Math.abs(dias);
+  const unidade = quantidade === 1 ? "dia" : "dias";
+  return dias < 0 ? `Vencida há ${quantidade} ${unidade}` : `Vence em ${quantidade} ${unidade}`;
+}
+
+/**
+ * Documentação obrigatória de cada fornecedor.
+ *
+ * Obrigatório é o que o cadastro de tipos diz (obrigatorio = true); tipo
+ * desativado sai da conta, porque deixou de ser exigido. Para cada tipo o
+ * fornecedor pode estar em três estados: com certidão em dia, com a certidão
+ * vencida ou sem nenhuma cadastrada.
+ *
+ * A leitura da validade é pela DATA (situacaoPorData), o mesmo critério do
+ * indicador documental da tela de Fornecedores e dos alertas de vencimento --
+ * uma certidão marcada como "Em renovação" que já passou do prazo continua
+ * sendo uma pendência para quem confere a documentação.
+ *
+ * Só os fornecedores ativos entram: cobrar documento de cadastro inativo
+ * mostraria uma pendência que ninguém precisa resolver.
+ */
+function documentacaoDosFornecedores(fornecedores, certidoes, tipos) {
+  const obrigatorios = (tipos ?? []).filter((t) => t?.obrigatorio === true && t?.ativo !== false);
+
+  const porFornecedor = new Map();
+  (certidoes ?? []).forEach((certidao) => {
+    const chave = String(certidao.fornecedor_id);
+    if (!porFornecedor.has(chave)) porFornecedor.set(chave, []);
+    porFornecedor.get(chave).push(certidao);
+  });
+
+  return (fornecedores ?? [])
+    .filter((f) => f?.ativo !== false)
+    .map((f) => {
+      const doFornecedor = porFornecedor.get(String(f.id)) ?? [];
+      const vencidas = [];
+      const faltando = [];
+      let validas = 0;
+
+      obrigatorios.forEach((tipo) => {
+        const doTipo = doFornecedor.filter(
+          (c) => String(c.tipo_certidao_id) === String(tipo.id),
+        );
+        if (doTipo.length === 0) {
+          faltando.push(tipo.nome);
+          return;
+        }
+        // Basta uma emissão em dia: é ela que vale como documento do tipo.
+        if (doTipo.some((c) => situacaoPorData(c.data_vencimento) !== "vencida")) validas += 1;
+        else vencidas.push(tipo.nome);
+      });
+
+      return {
+        id: f.id,
+        razao_social: nomeFornecedor(f),
+        cpf_cnpj: f.cpf_cnpj ?? "",
+        secretaria: nomeSecretaria(f) || "Sem secretaria",
+        obrigatorias: obrigatorios.length,
+        validas,
+        vencidas: vencidas.length,
+        faltando: faltando.length,
+        // Sem nenhum tipo marcado como obrigatório, não há o que cobrar e todo
+        // fornecedor aparece como completo.
+        situacao: validas === obrigatorios.length ? "Completa" : "Incompleta",
+        pendencias: [
+          ...vencidas.map((nome) => `${nome} (vencida)`),
+          ...faltando.map((nome) => `${nome} (não cadastrada)`),
+        ].join(", "),
+      };
+    });
+}
+
+/**
+ * Certidões dos fornecedores para a categoria Certidões da Central.
+ *
+ * As três tabelas já existentes são lidas pelas MESMAS funções do módulo:
+ * `listarCertidoes` (que descarta as excluídas logicamente e as emissões já
+ * substituídas por uma renovação), `listarTipos` e `listarFornecedores`. Nada é
+ * consultado de outro jeito aqui, então um relatório nunca mostra uma certidão
+ * que a tela de Certidões não mostraria.
+ *
+ * Duas leituras de situação convivem na linha, como no próprio módulo:
+ *   situacao        -> a etiqueta exibida (situacaoEfetiva), que respeita
+ *                      "Em renovação" escolhido à mão;
+ *   situacao_prazo  -> a leitura pela data (situacaoPorData), que é a dos
+ *                      alertas e a que separa "vencida" de "a vencer".
+ */
+export async function carregarBaseCertidoes() {
+  if (!(await podeVisualizarCertidoes())) {
+    return { permitido: false, certidoes: [], documentacao: [] };
+  }
+
+  const [certidoes, tipos, fornecedores] = await Promise.all([
+    listarCertidoes(),
+    listarTiposDeCertidao(),
+    listarFornecedoresDeCertidoes(),
+  ]);
+
+  // A secretaria da certidão é a do cadastro do fornecedor -- não existe (nem
+  // passa a existir) coluna de secretaria em certidoes.
+  const fornecedorPorId = new Map((fornecedores ?? []).map((f) => [String(f.id), f]));
+
+  const linhas = (certidoes ?? []).map((c) => {
+    const fornecedor = fornecedorPorId.get(String(c.fornecedor_id)) ?? c.fornecedores ?? null;
+    const dias = diasAte(c.data_vencimento);
+
+    return {
+      id: c.id,
+      fornecedor_id: c.fornecedor_id ?? null,
+      razao_social: nomeFornecedor(c.fornecedores ?? fornecedor),
+      cpf_cnpj: fornecedor?.cpf_cnpj ?? c.fornecedores?.cpf_cnpj ?? "",
+      secretaria: nomeSecretaria(fornecedor) || "Sem secretaria",
+      tipo: c.tipos_certidao?.nome ?? "Sem tipo",
+      numero_documento: c.numero_documento ?? "",
+      data_emissao: soData(c.data_emissao),
+      data_vencimento: soData(c.data_vencimento),
+      situacao: situacaoInfo(situacaoEfetiva(c)).label,
+      situacao_prazo: situacaoPorData(c.data_vencimento),
+      prazo: textoDoPrazo(dias),
+    };
+  });
+
+  return {
+    permitido: true,
+    certidoes: linhas,
+    documentacao: documentacaoDosFornecedores(fornecedores, certidoes, tipos),
   };
 }
