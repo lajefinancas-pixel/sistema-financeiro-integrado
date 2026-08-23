@@ -1,20 +1,34 @@
 import React from "react";
 import {
   AlertTriangle,
+  CalendarClock,
+  Check,
+  ChevronDown,
   DatabaseBackup,
   History,
   Info,
+  Play,
   RotateCcw,
   ShieldAlert,
+  ShieldCheck,
+  X,
 } from "lucide-react";
 import { Alerta, Campo, ModalShell } from "../equipe/comuns";
 import { Cartao } from "./comuns";
 import {
+  carregarPermissoesBackup,
+  descricaoAgendamentoAutomatico,
+  duracaoLegivel,
+  formatarData,
   formatarDataHora,
+  formatarHora,
+  formatarTamanho,
+  gerarBackupManual,
   justificativaValida,
   listarRegistros,
   MINIMO_JUSTIFICATIVA,
   nomeDoAutor,
+  PERMISSOES_BACKUP,
   registrarSolicitacaoRestauracao,
   resumoBackups,
   statusInfo,
@@ -23,14 +37,31 @@ import {
 import { mensagemAmigavel } from "../../lib/erros";
 import { registrarEvento } from "../../lib/auditoria";
 
-/** Texto explicativo repetido na tela: de onde vêm (e de onde não vêm) os backups. */
+/**
+ * Aviso repetido na tela: o que esta etapa faz e o que ainda depende de
+ * infraestrutura. Nenhum número exibido aqui é inventado — ou veio de
+ * backups_log, ou é uma estimativa declarada como tal.
+ */
 const TEXTO_INFRAESTRUTURA =
-  "As cópias de segurança do banco de dados são geradas e mantidas automaticamente pela infraestrutura do Supabase, fora desta aplicação. Esta área mostra apenas os registros informativos gravados no sistema — nenhum número é estimado ou simulado.";
+  "A geração do arquivo de backup propriamente dito depende de uma função de backend (Edge Function do Supabase), a ser configurada em uma etapa técnica separada — só ela tem a credencial de serviço necessária, que nunca pode ficar no navegador. Nesta etapa, \"Gerar Backup Agora\" registra a execução no sistema e apura um tamanho aproximado, medindo o volume real de registros do banco.";
 
-/** Um número (ou traço) com o rótulo em cima, no painel de resumo. */
-function Indicador({ rotulo, valor, apoio, destaque }) {
+/** Etiqueta colorida de tipo/situação. */
+function Etiqueta({ info, comSimbolo }) {
   return (
-    <div className="rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3.5">
+    <span
+      style={{ color: info.cor, backgroundColor: info.bg }}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
+    >
+      {comSimbolo && info.simbolo && <span aria-hidden="true">{info.simbolo}</span>}
+      {info.label}
+    </span>
+  );
+}
+
+/** Um bloco do painel de resumo: rótulo, valor em destaque e apoio embaixo. */
+function Indicador({ rotulo, valor, apoio, destaque, children }) {
+  return (
+    <div className="rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3.5 flex flex-col">
       <div className="text-[10px] uppercase tracking-[0.14em] text-[#0F2A44]/40">{rotulo}</div>
       <div
         className={`mt-1 text-sm font-medium ${destaque ? "text-[#0F2A44]" : "text-[#0F2A44]/70"}`}
@@ -38,26 +69,106 @@ function Indicador({ rotulo, valor, apoio, destaque }) {
         {valor}
       </div>
       {apoio && <div className="text-[11px] text-[#0F2A44]/45 mt-0.5 leading-relaxed">{apoio}</div>}
+      {children && <div className="mt-2">{children}</div>}
     </div>
   );
 }
 
-/** Etiqueta colorida de tipo/situação usada na lista do histórico. */
-function Etiqueta({ info }) {
+/** Faixa mostrada quando o banco ainda não recebeu a migration desta categoria. */
+function AvisoEstrutura({ tabelaAusente }) {
   return (
-    <span
-      style={{ color: info.cor, backgroundColor: info.bg }}
-      className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
-    >
-      {info.label}
-    </span>
+    <div className="flex items-start gap-2.5 rounded-xl border border-[#C9A227]/40 bg-[#FBF4DE] px-4 py-3 text-[#8A7526]">
+      <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+      <p className="text-xs leading-relaxed">
+        {tabelaAusente
+          ? "O registro de backups ainda não existe neste banco de dados."
+          : "Este banco de dados ainda não tem a estrutura completa de backup (início, conclusão, tamanho e motivo de falha)."}{" "}
+        A migration da categoria Backup precisa ser aplicada no Supabase para que a tela funcione
+        por inteiro. Até lá, o que já estiver gravado continua sendo exibido.
+      </p>
+    </div>
   );
 }
 
-/** Modal "Ver Histórico de Backups": só o que está realmente gravado. */
+/* -------------------------------------------------------------------------
+ * Histórico
+ * ---------------------------------------------------------------------- */
+
+/** Detalhes que não cabem na linha da tabela: duração, descrição, erro. */
+function DetalhesRegistro({ registro }) {
+  const duracao = duracaoLegivel(registro.iniciadoEm, registro.concluidoEm);
+  return (
+    <div className="rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3 space-y-1.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-[11px] text-[#0F2A44]/60">
+        <span>
+          <span className="text-[#0F2A44]/40">Início: </span>
+          {formatarDataHora(registro.iniciadoEm)}
+        </span>
+        <span>
+          <span className="text-[#0F2A44]/40">Conclusão: </span>
+          {registro.concluidoEm ? formatarDataHora(registro.concluidoEm) : "--"}
+        </span>
+        {duracao && (
+          <span>
+            <span className="text-[#0F2A44]/40">Duração: </span>
+            {duracao}
+          </span>
+        )}
+        <span>
+          <span className="text-[#0F2A44]/40">Tamanho: </span>
+          {formatarTamanho(registro.tamanhoBytes)}
+        </span>
+      </div>
+      {registro.descricao && (
+        <p className="text-[11px] text-[#0F2A44]/60 leading-relaxed pt-1">{registro.descricao}</p>
+      )}
+      {registro.justificativa && (
+        <p className="text-[11px] text-[#0F2A44]/60 leading-relaxed">
+          <span className="text-[#0F2A44]/40">Justificativa: </span>
+          {registro.justificativa}
+        </p>
+      )}
+      {registro.detalhesErro && (
+        <p className="text-[11px] text-[#B91C1C] leading-relaxed">
+          <span className="opacity-70">Motivo da falha: </span>
+          {registro.detalhesErro}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Botão "Detalhes" da coluna Ações. */
+function BotaoDetalhes({ aberto, onAlternar }) {
+  return (
+    <button
+      type="button"
+      onClick={onAlternar}
+      aria-expanded={aberto}
+      className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5 whitespace-nowrap"
+    >
+      Detalhes
+      <ChevronDown size={12} className={`transition-transform ${aberto ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
+
+/**
+ * Modal "Ver Histórico de Backups".
+ *
+ * Data | Hora | Tipo | Usuário | Status | Tamanho | Ações, dos mais recentes
+ * para os mais antigos. Em telas estreitas a tabela vira uma lista de cartões,
+ * porque sete colunas não cabem num celular sem virar rolagem horizontal.
+ */
 function ModalHistorico({ onFechar }) {
-  const [estado, setEstado] = React.useState({ carregando: true, registros: [], disponivel: true });
+  const [estado, setEstado] = React.useState({
+    carregando: true,
+    registros: [],
+    disponivel: true,
+    estruturaCompleta: true,
+  });
   const [erro, setErro] = React.useState(null);
+  const [expandido, setExpandido] = React.useState(null);
 
   React.useEffect(() => {
     let ativo = true;
@@ -68,7 +179,7 @@ function ModalHistorico({ onFechar }) {
       } catch (e) {
         if (ativo) {
           setErro(mensagemAmigavel(e, "Não foi possível carregar o histórico de backups."));
-          setEstado({ carregando: false, registros: [], disponivel: true });
+          setEstado({ carregando: false, registros: [], disponivel: true, estruturaCompleta: true });
         }
       }
     })();
@@ -78,12 +189,13 @@ function ModalHistorico({ onFechar }) {
   }, []);
 
   const vazio = !estado.carregando && estado.registros.length === 0;
+  const alternar = (id) => setExpandido((atual) => (atual === id ? null : id));
 
   return (
     <ModalShell
       titulo="Histórico de backups"
-      subtitulo="Registros de cópias e de solicitações de restauração"
-      largura="max-w-2xl"
+      subtitulo="Execuções automáticas e manuais, e solicitações de restauração"
+      largura="max-w-4xl"
       onFechar={onFechar}
       rodape={
         <div className="flex justify-end">
@@ -99,6 +211,9 @@ function ModalHistorico({ onFechar }) {
     >
       <div className="space-y-4">
         {erro && <Alerta tipo="erro">{erro}</Alerta>}
+        {!estado.carregando && (!estado.disponivel || !estado.estruturaCompleta) && (
+          <AvisoEstrutura tabelaAusente={!estado.disponivel} />
+        )}
 
         {estado.carregando ? (
           <p className="text-sm text-[#0F2A44]/45 py-6 text-center">Carregando histórico...</p>
@@ -107,37 +222,107 @@ function ModalHistorico({ onFechar }) {
             <History size={22} className="text-[#0F2A44]/20 mx-auto mb-3" />
             <p className="text-sm text-[#0F2A44]/60">
               {estado.disponivel
-                ? "Nenhum registro de backup foi gravado neste sistema."
+                ? "Nenhum backup foi registrado neste sistema até agora."
                 : "O registro de backups ainda não está disponível neste banco de dados."}
             </p>
             <p className="text-xs text-[#0F2A44]/45 mt-2 max-w-md mx-auto leading-relaxed">
-              Gerenciado automaticamente pela infraestrutura do Supabase.
+              Assim que a rotina automática rodar, ou alguém gerar um backup manual, os registros
+              aparecem aqui.
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-black/5 rounded-xl border border-black/5 overflow-hidden">
-            {estado.registros.map((registro) => (
-              <li key={registro.id} className="px-4 py-3.5 bg-white">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Etiqueta info={tipoInfo(registro.tipo)} />
-                  <Etiqueta info={statusInfo(registro.status)} />
-                  <span className="text-[11px] text-[#0F2A44]/45 ml-auto">
-                    {formatarDataHora(registro.criado_em)}
-                  </span>
-                </div>
-                {registro.descricao && (
-                  <p className="text-sm text-[#0F2A44] mt-2 leading-relaxed">{registro.descricao}</p>
-                )}
-                {registro.justificativa && (
-                  <p className="text-xs text-[#0F2A44]/60 mt-1.5 leading-relaxed">
-                    <span className="text-[#0F2A44]/40">Justificativa: </span>
-                    {registro.justificativa}
-                  </p>
-                )}
-                <p className="text-[11px] text-[#0F2A44]/40 mt-1.5">{nomeDoAutor(registro)}</p>
-              </li>
-            ))}
-          </ul>
+          <>
+            {/* Tabela — telas médias e grandes */}
+            <div className="hidden md:block rounded-xl border border-black/5 overflow-hidden">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-[#F5F3EF]/70 border-b border-black/5">
+                    {["Data", "Hora", "Tipo", "Usuário", "Status", "Tamanho", "Ações"].map(
+                      (coluna) => (
+                        <th
+                          key={coluna}
+                          scope="col"
+                          className="px-3 py-2.5 text-[10px] uppercase tracking-[0.12em] text-[#0F2A44]/45 font-medium whitespace-nowrap"
+                        >
+                          {coluna}
+                        </th>
+                      )
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/5">
+                  {estado.registros.map((registro) => (
+                    <React.Fragment key={registro.id}>
+                      <tr className="bg-white align-middle">
+                        <td className="px-3 py-3 text-[13px] text-[#0F2A44] whitespace-nowrap">
+                          {formatarData(registro.iniciadoEm)}
+                        </td>
+                        <td className="px-3 py-3 text-[13px] text-[#0F2A44]/70 whitespace-nowrap">
+                          {formatarHora(registro.iniciadoEm)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <Etiqueta info={tipoInfo(registro.tipo)} />
+                        </td>
+                        <td className="px-3 py-3 text-[13px] text-[#0F2A44]/70 max-w-[180px] truncate">
+                          {nomeDoAutor(registro)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <Etiqueta info={statusInfo(registro.status)} comSimbolo />
+                        </td>
+                        <td className="px-3 py-3 text-[13px] text-[#0F2A44]/70 whitespace-nowrap tabular-nums">
+                          {formatarTamanho(registro.tamanhoBytes)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <BotaoDetalhes
+                            aberto={expandido === registro.id}
+                            onAlternar={() => alternar(registro.id)}
+                          />
+                        </td>
+                      </tr>
+                      {expandido === registro.id && (
+                        <tr className="bg-white">
+                          <td colSpan={7} className="px-3 pb-3">
+                            <DetalhesRegistro registro={registro} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Cartões — telas estreitas */}
+            <ul className="md:hidden space-y-2.5">
+              {estado.registros.map((registro) => (
+                <li
+                  key={registro.id}
+                  className="rounded-xl border border-black/5 bg-white px-4 py-3.5 space-y-2"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Etiqueta info={tipoInfo(registro.tipo)} />
+                    <Etiqueta info={statusInfo(registro.status)} comSimbolo />
+                    <span className="text-[11px] text-[#0F2A44]/45 ml-auto whitespace-nowrap">
+                      {formatarData(registro.iniciadoEm)} · {formatarHora(registro.iniciadoEm)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[12px] text-[#0F2A44]/65 truncate">
+                      {nomeDoAutor(registro)}
+                    </span>
+                    <span className="text-[12px] text-[#0F2A44]/65 tabular-nums whitespace-nowrap">
+                      {formatarTamanho(registro.tamanhoBytes)}
+                    </span>
+                  </div>
+                  <BotaoDetalhes
+                    aberto={expandido === registro.id}
+                    onAlternar={() => alternar(registro.id)}
+                  />
+                  {expandido === registro.id && <DetalhesRegistro registro={registro} />}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         <div className="flex items-start gap-2.5 rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3">
@@ -148,6 +333,10 @@ function ModalHistorico({ onFechar }) {
     </ModalShell>
   );
 }
+
+/* -------------------------------------------------------------------------
+ * Restauração
+ * ---------------------------------------------------------------------- */
 
 /**
  * Modal "Restaurar Backup": aviso claro + justificativa obrigatória.
@@ -173,8 +362,8 @@ function ModalRestauracao({ usuarioId, onFechar, onRegistrado }) {
     try {
       const motivo = justificativaValida(justificativa);
 
-      // Exigência da categoria: a solicitação é uma ação CRÍTICA. Usuário e
-      // data/hora são preenchidos pela própria trilha de auditoria.
+      // A solicitação é uma ação CRÍTICA. Usuário e data/hora são preenchidos
+      // pela própria trilha de auditoria.
       const falhaAuditoria = await registrarEvento({
         modulo: "administracao",
         acao: "restauracao_backup",
@@ -289,47 +478,110 @@ function ModalRestauracao({ usuarioId, onFechar, onRegistrado }) {
   );
 }
 
+/* -------------------------------------------------------------------------
+ * Categoria
+ * ---------------------------------------------------------------------- */
+
 /**
- * Categoria BACKUP: panorama das cópias do sistema e registro de restaurações.
+ * Categoria BACKUP das Configurações.
  *
- * Duas decisões guiam a tela:
+ * Três decisões guiam a tela:
  *
- *  1. Nada inventado. O backup automático do banco é da infraestrutura do
- *     Supabase; a aplicação não tem acesso a ele. Então os indicadores mostram
- *     apenas o que está gravado em backups_log — e "nenhum registro" quando é o
- *     caso, em vez de datas e quantidades de exemplo.
- *  2. Restaurar é pedido, não execução. O botão abre um aviso com justificativa
- *     obrigatória e grava o pedido na Auditoria como ação crítica; a restauração
- *     em si continua fora do alcance de uma aplicação web.
+ *  1. Nada inventado. Os indicadores mostram apenas o que está gravado em
+ *     backups_log — e "nenhum registro" quando é o caso, em vez de datas de
+ *     exemplo. O único número calculado é o tamanho do backup manual, e ele é
+ *     apresentado como estimativa.
+ *  2. Cada botão tem a sua permissão. Gerar, ver histórico, restaurar e
+ *     administrar são permissões DISTINTAS do módulo 'backup', concedidas
+ *     separadamente pelo Administrador.
+ *  3. Restaurar é pedido, não execução. O botão abre um aviso com justificativa
+ *     obrigatória e grava o pedido na Auditoria como ação crítica.
  */
 export default function CategoriaBackup({ podeEditar, usuarioId }) {
   const [resumo, setResumo] = React.useState(null);
+  const [permissoes, setPermissoes] = React.useState(null);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
   const [historicoAberto, setHistoricoAberto] = React.useState(false);
   const [restauracaoAberta, setRestauracaoAberta] = React.useState(false);
+  const [gerando, setGerando] = React.useState(false);
   const [sucesso, setSucesso] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
 
   const carregar = React.useCallback(async () => {
     setCarregando(true);
     try {
-      const dados = await resumoBackups();
+      const [dados, permissoesBackup] = await Promise.all([
+        resumoBackups(),
+        carregarPermissoesBackup(usuarioId),
+      ]);
       setResumo(dados);
+      setPermissoes(permissoesBackup);
       setErro(null);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível consultar os registros de backup."));
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [usuarioId]);
 
   React.useEffect(() => {
     carregar();
   }, [carregar]);
 
-  const ultimo = resumo?.ultimoBackup ?? null;
-  const semRegistros = resumo?.disponivel === false || !ultimo;
+  // Banco sem o módulo 'backup' (migration não aplicada): a tela volta ao
+  // comportamento anterior — permissão de edição em Administração — para não
+  // trancar quem já administrava o sistema antes desta etapa.
+  const moduloDisponivel = permissoes?.moduloDisponivel === true;
+  const podeGerar = moduloDisponivel ? permissoes.gerar : podeEditar;
+  const podeVerHistorico = moduloDisponivel ? permissoes.historico : true;
+  const podeRestaurar = moduloDisponivel ? permissoes.restaurar : podeEditar;
+  const podeAdministrar = moduloDisponivel ? permissoes.administrar : podeEditar;
+
+  const ultimoAutomatico = resumo?.ultimoAutomatico ?? null;
+  const ultimoManual = resumo?.ultimoManual ?? null;
+  const estruturaIncompleta = resumo && (!resumo.disponivel || !resumo.estruturaCompleta);
+
+  async function gerarAgora() {
+    if (gerando || !podeGerar) return;
+    setGerando(true);
+    setErro(null);
+    setSucesso(null);
+    setAviso(null);
+    try {
+      const resultado = await gerarBackupManual({ usuarioId });
+
+      // Backup é ação administrativa relevante: fica na trilha, como as demais.
+      const falhaAuditoria = await registrarEvento({
+        modulo: "administracao",
+        acao: "gerou_backup",
+        nivel: "atencao",
+        registroAfetado: "Backup do sistema — geração manual",
+        valorNovo: {
+          tipo: "manual",
+          tamanho_bytes: resultado.tamanhoBytes,
+          observacao: resultado.detalhe,
+        },
+        usuarioId,
+      });
+      if (falhaAuditoria) setAviso(falhaAuditoria);
+
+      setSucesso(
+        `Backup manual registrado como concluído. Tamanho aproximado: ${formatarTamanho(resultado.tamanhoBytes)}. ${resultado.detalhe}`
+      );
+      if (resultado.parcial) {
+        setAviso(
+          "Algumas tabelas não puderam ser consultadas para o cálculo, então o tamanho registrado é parcial."
+        );
+      }
+      await carregar();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível gerar o backup agora."));
+      await carregar();
+    } finally {
+      setGerando(false);
+    }
+  }
 
   function aoRegistrarRestauracao(falhaHistorico) {
     setRestauracaoAberta(false);
@@ -357,33 +609,80 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
               <p className="text-sm text-[#0F2A44]/45 py-4">Consultando registros de backup...</p>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {estruturaIncompleta && <AvisoEstrutura tabelaAusente={!resumo.disponivel} />}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   <Indicador
-                    rotulo="Último backup"
-                    valor={ultimo ? formatarDataHora(ultimo.criado_em) : "Nenhum registro"}
-                    apoio={ultimo ? nomeDoAutor(ultimo) : "Nada registrado neste sistema"}
-                    destaque={Boolean(ultimo)}
-                  />
-                  <Indicador
-                    rotulo="Status"
-                    valor={ultimo ? statusInfo(ultimo.status).label : "Gerenciado pelo Supabase"}
-                    apoio={
-                      ultimo
-                        ? ultimo.descricao || "Registro informativo do sistema"
-                        : "A rotina automática é da infraestrutura"
+                    rotulo="Último backup automático"
+                    valor={
+                      ultimoAutomatico
+                        ? formatarDataHora(ultimoAutomatico.iniciadoEm)
+                        : "Nenhum registro"
                     }
-                    destaque={Boolean(ultimo)}
-                  />
-                  <Indicador
-                    rotulo="Backups armazenados"
-                    valor={semRegistros ? "Não informado" : String(resumo.totalBackups)}
                     apoio={
-                      semRegistros
-                        ? "A aplicação não tem acesso à contagem da infraestrutura"
-                        : "Registros informativos gravados no sistema"
+                      ultimoAutomatico
+                        ? `Tamanho: ${formatarTamanho(ultimoAutomatico.tamanhoBytes)}`
+                        : "A rotina automática ainda não registrou nenhuma execução"
                     }
-                    destaque={!semRegistros}
+                    destaque={Boolean(ultimoAutomatico)}
+                  >
+                    {ultimoAutomatico && (
+                      <Etiqueta info={statusInfo(ultimoAutomatico.status)} comSimbolo />
+                    )}
+                  </Indicador>
+
+                  <Indicador
+                    rotulo="Último backup manual"
+                    valor={
+                      ultimoManual ? formatarDataHora(ultimoManual.iniciadoEm) : "Nenhum registro"
+                    }
+                    apoio={
+                      ultimoManual
+                        ? `${nomeDoAutor(ultimoManual)} · ${formatarTamanho(ultimoManual.tamanhoBytes)}`
+                        : "Ninguém gerou um backup manual até agora"
+                    }
+                    destaque={Boolean(ultimoManual)}
+                  >
+                    {ultimoManual && <Etiqueta info={statusInfo(ultimoManual.status)} comSimbolo />}
+                  </Indicador>
+
+                  <Indicador
+                    rotulo="Próximo backup automático"
+                    valor={formatarDataHora(resumo?.proximoAutomatico)}
+                    apoio={`Previsto para ${descricaoAgendamentoAutomatico()}`}
+                    destaque
                   />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {podeGerar && (
+                    <button
+                      type="button"
+                      onClick={gerarAgora}
+                      disabled={gerando}
+                      className="flex items-center gap-2 text-sm px-5 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-40 disabled:hover:bg-[#0F2A44]"
+                    >
+                      <Play size={15} className="text-[#C9A227]" />
+                      {gerando ? "Gerando backup..." : "Gerar Backup Agora"}
+                    </button>
+                  )}
+
+                  {podeVerHistorico && (
+                    <button
+                      type="button"
+                      onClick={() => setHistoricoAberto(true)}
+                      className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/75 hover:bg-black/5"
+                    >
+                      <History size={15} />
+                      Ver Histórico de Backups
+                    </button>
+                  )}
+
+                  {!podeGerar && (
+                    <span className="text-[11px] text-[#0F2A44]/45">
+                      Gerar backup manual exige a permissão correspondente no módulo Backup.
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-start gap-2.5 rounded-xl border border-black/5 bg-[#F5F3EF]/60 px-4 py-3">
@@ -392,16 +691,48 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
                     {TEXTO_INFRAESTRUTURA}
                   </p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setHistoricoAberto(true)}
-                  className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/75 hover:bg-black/5"
-                >
-                  <History size={15} />
-                  Ver Histórico de Backups
-                </button>
               </>
+            )}
+          </div>
+        </Cartao>
+
+        <Cartao
+          titulo="Rotina automática"
+          descricao="Quando o sistema espera que a cópia agendada aconteça."
+          icone={CalendarClock}
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Indicador
+                rotulo="Agendamento"
+                valor={descricaoAgendamentoAutomatico()}
+                apoio="Horário de referência da rotina de backup"
+                destaque
+              />
+              <Indicador
+                rotulo="Registros de backup no sistema"
+                valor={resumo?.disponivel ? String(resumo.totalRegistros) : "Não informado"}
+                apoio={
+                  resumo?.disponivel
+                    ? "Execuções automáticas e manuais já gravadas"
+                    : "O registro de backups ainda não existe neste banco"
+                }
+                destaque={Boolean(resumo?.disponivel)}
+              />
+            </div>
+
+            <p className="text-xs text-[#0F2A44]/55 leading-relaxed">
+              O agendamento acima é informativo: a execução da rotina é responsabilidade da
+              infraestrutura do banco de dados e será ligada na etapa técnica que criar a função de
+              backup no backend. Enquanto ela não rodar, "Último backup automático" continua vazio —
+              a tela não preenche esse campo com uma data que não aconteceu.
+            </p>
+
+            {!podeAdministrar && (
+              <p className="text-[11px] text-[#0F2A44]/45">
+                Alterar o agendamento e as demais configurações de backup exigirá a permissão
+                "Administrar configurações de backup".
+              </p>
             )}
           </div>
         </Cartao>
@@ -415,9 +746,9 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
             <div className="flex items-start gap-2.5 rounded-xl border border-[#C9A227]/35 bg-[#FBF4DE] px-4 py-3 text-[#8A7526]">
               <ShieldAlert size={15} className="mt-0.5 shrink-0" />
               <p className="text-xs leading-relaxed">
-                Restaurar um backup é uma ação crítica e exige permissão elevada: apenas quem tem
-                permissão de edição no módulo Administração pode registrar a solicitação. O pedido
-                exige justificativa e fica gravado na Auditoria com o usuário e a data/hora.
+                Restaurar um backup é uma ação crítica e tem permissão própria: ter permissão para
+                gerar backup manual não dá permissão para restaurar. O pedido exige justificativa e
+                fica gravado na Auditoria com o usuário e a data/hora.
               </p>
             </div>
 
@@ -430,29 +761,57 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={!podeEditar}
+                disabled={!podeRestaurar}
                 onClick={() => {
                   setSucesso(null);
                   setAviso(null);
                   setRestauracaoAberta(true);
                 }}
-                title={
-                  podeEditar
-                    ? undefined
-                    : "É necessária permissão de edição no módulo Administração."
-                }
+                title={podeRestaurar ? undefined : "É necessária a permissão de restaurar backup."}
                 className="flex items-center gap-2 text-sm px-5 py-2.5 rounded-lg bg-[#B91C1C] text-white hover:bg-[#991B1B] disabled:opacity-40 disabled:hover:bg-[#B91C1C]"
               >
                 <RotateCcw size={15} />
                 Restaurar Backup
               </button>
-              {!podeEditar && (
+              {!podeRestaurar && (
                 <span className="text-[11px] text-[#0F2A44]/45">
-                  Disponível apenas com permissão de edição em Administração.
+                  Disponível apenas com a permissão "Restaurar backup".
                 </span>
               )}
             </div>
           </div>
+        </Cartao>
+
+        <Cartao
+          titulo="Suas permissões nesta categoria"
+          descricao="Concedidas uma a uma pelo Administrador, na aba Permissões da tela de usuário."
+          icone={ShieldCheck}
+        >
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+            {PERMISSOES_BACKUP.map(({ chave, label }) => {
+              const concedida = moduloDisponivel
+                ? permissoes?.[chave] === true
+                : chave === "visualizar" || chave === "historico" || podeEditar;
+              return (
+                <li key={chave} className="flex items-center gap-2 text-[13px]">
+                  {concedida ? (
+                    <Check size={14} className="text-[#15803D] shrink-0" />
+                  ) : (
+                    <X size={14} className="text-[#0F2A44]/25 shrink-0" />
+                  )}
+                  <span className={concedida ? "text-[#0F2A44]" : "text-[#0F2A44]/40"}>{label}</span>
+                </li>
+              );
+            })}
+          </ul>
+
+          {!moduloDisponivel && !carregando && (
+            <p className="text-[11px] text-[#0F2A44]/45 mt-4 leading-relaxed">
+              O módulo de permissões "Backup" ainda não existe neste banco de dados. Até a migration
+              ser aplicada, a categoria segue a regra anterior: permissão de edição no módulo
+              Administração.
+            </p>
+          )}
         </Cartao>
       </div>
 
