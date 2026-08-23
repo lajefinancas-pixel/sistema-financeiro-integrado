@@ -8,8 +8,6 @@ import {
   Landmark,
   Paperclip,
   Plus,
-  Receipt,
-  Trash2,
   Wallet,
 } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
@@ -21,6 +19,8 @@ import {
   urlDeDownload,
 } from "../../lib/certidoes";
 import { resumoDocumental } from "../../lib/certidoesFornecedor";
+import NotasDoFornecedor from "./NotasDoFornecedor";
+import { Bloco, Campo, Indicador, Vazio, textoOuTraco } from "./blocos";
 
 /**
  * "Vida do fornecedor": o que a listagem mostra quando um cadastro é aberto.
@@ -43,16 +43,10 @@ function numero(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
-function textoOuTraco(v) {
-  const texto = String(v ?? "").trim();
-  return texto === "" ? "--" : texto;
-}
 function percentual(v) {
   const n = numero(v);
   return n > 0 ? `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%` : "";
 }
-
-const EM_ABERTO = (v) => v.situacao !== "pago" && v.situacao !== "cancelado";
 
 /** Identificação do lançamento a partir dos campos já gravados nele. */
 function descricaoDoLancamento(v, fornecedor) {
@@ -75,49 +69,12 @@ function temPendenciaTributaria(v) {
   );
 }
 
-function Bloco({ icone: Icone, titulo, acao, children }) {
-  return (
-    <section className="rounded-xl border border-black/5 bg-white print:break-inside-avoid">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-black/5">
-        <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#0F2A44]/50">
-          <Icone size={13} /> {titulo}
-        </h4>
-        {acao}
-      </div>
-      <div className="px-3 py-3">{children}</div>
-    </section>
-  );
-}
-
-function Campo({ rotulo, valor }) {
-  return (
-    <div>
-      <div className="text-[11px] text-[#0F2A44]/45">{rotulo}</div>
-      <div className="text-sm text-[#0F2A44] break-words">{textoOuTraco(valor)}</div>
-    </div>
-  );
-}
-
-function Indicador({ rotulo, valor, destaque }) {
-  return (
-    <div className="rounded-lg border border-black/5 bg-black/[0.015] px-3 py-2">
-      <div className="text-[11px] text-[#0F2A44]/45">{rotulo}</div>
-      <div className={`text-sm tabular-nums text-[#0F2A44] ${destaque ? "font-semibold" : ""}`}>{valor}</div>
-    </div>
-  );
-}
-
-function Vazio({ children }) {
-  return <div className="text-xs text-[#0F2A44]/40">{children}</div>;
-}
-
 export default function VidaDoFornecedor({
   fornecedor,
   secretariaNome,
   tipo,
   bancario,
   situacoes,
-  situacaoInfo,
   pagamentos,
   carregandoPagamentos,
   erroPagamentos,
@@ -131,21 +88,7 @@ export default function VidaDoFornecedor({
   onExcluirValor,
   onVerHistorico,
 }) {
-  // Lançamentos já resolvidos (pagos/cancelados) ficam recolhidos para não
-  // esconder o que ainda está por pagar -- mas seguem acessíveis e editáveis.
-  const [mostrarResolvidos, setMostrarResolvidos] = React.useState(false);
-
   const valores = fornecedor.valores ?? [];
-  const aPagar = React.useMemo(
-    () =>
-      valores
-        .filter(EM_ABERTO)
-        .slice()
-        .sort((a, b) => soData(a.data_vencimento).localeCompare(soData(b.data_vencimento))),
-    [valores]
-  );
-  const resolvidos = React.useMemo(() => valores.filter((v) => !EM_ABERTO(v)), [valores]);
-  const listaLancamentos = mostrarResolvidos ? [...aPagar, ...resolvidos] : aPagar;
 
   const totalPago = (pagamentos ?? []).reduce((acc, p) => acc + numero(p.valor), 0);
   const totalAberto = numero(fornecedor.totalAberto);
@@ -208,84 +151,21 @@ export default function VidaDoFornecedor({
         </p>
       </Bloco>
 
-      <Bloco icone={Receipt} titulo="A pagar">
-        {aPagar.length === 0 && !mostrarResolvidos ? (
-          <Vazio>Nenhum valor em aberto para este fornecedor.</Vazio>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
-                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Data</th>
-                  <th className="py-1.5 pr-3 font-medium">Descrição</th>
-                  <th className="py-1.5 pr-3 font-medium text-right whitespace-nowrap">Valor</th>
-                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Secretaria</th>
-                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Situação</th>
-                  <th className="py-1.5 pr-3 font-medium whitespace-nowrap">Vencimento</th>
-                  <th className="py-1.5 font-medium text-right print:hidden">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaLancamentos.map((v) => {
-                  const info = situacaoInfo(v.situacao);
-                  return (
-                    <tr key={v.id} className="border-t border-black/5">
-                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
-                        {formatarData(v.data_nota_fiscal || v.created_at)}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
-                        {descricaoDoLancamento(v, fornecedor)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums font-medium whitespace-nowrap">
-                        {formatBRL(v.valor)}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
-                        {textoOuTraco(secretariaNome)}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <select
-                          value={v.situacao}
-                          onChange={(e) => onMudarSituacao(v.id, e.target.value)}
-                          style={{ color: info.cor, backgroundColor: info.bg }}
-                          className="text-xs font-medium px-2 py-1 rounded-md border-none"
-                        >
-                          {situacoes.map((s) => (
-                            <option key={s.value} value={s.value}>{s.label}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
-                        {formatarData(v.data_vencimento)}
-                      </td>
-                      <td className="py-2 text-right print:hidden">
-                        <button
-                          onClick={() => onExcluirValor(v.id)}
-                          className="text-[#0F2A44]/30 hover:text-red-500"
-                          title="Excluir lançamento"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {resolvidos.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setMostrarResolvidos((atual) => !atual)}
-            className="mt-2 text-[11px] text-[#0F2A44]/50 underline underline-offset-2 hover:text-[#0F2A44] print:hidden"
-          >
-            {mostrarResolvidos
-              ? "Ocultar lançamentos pagos/cancelados"
-              : `Mostrar também lançamentos pagos/cancelados (${resolvidos.length})`}
-          </button>
-        )}
-      </Bloco>
+      {/* Notas e lançamentos deste cadastro, em lista compacta: resumo em
+          cima, filtros rápidos e o detalhamento abrindo na própria linha. */}
+      <NotasDoFornecedor
+        fornecedor={fornecedor}
+        secretariaNome={secretariaNome}
+        notas={valores}
+        situacoes={situacoes}
+        pagamentos={pagamentos}
+        pagamentosIndisponiveis={pagamentosIndisponiveis}
+        totalAberto={totalAberto}
+        totalPago={totalPago}
+        onMudarSituacao={onMudarSituacao}
+        onExcluirValor={onExcluirValor}
+        onVerHistorico={onVerHistorico}
+      />
 
       <Bloco icone={Banknote} titulo="Pagamentos realizados">
         {carregandoPagamentos ? (

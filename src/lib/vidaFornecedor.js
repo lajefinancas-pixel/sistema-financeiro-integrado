@@ -31,14 +31,17 @@ function nomeDaConta(conta) {
 }
 
 /**
- * `{ [fornecedor_id]: [{ id, data, valor, contas, secretaria, status, descricao }] }`,
- * da movimentação mais recente para a mais antiga.
+ * `{ [fornecedor_id]: [{ id, valor_em_aberto_id, data, valor, contas, secretaria,
+ * status, descricao }] }`, da movimentação mais recente para a mais antiga.
+ *
+ * `valor_em_aberto_id` é a nota que originou o pagamento (quando ele não foi
+ * avulso): é por ele que a lista de notas mostra o pagamento relacionado.
  */
 export async function carregarPagamentosPorFornecedor() {
   const pagamentos = await buscarPaginado(() =>
     supabase
       .from("pagamentos")
-      .select("id, fornecedor_id, programacao_id, valor_a_pagar, situacao, descricao")
+      .select("id, fornecedor_id, valor_em_aberto_id, programacao_id, valor_a_pagar, situacao, descricao")
       .eq("situacao", "pago")
       .order("id", { ascending: true })
   );
@@ -94,6 +97,7 @@ export async function carregarPagamentosPorFornecedor() {
     const programacao = programacaoPorId.get(String(p.programacao_id)) ?? {};
     (porFornecedor[String(p.fornecedor_id)] ??= []).push({
       id: p.id,
+      valor_em_aberto_id: p.valor_em_aberto_id ?? null,
       data: soData(programacao.data_programacao),
       valor: paraNumeroMoeda(p.valor_a_pagar),
       contas: contasDoPagamento[String(p.id)] ?? [],
