@@ -19,6 +19,7 @@ export const MODULOS = [
   { id: "fornecedores", label: "Fornecedores" },
   { id: "pagamentos", label: "Pagamentos" },
   { id: "tributario", label: "Tributário" },
+  { id: "certidoes", label: "Certidões" },
   { id: "relatorios", label: "Relatórios" },
   { id: "auditoria", label: "Auditoria" },
   { id: "administracao", label: "Administração" },

@@ -18,6 +18,7 @@
 import { supabase } from "./supabaseClient";
 import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
 import { paraNumeroMoeda } from "./moeda";
+import { filtroVigentes } from "./exclusaoRegistros";
 import { somar } from "./rateioPagamentos";
 import { soData } from "./relatoriosCatalogo";
 import {
@@ -89,12 +90,16 @@ export async function carregarSaldosNaData({ contas, ate }) {
 
 /** Cadastro de fornecedores (ativos e inativos) com o nome da secretaria. */
 export async function carregarBaseFornecedores() {
-  const { data, error } = await supabase
-    .from("fornecedores")
-    .select(
-      "id, razao_social, nome_fantasia, cpf_cnpj, telefone, email, ativo, created_at, secretaria_id, secretarias(nome)"
-    )
-    .order("razao_social");
+  // "Inativo" ainda é cadastro e entra no relatório; excluído, não.
+  const vigentes = await filtroVigentes("fornecedores");
+  const { data, error } = await vigentes(
+    supabase
+      .from("fornecedores")
+      .select(
+        "id, razao_social, nome_fantasia, cpf_cnpj, telefone, email, ativo, created_at, secretaria_id, secretarias(nome)"
+      )
+      .order("razao_social"),
+  );
   if (error) throw error;
 
   return {
@@ -143,13 +148,16 @@ export async function carregarBasePagamentos() {
       .order("id", { ascending: true })
   );
 
+  const pagamentosVigentes = await filtroVigentes("pagamentos");
   const pagamentos = await buscarPaginado(() =>
-    supabase
-      .from("pagamentos")
-      .select(
-        "id, programacao_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)"
-      )
-      .order("id", { ascending: true })
+    pagamentosVigentes(
+      supabase
+        .from("pagamentos")
+        .select(
+          "id, programacao_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)"
+        )
+        .order("id", { ascending: true })
+    )
   );
 
   const nomeDaSecretaria = new Map((secs ?? []).map((s) => [String(s.id), s.nome]));
@@ -217,9 +225,10 @@ function pendenciaTributaria(v) {
  * quebrar o relatório.
  */
 export async function carregarBaseTributaria() {
-  const { data: forns, error: erroFornecedores } = await supabase
-    .from("fornecedores")
-    .select("id, razao_social, cpf_cnpj, secretarias(nome)");
+  const fornecedoresVigentes = await filtroVigentes("fornecedores");
+  const { data: forns, error: erroFornecedores } = await fornecedoresVigentes(
+    supabase.from("fornecedores").select("id, razao_social, cpf_cnpj, secretarias(nome)"),
+  );
   if (erroFornecedores) throw erroFornecedores;
 
 

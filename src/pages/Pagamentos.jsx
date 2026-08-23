@@ -7,6 +7,9 @@ import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
 import { registrarEvento } from "../lib/auditoria";
 import { mensagemAmigavel, erroAmigavel } from "../lib/erros";
+import { usePermissaoModulo } from "../lib/permissoes";
+import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import { auditarExclusao, excluirRegistro, filtroVigentes } from "../lib/exclusaoRegistros";
 import {
   TOLERANCIA,
   emCentavos,
@@ -37,6 +40,13 @@ const AVISO_RATEIO_INDISPONIVEL =
 export default function Pagamentos() {
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
+
+  // Exclusão: nada sai da tela sem a confirmação padrão, e pagamento é registro
+  // sensível — o motivo é obrigatório e vai junto para a auditoria.
+  const [exclusaoPendente, setExclusaoPendente] = React.useState(null);
+  const { usuario: usuarioLogado, permissao: permissaoPagamentos } =
+    usePermissaoModulo("pagamentos");
+  const podeExcluir = permissaoPagamentos?.pode_excluir === true;
 
   const [secretarias, setSecretarias] = React.useState([]);
   const [secretariaId, setSecretariaId] = React.useState("");
@@ -274,11 +284,16 @@ export default function Pagamentos() {
       setContasSelecionadas(setContas);
       setContasFinalizadas(setContas.size > 0);
 
-      const { data: pgs, error: ePgs } = await supabase
-        .from("pagamentos")
-        .select("id, fornecedor_id, valor_em_aberto_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)")
-        .eq("programacao_id", programacaoAtualId)
-        .order("created_at", { ascending: true });
+      // Pagamento excluído (exclusão lógica) não volta para a lista nem entra
+      // em nenhuma soma da programação.
+      const vigentes = await filtroVigentes("pagamentos");
+      const { data: pgs, error: ePgs } = await vigentes(
+        supabase
+          .from("pagamentos")
+          .select("id, fornecedor_id, valor_em_aberto_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)")
+          .eq("programacao_id", programacaoAtualId)
+          .order("created_at", { ascending: true }),
+      );
       if (ePgs) throw ePgs;
       setPagamentos(pgs ?? []);
     } catch (e) {
@@ -370,34 +385,143 @@ export default function Pagamentos() {
     }
   }
 
-  async function excluirProgramacao(progId) {
-    if (!confirm("Excluir esta programação e todos os pagamentos lançados nela?")) return;
+  /** Abre a confirmação de exclusão da programação (e de tudo lançado nela). */
+  function excluirProgramacao(progId) {
+    const programacao = programacoesDoDia.find((p) => String(p.id) === String(progId));
+    const nome = programacao?.nome_programacao || "Sem nome";
+    const secretaria = secretarias.find((sec) => String(sec.id) === String(secretariaId));
+    setExclusaoPendente({
+      tipo: "programacao",
+      id: progId,
+      rotulo: `${nome} — ${secretaria?.nome ?? "Secretaria"} (${data})`,
+      registro: `a programação "${nome}" e todos os pagamentos lançados nela`,
+      aviso:
+        "A programação, as contas escolhidas para ela e os pagamentos ainda não efetivados são apagados.",
+      exigirMotivo: true,
+      detalhes: [
+        { rotulo: "Programação", valor: nome },
+        { rotulo: "Secretaria", valor: secretaria?.nome ?? "--" },
+        { rotulo: "Data", valor: data },
+      ],
+      anterior: {
+        titulo: nome,
+        secretaria: secretaria?.nome ?? null,
+        data_pagamento: data,
+      },
+    });
+  }
+
+  /** Abre a confirmação de exclusão de um pagamento da programação aberta. */
+  function removerPagamento(pagamentoId) {
+    const pagamento = pagamentos.find((p) => String(p.id) === String(pagamentoId));
+    if (!pagamento) return;
+    if (pagamento.situacao === "pago") {
+      setErro("Este pagamento já foi efetivado e debitado nas contas. Não é possível removê-lo.");
+      return;
+    }
+
+    const nome = pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Pagamento avulso";
+    const nota = pagamento.valores_em_aberto?.numero_nota_fiscal ?? null;
+    setExclusaoPendente({
+      tipo: "pagamento",
+      id: pagamentoId,
+      rotulo: nota ? `${nome} — NF ${nota}` : nome,
+      registro: `o pagamento de ${nome}`,
+      aviso: "O pagamento sai da programação e deixa de contar no total programado do dia.",
+      exigirMotivo: true,
+      detalhes: [
+        { rotulo: "Fornecedor", valor: nome },
+        { rotulo: "Nota fiscal", valor: nota ?? "--" },
+        { rotulo: "Valor", valor: formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar)) },
+        { rotulo: "Descrição", valor: pagamento.descricao ?? "" },
+      ],
+      anterior: {
+        fornecedor: nome,
+        valor: formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar)),
+        situacao: pagamento.situacao === "pago" ? "Pago" : "Pendente",
+      },
+    });
+  }
+
+  /**
+   * Executa a exclusão confirmada no modal e registra o evento na auditoria.
+   *
+   * O pagamento é excluído logicamente (excluido_em/excluido_por): ele some da
+   * programação mas continua no banco. A programação em si continua sendo
+   * exclusão física, como sempre foi — e nunca pode ser excluída quando já tem
+   * pagamento efetivado, porque o débito em conta ficaria sem origem.
+   */
+  async function confirmarExclusao(motivo) {
+    const pendente = exclusaoPendente;
+    if (!pendente) return;
     setErro(null);
-    try {
-      // Pagamento já efetivado saiu do saldo da conta: apagar aqui deixaria o
-      // débito sem origem, então a exclusão é barrada.
-      const { data: pagos, error: ePagos } = await supabase
-        .from("pagamentos")
-        .select("id")
-        .eq("programacao_id", progId)
-        .eq("situacao", "pago")
-        .limit(1);
-      if (ePagos) throw ePagos;
-      if (pagos && pagos.length > 0) {
+
+    if (pendente.tipo === "pagamento") {
+      const pagamento = pagamentos.find((p) => String(p.id) === String(pendente.id));
+      if (pagamento?.situacao === "pago") {
         throw erroAmigavel(
-          "Esta programação já tem pagamento efetivado e debitado em conta. Não é possível excluí-la."
+          "Este pagamento já foi efetivado e debitado nas contas. Não é possível removê-lo."
         );
       }
 
-      await supabase.from("pagamentos").delete().eq("programacao_id", progId);
-      await supabase.from("programacao_contas").delete().eq("programacao_id", progId);
-      const { error } = await supabase.from("programacoes_pagamento").delete().eq("id", progId);
-      if (error) throw error;
-      setProgramacaoAtualId(null);
+      const { logica } = await excluirRegistro({
+        tabela: "pagamentos",
+        id: pendente.id,
+        usuarioId: usuarioLogado?.id ?? null,
+      });
+
+      await auditarExclusao({
+        modulo: "pagamentos",
+        registroAfetado: pendente.rotulo,
+        motivo,
+        valorAnterior: pendente.anterior,
+        logica,
+        nivel: "critico",
+        usuarioId: usuarioLogado?.id ?? null,
+      });
+
+      setExclusaoPendente(null);
+      await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível excluir a programação."));
+      return;
     }
+
+    // Pagamento já efetivado saiu do saldo da conta: apagar aqui deixaria o
+    // débito sem origem, então a exclusão é barrada.
+    const vigentes = await filtroVigentes("pagamentos");
+    const { data: pagos, error: ePagos } = await vigentes(
+      supabase
+        .from("pagamentos")
+        .select("id")
+        .eq("programacao_id", pendente.id)
+        .eq("situacao", "pago")
+        .limit(1),
+    );
+    if (ePagos) throw ePagos;
+    if (pagos && pagos.length > 0) {
+      throw erroAmigavel(
+        "Esta programação já tem pagamento efetivado e debitado em conta. Não é possível excluí-la."
+      );
+    }
+
+    await supabase.from("pagamentos").delete().eq("programacao_id", pendente.id);
+    await supabase.from("programacao_contas").delete().eq("programacao_id", pendente.id);
+    const { error } = await supabase.from("programacoes_pagamento").delete().eq("id", pendente.id);
+    if (error) throw error;
+
+    await auditarExclusao({
+      modulo: "pagamentos",
+      registroAfetado: pendente.rotulo,
+      motivo,
+      valorAnterior: pendente.anterior,
+      logica: false,
+      nivel: "critico",
+      usuarioId: usuarioLogado?.id ?? null,
+    });
+
+    setExclusaoPendente(null);
+    setProgramacaoAtualId(null);
+    await carregarProgramacoesDoDia();
   }
 
   async function abrirCopiarProgramacao() {
@@ -472,10 +596,13 @@ export default function Pagamentos() {
         if (eInsContas) throw eInsContas;
       }
 
-      const { data: pagamentosOrigem, error: ePagOrigem } = await supabase
-        .from("pagamentos")
-        .select("fornecedor_id, valor_em_aberto_id, valor_a_pagar, nome_avulso, descricao")
-        .eq("programacao_id", programacaoParaCopiarId);
+      const vigentesOrigem = await filtroVigentes("pagamentos");
+      const { data: pagamentosOrigem, error: ePagOrigem } = await vigentesOrigem(
+        supabase
+          .from("pagamentos")
+          .select("fornecedor_id, valor_em_aberto_id, valor_a_pagar, nome_avulso, descricao")
+          .eq("programacao_id", programacaoParaCopiarId),
+      );
       if (ePagOrigem) throw ePagOrigem;
 
       if (pagamentosOrigem && pagamentosOrigem.length > 0) {
@@ -630,24 +757,6 @@ export default function Pagamentos() {
         setErro(mensagemAmigavel(e, "Não foi possível salvar o valor deste pagamento."));
       }
     }, 600);
-  }
-
-  async function removerPagamento(pagamentoId) {
-    setErro(null);
-    try {
-      const pagamento = pagamentos.find((p) => p.id === pagamentoId);
-      if (pagamento?.situacao === "pago") {
-        throw erroAmigavel(
-          "Este pagamento já foi efetivado e debitado nas contas. Não é possível removê-lo."
-        );
-      }
-      const { error } = await supabase.from("pagamentos").delete().eq("id", pagamentoId);
-      if (error) throw error;
-      await carregarProgramacaoAtual();
-      await carregarProgramacoesDoDia();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível remover o pagamento."));
-    }
   }
 
   function editarRateioLocal(contaId, novoValor) {
@@ -1027,16 +1136,18 @@ export default function Pagamentos() {
                         {p.fechado && <Lock size={11} />}
                         {p.nome_programacao || "Sem nome"}
                       </button>
-                      <button
-                        onClick={() => excluirProgramacao(p.id)}
-                        className={`px-2 py-2 rounded-r-lg text-xs border border-l-0 ${
-                          programacaoAtualId === p.id
-                            ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-                            : "border-black/10 text-[#0F2A44]/40"
-                        }`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {podeExcluir && (
+                        <button
+                          onClick={() => excluirProgramacao(p.id)}
+                          className={`px-2 py-2 rounded-r-lg text-xs border border-l-0 ${
+                            programacaoAtualId === p.id
+                              ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                              : "border-black/10 text-[#0F2A44]/40"
+                          }`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1413,18 +1524,20 @@ export default function Pagamentos() {
                             </td>
                             {!fechado && (
                               <td className="px-5 py-2.5 text-right print:hidden">
-                                <button
-                                  onClick={() => removerPagamento(p.id)}
-                                  disabled={p.situacao === "pago"}
-                                  title={
-                                    p.situacao === "pago"
-                                      ? "Pagamento já efetivado e debitado nas contas."
-                                      : "Remover pagamento"
-                                  }
-                                  className="text-[#0F2A44]/30 hover:text-red-500 disabled:opacity-30 disabled:hover:text-[#0F2A44]/30"
-                                >
-                                  <Trash2 size={15} />
-                                </button>
+                                {podeExcluir && (
+                                  <button
+                                    onClick={() => removerPagamento(p.id)}
+                                    disabled={p.situacao === "pago"}
+                                    title={
+                                      p.situacao === "pago"
+                                        ? "Pagamento já efetivado e debitado nas contas."
+                                        : "Remover pagamento"
+                                    }
+                                    className="text-[#0F2A44]/30 hover:text-red-500 disabled:opacity-30 disabled:hover:text-[#0F2A44]/30"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                )}
                               </td>
                             )}
                           </tr>
@@ -1457,6 +1570,17 @@ export default function Pagamentos() {
           </div>
         )}
       </div>
+
+      {exclusaoPendente && (
+        <ModalConfirmarExclusao
+          registro={exclusaoPendente.registro}
+          aviso={exclusaoPendente.aviso}
+          exigirMotivo={exclusaoPendente.exigirMotivo}
+          detalhes={exclusaoPendente.detalhes}
+          onCancelar={() => setExclusaoPendente(null)}
+          onConfirmar={confirmarExclusao}
+        />
+      )}
     </Layout>
   );
 }

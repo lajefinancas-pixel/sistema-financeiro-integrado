@@ -14,6 +14,9 @@ import CampoMoeda from "../components/CampoMoeda";
 import { paraNumeroMoeda } from "../lib/moeda";
 import { registrarEvento } from "../lib/auditoria";
 import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
+import { usePermissaoModulo } from "../lib/permissoes";
+import { auditarExclusao } from "../lib/exclusaoRegistros";
+import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -139,6 +142,10 @@ export default function Saldos() {
   const [carregandoHistorico, setCarregandoHistorico] = React.useState(true);
 
   const [usuarioId, setUsuarioId] = React.useState(null);
+  // Exclusão sempre passa pela confirmação padrão: nada é excluído no clique.
+  const [exclusaoPendente, setExclusaoPendente] = React.useState(null);
+  const { permissao: permissaoSaldos } = usePermissaoModulo("saldos");
+  const podeExcluir = permissaoSaldos?.pode_excluir === true;
   const [ordemSecretarias, setOrdemSecretarias] = React.useState([]);
   const [arrastandoId, setArrastandoId] = React.useState(null);
   const [sobreId, setSobreId] = React.useState(null);
@@ -478,28 +485,85 @@ export default function Saldos() {
     }
   }
 
-  async function excluirConta(contaId) {
-    if (!confirm("Excluir esta conta bancária? Os saldos dela também serão removidos do painel.")) return;
-    setErro(null);
-    try {
-      const { error } = await supabase.from("contas_bancarias").update({ ativo: false }).eq("id", contaId);
-      if (error) throw error;
-      await carregarDados();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao excluir conta."));
-    }
+  /**
+   * Abre a confirmação de exclusão da conta bancária.
+   *
+   * Conta bancária é registro sensível: o motivo é obrigatório. A mecânica da
+   * exclusão continua exatamente a mesma de sempre (a conta é desativada e sai
+   * do painel) — Saldos das Contas segue fora da exclusão lógica.
+   */
+  function excluirConta(contaId) {
+    const { conta, secretaria } = localizarConta(contaId);
+    if (!conta) return;
+    const rotulo = rotuloDaConta(conta, secretaria);
+    setExclusaoPendente({
+      tipo: "conta",
+      id: contaId,
+      rotulo,
+      registro: `a conta bancária ${rotulo}`,
+      aviso: "Os saldos desta conta deixam de aparecer no painel e ela sai da lista da secretaria.",
+      exigirMotivo: true,
+      detalhes: [
+        { rotulo: "Secretaria", valor: secretaria ?? "--" },
+        { rotulo: "Banco", valor: conta.banco ?? "--" },
+        { rotulo: "Número da conta", valor: conta.numero_conta || "--" },
+        { rotulo: "Saldo atual", valor: formatBRL(paraNumeroMoeda(conta.saldo ?? 0)) },
+      ],
+      anterior: {
+        conta: rotulo,
+        secretaria: secretaria ?? null,
+        saldo: formatBRL(paraNumeroMoeda(conta.saldo ?? 0)),
+        data_saldo: conta.dataSaldo ?? conta.dataDoSaldo ?? null,
+      },
+    });
   }
 
-  async function excluirSecretaria(secretariaId, nome) {
-    if (!confirm(`Excluir a secretaria "${nome}"? As contas cadastradas nela deixarão de aparecer no painel.`)) return;
+  function excluirSecretaria(secretariaId, nome) {
+    const secretaria = contasPorSecretaria.find((s) => String(s.id) === String(secretariaId));
+    const quantidade = secretaria?.contas?.length ?? 0;
+    setExclusaoPendente({
+      tipo: "secretaria",
+      id: secretariaId,
+      rotulo: nome,
+      registro: `a secretaria ${nome}`,
+      aviso: "As contas cadastradas nela deixarão de aparecer no painel.",
+      exigirMotivo: false,
+      detalhes: [
+        { rotulo: "Secretaria", valor: nome },
+        { rotulo: "Contas cadastradas", valor: String(quantidade) },
+        { rotulo: "Saldo somado", valor: formatBRL(paraNumeroMoeda(secretaria?.total ?? 0)) },
+      ],
+      anterior: { secretaria: nome, contas: String(quantidade) },
+    });
+  }
+
+  /**
+   * Executa a exclusão confirmada no modal e registra o evento na auditoria.
+   * Em Saldos a exclusão continua sendo a inativação de sempre (ativo = false):
+   * a exclusão lógica com excluido_em vale para fornecedores, certidões e
+   * pagamentos, não para a lógica financeira das contas.
+   */
+  async function confirmarExclusao(motivo) {
+    const pendente = exclusaoPendente;
+    if (!pendente) return;
     setErro(null);
-    try {
-      const { error } = await supabase.from("secretarias").update({ ativo: false }).eq("id", secretariaId);
-      if (error) throw error;
-      await carregarDados();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao excluir secretaria."));
-    }
+
+    const tabela = pendente.tipo === "conta" ? "contas_bancarias" : "secretarias";
+    const { error } = await supabase.from(tabela).update({ ativo: false }).eq("id", pendente.id);
+    if (error) throw error;
+
+    await auditarExclusao({
+      modulo: "saldos",
+      registroAfetado: pendente.rotulo,
+      motivo,
+      valorAnterior: pendente.anterior,
+      logica: false,
+      // Conta bancária mexe com dinheiro: excluí-la é evento crítico.
+      nivel: pendente.tipo === "conta" ? "critico" : "atencao",
+    });
+
+    setExclusaoPendente(null);
+    await carregarDados();
   }
 
   async function criarConta(e) {
@@ -1129,13 +1193,15 @@ export default function Saldos() {
                                 </button>
                               </>
                             )}
-                            <button
-                              onClick={() => excluirSecretaria(sec.id, sec.nome)}
-                              className="text-[#0F2A44]/30 hover:text-red-500"
-                              title="Excluir secretaria"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {podeExcluir && (
+                              <button
+                                onClick={() => excluirSecretaria(sec.id, sec.nome)}
+                                className="text-[#0F2A44]/30 hover:text-red-500"
+                                title="Excluir secretaria"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </>
                         )}
                         </div>
@@ -1213,13 +1279,15 @@ export default function Saldos() {
                                         >
                                           <Pencil size={15} />
                                         </button>
-                                        <button
-                                          onClick={() => excluirConta(c.id)}
-                                          className="text-[#0F2A44]/30 hover:text-red-500"
-                                          title="Excluir conta"
-                                        >
-                                          <Trash2 size={15} />
-                                        </button>
+                                        {podeExcluir && (
+                                          <button
+                                            onClick={() => excluirConta(c.id)}
+                                            className="text-[#0F2A44]/30 hover:text-red-500"
+                                            title="Excluir conta"
+                                          >
+                                            <Trash2 size={15} />
+                                          </button>
+                                        )}
                                       </>
                                     )}
                                   </div>
@@ -1380,6 +1448,17 @@ export default function Saldos() {
           </div>
         )}
       </div>
+
+      {exclusaoPendente && (
+        <ModalConfirmarExclusao
+          registro={exclusaoPendente.registro}
+          aviso={exclusaoPendente.aviso}
+          exigirMotivo={exclusaoPendente.exigirMotivo}
+          detalhes={exclusaoPendente.detalhes}
+          onCancelar={() => setExclusaoPendente(null)}
+          onConfirmar={confirmarExclusao}
+        />
+      )}
     </Layout>
   );
 }

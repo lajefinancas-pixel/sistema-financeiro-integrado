@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { erroAmigavel } from "./erros";
+import { excluirRegistro, filtroVigentes } from "./exclusaoRegistros";
 
 /**
  * Camada de dados da página "Certidões".
@@ -186,10 +187,13 @@ export async function atualizarTipo(id, campos) {
 export async function listarFornecedores() {
   // A secretaria vem junto porque a listagem de certidões filtra por ela — o
   // vínculo é o do cadastro do fornecedor, sem coluna nova em certidoes.
-  const { data, error } = await supabase
-    .from("fornecedores")
-    .select("id, razao_social, nome_fantasia, cpf_cnpj, ativo, secretaria_id, secretarias ( id, nome )")
-    .order("razao_social");
+  const vigentes = await filtroVigentes("fornecedores");
+  const { data, error } = await vigentes(
+    supabase
+      .from("fornecedores")
+      .select("id, razao_social, nome_fantasia, cpf_cnpj, ativo, secretaria_id, secretarias ( id, nome )")
+      .order("razao_social"),
+  );
   if (error) throw error;
   return data ?? [];
 }
@@ -243,12 +247,17 @@ export function ehHistorica(certidao) {
  * documento do fornecedor.
  */
 export async function listarCertidoes() {
-  const { data, error } = await supabase
-    .from("certidoes")
-    .select(COLUNAS_CERTIDAO)
-    .is("substituida_por", null)
-    .order("data_vencimento", { ascending: true, nullsFirst: false })
-    .order("criado_em", { ascending: false });
+  // As excluídas (exclusão lógica) também ficam de fora — continuam no banco,
+  // mas não são mais documento do fornecedor.
+  const vigentes = await filtroVigentes("certidoes");
+  const { data, error } = await vigentes(
+    supabase
+      .from("certidoes")
+      .select(COLUNAS_CERTIDAO)
+      .is("substituida_por", null)
+      .order("data_vencimento", { ascending: true, nullsFirst: false })
+      .order("criado_em", { ascending: false }),
+  );
   if (error) throw error;
   return data ?? [];
 }
@@ -312,16 +321,19 @@ export async function atualizarCertidao(id, campos, tipo) {
 }
 
 /**
- * Apaga a certidão. A tela só oferece a ação a quem tem pode_excluir no módulo
- * e sempre depois de uma confirmação; o RLS de delete confere a permissão de
- * novo no banco.
+ * Exclui a certidão. A tela só oferece a ação a quem tem pode_excluir no módulo,
+ * sempre depois da confirmação padrão e com o motivo preenchido; o RLS confere a
+ * permissão de novo no banco.
  *
- * Os alertas de vencimento gerados para essa certidão saem junto: a coluna
- * notificacoes.certidao_id é "on delete cascade".
+ * A exclusão é LÓGICA: a linha continua no banco com `excluido_em` e
+ * `excluido_por` gravados e some das listagens. No banco que ainda não recebeu a
+ * migration a exclusão volta a ser física — e aí os alertas de vencimento saem
+ * junto, porque notificacoes.certidao_id é "on delete cascade".
+ *
+ * @returns { logica: boolean } — se a linha foi marcada ou realmente apagada.
  */
-export async function excluirCertidao(id) {
-  const { error } = await supabase.from("certidoes").delete().eq("id", id);
-  if (error) throw error;
+export async function excluirCertidao(id, { usuarioId = null } = {}) {
+  return excluirRegistro({ tabela: "certidoes", id, usuarioId });
 }
 
 // ---------------------------------------------------------------------------
@@ -400,11 +412,14 @@ export async function renovarCertidao(anterior, campos, tipo, responsavelId) {
 export async function listarHistoricoCertidao(certidao) {
   if (!certidao?.id || !certidao?.fornecedor_id) return [];
 
-  const { data, error } = await supabase
-    .from("certidoes")
-    .select(COLUNAS_CERTIDAO)
-    .eq("fornecedor_id", certidao.fornecedor_id)
-    .not("substituida_por", "is", null);
+  const vigentes = await filtroVigentes("certidoes");
+  const { data, error } = await vigentes(
+    supabase
+      .from("certidoes")
+      .select(COLUNAS_CERTIDAO)
+      .eq("fornecedor_id", certidao.fornecedor_id)
+      .not("substituida_por", "is", null),
+  );
   if (error) throw error;
 
   const anteriorDe = new Map((data ?? []).map((linha) => [String(linha.substituida_por), linha]));
