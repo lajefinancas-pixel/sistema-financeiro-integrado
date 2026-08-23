@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, SlidersHorizontal, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
@@ -16,6 +16,7 @@ import { carregarCertidoesPorFornecedor, detalheDocumental, resumoDocumental } f
 import { usePermissaoModulo } from "../lib/permissoes";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import PainelFiltros from "../components/comuns/PainelFiltros";
 import {
   auditarExclusao,
   excluirRegistro,
@@ -417,10 +418,9 @@ export default function Fornecedores() {
   const [buscaRapida, setBuscaRapida] = React.useState(salvoNaSessao?.buscaRapida ?? "");
   const [filtros, setFiltros] = React.useState(() => normalizarFiltros(salvoNaSessao?.filtros));
   const [filtrosAplicados, setFiltrosAplicados] = React.useState(() => normalizarFiltros(salvoNaSessao?.filtrosAplicados));
-  const [mostrarFiltros, setMostrarFiltros] = React.useState(salvoNaSessao?.mostrarFiltros ?? false);
   const [ordenacao, setOrdenacao] = React.useState(() => ordenacaoValida(salvoNaSessao?.ordenacao));
-  // Em telas estreitas toda a área de filtros fica dentro do botão "⚙️ Filtros".
-  const [painelAberto, setPainelAberto] = React.useState(false);
+  // Abrir ou fechar o painel de filtros é assunto do próprio PainelFiltros: a
+  // tela começa sempre com ele recolhido e não guarda esse estado na sessão.
 
   // Filtros favoritos do usuário logado.
   const [favoritos, setFavoritos] = React.useState([]);
@@ -514,8 +514,8 @@ export default function Fornecedores() {
   }
 
   React.useEffect(() => {
-    gravarEstadoSalvo({ buscaRapida, filtros, filtrosAplicados, mostrarFiltros, ordenacao, expandido });
-  }, [buscaRapida, filtros, filtrosAplicados, mostrarFiltros, ordenacao, expandido]);
+    gravarEstadoSalvo({ buscaRapida, filtros, filtrosAplicados, ordenacao, expandido });
+  }, [buscaRapida, filtros, filtrosAplicados, ordenacao, expandido]);
 
   // Impressão de "todos os fornecedores": espera a listagem completa aparecer na
   // tela antes de abrir a janela de impressão.
@@ -1381,402 +1381,348 @@ export default function Fornecedores() {
           </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-6 print:hidden">
-          <button
-            type="button"
-            onClick={() => setPainelAberto((v) => !v)}
-            className="md:hidden w-full flex items-center justify-between text-sm px-3 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]"
-          >
-            <span className="flex items-center gap-2">
-              ⚙️ Filtros
-              {chipsAtivos.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-[#0F2A44] text-white text-[10px]">{chipsAtivos.length}</span>
-              )}
-            </span>
-            {painelAberto ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-
-          <div className={`${painelAberto ? "block mt-3" : "hidden"} md:block md:mt-0`}>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <input
-              type="text"
-              value={buscaRapida}
-              onChange={(e) => setBuscaRapida(e.target.value)}
-              placeholder="🔎 Buscar fornecedor..."
-              className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
-            />
-            <div className="flex items-center gap-1.5 rounded-lg border border-black/10 px-2.5">
-              <ArrowUpDown size={14} className="text-[#0F2A44]/40 shrink-0" />
-              <select
-                value={ordenacao}
-                onChange={(e) => setOrdenacao(e.target.value)}
-                title="Ordenar resultados"
-                className="w-full py-2.5 text-sm bg-transparent text-[#0F2A44]/80 outline-none"
-              >
-                {ORDENACOES.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMostrarFiltros((v) => !v)}
-              className={`flex items-center justify-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border ${
-                mostrarFiltros || filtroPreenchido(filtrosAplicados)
-                  ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-                  : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-              }`}
-            >
-              <SlidersHorizontal size={15} />
-              Filtros avançados
-              {mostrarFiltros ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-          </div>
-          <p className="text-[11px] text-[#0F2A44]/40 mt-1.5">
-            A busca rápida procura ao mesmo tempo em nome, razão social, nome fantasia, CPF e CNPJ.
-          </p>
-
-          <FiltrosSalvos
-            favoritos={favoritos}
-            carregando={carregandoFavoritos}
-            erro={erroFavoritos}
-            onAplicar={aplicarFavorito}
-            onExcluir={excluirFavorito}
-          />
-
-          {mostrarFiltros && (
-            <div className="mt-4 pt-4 border-t border-black/5 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Nome / Razão social / Nome fantasia</label>
+        <PainelFiltros
+          className="mb-6"
+          rotulo="Filtros avançados"
+          chips={chipsAtivos}
+          onLimpar={limparFiltros}
+          topo={
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <input
                   type="text"
-                  value={filtros.nome}
-                  onChange={(e) => setFiltros({ ...filtros, nome: e.target.value })}
-                  placeholder="Parte do nome, ex: Meta"
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  value={buscaRapida}
+                  onChange={(e) => setBuscaRapida(e.target.value)}
+                  placeholder="🔎 Buscar fornecedor..."
+                  className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
                 />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Data inicial</label>
-                  <input
-                    type="date"
-                    value={filtros.dataInicial}
-                    onChange={(e) => setFiltros({ ...filtros, dataInicial: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Data final</label>
-                  <input
-                    type="date"
-                    value={filtros.dataFinal}
-                    onChange={(e) => setFiltros({ ...filtros, dataFinal: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Filtrar data por</label>
+                <div className="flex items-center gap-1.5 rounded-lg border border-black/10 px-2.5">
+                  <ArrowUpDown size={14} className="text-[#0F2A44]/40 shrink-0" />
                   <select
-                    value={filtros.campoData}
-                    onChange={(e) => setFiltros({ ...filtros, campoData: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                    value={ordenacao}
+                    onChange={(e) => setOrdenacao(e.target.value)}
+                    title="Ordenar resultados"
+                    className="w-full py-2.5 text-sm bg-transparent text-[#0F2A44]/80 outline-none"
                   >
-                    {CAMPOS_DATA.map((c) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
+                    {ORDENACOES.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 </div>
               </div>
+              <p className="text-[11px] text-[#0F2A44]/40 mt-1.5">
+                A busca rápida procura ao mesmo tempo em nome, razão social, nome fantasia, CPF e CNPJ.
+              </p>
 
-              <div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-medium text-[#0F2A44]/70">Valor mínimo</label>
-                    <input
-                      type="number" step="0.01" placeholder="0,00"
-                      value={filtros.valorMin}
-                      onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-[#0F2A44]/70">Valor máximo</label>
-                    <input
-                      type="number" step="0.01" placeholder="0,00"
-                      value={filtros.valorMax}
-                      onChange={(e) => setFiltros({ ...filtros, valorMax: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {FAIXAS_VALOR.map((faixa) => (
-                    <button
-                      key={faixa.label}
-                      type="button"
-                      onClick={() => aplicarFaixa(faixa)}
-                      className={`px-3 py-1.5 rounded-md text-xs border ${
-                        filtros.valorMin === faixa.min && filtros.valorMax === faixa.max
-                          ? "bg-[#0F2A44] text-white border-[#0F2A44]"
-                          : "border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
-                      }`}
-                    >
-                      {faixa.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Considera o valor líquido de cada lançamento do fornecedor.</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">CNPJ / CPF</label>
-                  <input
-                    type="text"
-                    value={filtros.documento}
-                    onChange={(e) => setFiltros({ ...filtros, documento: e.target.value })}
-                    placeholder="Com ou sem pontuação"
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Situação</label>
-                  <select
-                    value={filtros.situacao}
-                    onChange={(e) => setFiltros({ ...filtros, situacao: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  >
-                    <option value="">Todas</option>
-                    {situacoesDisponiveis.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="pt-1 border-t border-black/5">
-                <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria / Setor</label>
-                <div className="mt-1 rounded-lg border border-black/10 p-2 max-h-36 overflow-y-auto space-y-1">
-                  <label className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
-                    <input
-                      type="checkbox"
-                      checked={filtros.secretariasIds.length === 0}
-                      onChange={() => setFiltros({ ...filtros, secretariasIds: [] })}
-                      className="w-3.5 h-3.5 accent-[#0F2A44]"
-                    />
-                    Todas as secretarias
-                  </label>
-                  {secretarias.map((s) => (
-                    <label key={s.id} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
-                      <input
-                        type="checkbox"
-                        checked={filtros.secretariasIds.includes(String(s.id))}
-                        onChange={() => alternarSecretaria(String(s.id))}
-                        className="w-3.5 h-3.5 accent-[#0F2A44]"
-                      />
-                      {s.nome}
-                    </label>
-                  ))}
-                </div>
-                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
-                  Marque uma ou várias secretarias ao mesmo tempo; sem marcação, considera todas.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Tipo de fornecedor</label>
-                  <select
-                    value={filtros.tipo}
-                    onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  >
-                    <option value="">Todos</option>
-                    {tiposDisponiveis.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Lista montada com os tipos dos fornecedores já cadastrados.</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70">Documentação</label>
-                  <select
-                    value={filtros.documentacao}
-                    onChange={(e) => setFiltros({ ...filtros, documentacao: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  >
-                    <option value="">Todas</option>
-                    {documentacoesDisponiveis.map((d) => (
-                      <option key={d.value} value={d.value}>{d.label}</option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
-                    Considera os campos preenchidos no cadastro
-                    {temValidadeDocumentos ? " e as datas de validade registradas." : "; datas de validade ainda não existem no cadastro."}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Situação tributária</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
-                  {TRIBUTARIOS.map((t) => (
-                    <label key={t.value} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
-                      <input
-                        type="checkbox"
-                        checked={filtros.tributarios.includes(t.value)}
-                        onChange={() => alternarTributario(t.value)}
-                        className="w-3.5 h-3.5 accent-[#0F2A44]"
-                      />
-                      {t.label}
-                    </label>
-                  ))}
-                </div>
-                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
-                  Usa as alíquotas fixas do fornecedor e as retenções já lançadas. Pendência tributária: lançamento
-                  fora do Simples com alíquota informada e nenhuma retenção aplicada.
-                </p>
-              </div>
-
-              {temDadosBancarios && (
-                <div>
-                  <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Dados bancários</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input
-                      type="text"
-                      value={filtros.banco}
-                      onChange={(e) => setFiltros({ ...filtros, banco: e.target.value })}
-                      placeholder="Banco"
-                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                    <input
-                      type="text"
-                      value={filtros.agencia}
-                      onChange={(e) => setFiltros({ ...filtros, agencia: e.target.value })}
-                      placeholder="Agência"
-                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                    <input
-                      type="text"
-                      value={filtros.conta}
-                      onChange={(e) => setFiltros({ ...filtros, conta: e.target.value })}
-                      placeholder="Número da conta"
-                      className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                  </div>
-                  <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Busca nos dados bancários gravados no cadastro do fornecedor.</p>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={aplicarFiltros}
-                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
-                >
-                  <Filter size={15} /> Aplicar Filtros
-                </button>
-                <button
-                  type="button"
-                  onClick={limparFiltros}
-                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-                >
-                  <Eraser size={15} /> Limpar Filtros
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNomeNovoFiltro((atual) => (atual === null ? "" : null))}
-                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-                >
-                  <Star size={15} /> Salvar filtro
-                </button>
-                {filtrandoAlgo && (
-                  <span className="text-xs text-[#0F2A44]/50 ml-1">
-                    {fornecedoresFiltrados.length} de {fornecedores.length} fornecedores
+              <FiltrosSalvos
+                favoritos={favoritos}
+                carregando={carregandoFavoritos}
+                erro={erroFavoritos}
+                onAplicar={aplicarFavorito}
+                onExcluir={excluirFavorito}
+              />
+            </>
+          }
+          rodape={
+            filtrandoAlgo ? (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-[#0F2A44]/70">
+                <span>
+                  Quantidade encontrada: <span className="font-semibold text-[#0F2A44]">{fornecedoresFiltrados.length} fornecedores</span>
+                </span>
+                {totalFiltrado > 0 && (
+                  <span>
+                    Valor total filtrado: <span className="font-semibold text-[#0F2A44]">{formatBRL(totalFiltrado)}</span>
                   </span>
                 )}
               </div>
-
-              {nomeNovoFiltro !== null && (
-                <form onSubmit={confirmarSalvarFiltro} className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={nomeNovoFiltro}
-                    onChange={(e) => setNomeNovoFiltro(e.target.value)}
-                    placeholder='Nome do filtro, ex: "Fornecedores Saúde — Pendências"'
-                    className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="submit"
-                      disabled={salvandoFiltro || nomeNovoFiltro.trim() === ""}
-                      className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
-                    >
-                      <Save size={15} />
-                      {salvandoFiltro ? "Salvando..." : "Salvar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNomeNovoFiltro(null)}
-                      className="text-sm px-4 py-2.5 rounded-lg text-[#0F2A44]/60 hover:bg-black/5"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </form>
-              )}
+            ) : null
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-[#0F2A44]/70">Nome / Razão social / Nome fantasia</label>
+              <input
+                type="text"
+                value={filtros.nome}
+                onChange={(e) => setFiltros({ ...filtros, nome: e.target.value })}
+                placeholder="Parte do nome, ex: Meta"
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+              />
             </div>
-          )}
-          {chipsAtivos.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-black/5">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-[#0F2A44]/70 mr-1">
-                  {chipsAtivos.length} {chipsAtivos.length === 1 ? "filtro ativo" : "filtros ativos"}
-                </span>
-                {chipsAtivos.map((chip) => (
-                  <span
-                    key={chip.chave}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-[#EAF1FF] text-[#0F2A44]"
-                  >
-                    {chip.rotulo}
-                    <button
-                      type="button"
-                      onClick={chip.remover}
-                      title={`Remover filtro: ${chip.rotulo}`}
-                      className="text-[#0F2A44]/40 hover:text-red-500"
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-                <button
-                  type="button"
-                  onClick={limparFiltros}
-                  className="text-xs text-[#0F2A44]/50 hover:text-[#0F2A44] underline ml-1"
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Data inicial</label>
+                <input
+                  type="date"
+                  value={filtros.dataInicial}
+                  onChange={(e) => setFiltros({ ...filtros, dataInicial: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Data final</label>
+                <input
+                  type="date"
+                  value={filtros.dataFinal}
+                  onChange={(e) => setFiltros({ ...filtros, dataFinal: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Filtrar data por</label>
+                <select
+                  value={filtros.campoData}
+                  onChange={(e) => setFiltros({ ...filtros, campoData: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                 >
-                  Limpar todos
-                </button>
+                  {CAMPOS_DATA.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
-          )}
 
-          {filtrandoAlgo && (
-            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-[#0F2A44]/70">
-              <span>
-                Quantidade encontrada: <span className="font-semibold text-[#0F2A44]">{fornecedoresFiltrados.length} fornecedores</span>
-              </span>
-              {totalFiltrado > 0 && (
-                <span>
-                  Valor total filtrado: <span className="font-semibold text-[#0F2A44]">{formatBRL(totalFiltrado)}</span>
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Valor mínimo</label>
+                  <input
+                    type="number" step="0.01" placeholder="0,00"
+                    value={filtros.valorMin}
+                    onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#0F2A44]/70">Valor máximo</label>
+                  <input
+                    type="number" step="0.01" placeholder="0,00"
+                    value={filtros.valorMax}
+                    onChange={(e) => setFiltros({ ...filtros, valorMax: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {FAIXAS_VALOR.map((faixa) => (
+                  <button
+                    key={faixa.label}
+                    type="button"
+                    onClick={() => aplicarFaixa(faixa)}
+                    className={`px-3 py-1.5 rounded-md text-xs border ${
+                      filtros.valorMin === faixa.min && filtros.valorMax === faixa.max
+                        ? "bg-[#0F2A44] text-white border-[#0F2A44]"
+                        : "border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                    }`}
+                  >
+                    {faixa.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Considera o valor líquido de cada lançamento do fornecedor.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">CNPJ / CPF</label>
+                <input
+                  type="text"
+                  value={filtros.documento}
+                  onChange={(e) => setFiltros({ ...filtros, documento: e.target.value })}
+                  placeholder="Com ou sem pontuação"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Situação</label>
+                <select
+                  value={filtros.situacao}
+                  onChange={(e) => setFiltros({ ...filtros, situacao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                >
+                  <option value="">Todas</option>
+                  {situacoesDisponiveis.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-1 border-t border-black/5">
+              <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria / Setor</label>
+              <div className="mt-1 rounded-lg border border-black/10 p-2 max-h-36 overflow-y-auto space-y-1">
+                <label className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                  <input
+                    type="checkbox"
+                    checked={filtros.secretariasIds.length === 0}
+                    onChange={() => setFiltros({ ...filtros, secretariasIds: [] })}
+                    className="w-3.5 h-3.5 accent-[#0F2A44]"
+                  />
+                  Todas as secretarias
+                </label>
+                {secretarias.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                    <input
+                      type="checkbox"
+                      checked={filtros.secretariasIds.includes(String(s.id))}
+                      onChange={() => alternarSecretaria(String(s.id))}
+                      className="w-3.5 h-3.5 accent-[#0F2A44]"
+                    />
+                    {s.nome}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                Marque uma ou várias secretarias ao mesmo tempo; sem marcação, considera todas.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Tipo de fornecedor</label>
+                <select
+                  value={filtros.tipo}
+                  onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                >
+                  <option value="">Todos</option>
+                  {tiposDisponiveis.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Lista montada com os tipos dos fornecedores já cadastrados.</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Documentação</label>
+                <select
+                  value={filtros.documentacao}
+                  onChange={(e) => setFiltros({ ...filtros, documentacao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                >
+                  <option value="">Todas</option>
+                  {documentacoesDisponiveis.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                  Considera os campos preenchidos no cadastro
+                  {temValidadeDocumentos ? " e as datas de validade registradas." : "; datas de validade ainda não existem no cadastro."}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Situação tributária</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
+                {TRIBUTARIOS.map((t) => (
+                  <label key={t.value} className="flex items-center gap-2 text-sm text-[#0F2A44]/80">
+                    <input
+                      type="checkbox"
+                      checked={filtros.tributarios.includes(t.value)}
+                      onChange={() => alternarTributario(t.value)}
+                      className="w-3.5 h-3.5 accent-[#0F2A44]"
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">
+                Usa as alíquotas fixas do fornecedor e as retenções já lançadas. Pendência tributária: lançamento
+                fora do Simples com alíquota informada e nenhuma retenção aplicada.
+              </p>
+            </div>
+
+            {temDadosBancarios && (
+              <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70 block mb-1.5">Dados bancários</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <input
+                    type="text"
+                    value={filtros.banco}
+                    onChange={(e) => setFiltros({ ...filtros, banco: e.target.value })}
+                    placeholder="Banco"
+                    className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={filtros.agencia}
+                    onChange={(e) => setFiltros({ ...filtros, agencia: e.target.value })}
+                    placeholder="Agência"
+                    className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={filtros.conta}
+                    onChange={(e) => setFiltros({ ...filtros, conta: e.target.value })}
+                    placeholder="Número da conta"
+                    className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm"
+                  />
+                </div>
+                <p className="text-[10px] text-[#0F2A44]/40 mt-1.5">Busca nos dados bancários gravados no cadastro do fornecedor.</p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={aplicarFiltros}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+              >
+                <Filter size={15} /> Aplicar Filtros
+              </button>
+              <button
+                type="button"
+                onClick={limparFiltros}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+              >
+                <Eraser size={15} /> Limpar Filtros
+              </button>
+              <button
+                type="button"
+                onClick={() => setNomeNovoFiltro((atual) => (atual === null ? "" : null))}
+                className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+              >
+                <Star size={15} /> Salvar filtro
+              </button>
+              {filtrandoAlgo && (
+                <span className="text-xs text-[#0F2A44]/50 ml-1">
+                  {fornecedoresFiltrados.length} de {fornecedores.length} fornecedores
                 </span>
               )}
             </div>
-          )}
+
+            {nomeNovoFiltro !== null && (
+              <form onSubmit={confirmarSalvarFiltro} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  value={nomeNovoFiltro}
+                  onChange={(e) => setNomeNovoFiltro(e.target.value)}
+                  placeholder='Nome do filtro, ex: "Fornecedores Saúde — Pendências"'
+                  className="flex-1 px-3 py-2.5 rounded-lg border border-black/10 text-sm"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={salvandoFiltro || nomeNovoFiltro.trim() === ""}
+                    className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
+                  >
+                    <Save size={15} />
+                    {salvandoFiltro ? "Salvando..." : "Salvar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNomeNovoFiltro(null)}
+                    className="text-sm px-4 py-2.5 rounded-lg text-[#0F2A44]/60 hover:bg-black/5"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-        </div>
+        </PainelFiltros>
 
         {mostrarFormValor && (
           <form
