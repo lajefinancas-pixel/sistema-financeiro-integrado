@@ -2,6 +2,7 @@ import React from "react";
 import { ClipboardList, Columns3, List, Plus, Search, UserRound, Users, X } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
+import PainelFiltros from "../components/comuns/PainelFiltros";
 import ModalNovaTarefa from "../components/tarefas/ModalNovaTarefa";
 import ModalDetalheTarefa from "../components/tarefas/ModalDetalheTarefa";
 import QuadroTarefas from "../components/tarefas/QuadroTarefas";
@@ -228,6 +229,23 @@ export default function Tarefas() {
     setEscopo("minhas");
   }
 
+  /**
+   * Chips do que está recortando a lista agora. São só leitura do estado da
+   * tela: remover um chip devolve aquele campo ao padrão, exatamente como
+   * "Limpar filtros" já fazia com todos de uma vez.
+   */
+  const chipsAtivos = [];
+  if (busca.trim()) {
+    chipsAtivos.push({ chave: "busca", rotulo: `Busca: ${busca.trim()}`, remover: () => setBusca("") });
+  }
+  if (filtroStatus !== null) {
+    const label = CONTADORES.find((c) => c.chave === filtroStatus)?.label ?? filtroStatus;
+    chipsAtivos.push({ chave: "status", rotulo: label, remover: () => setFiltroStatus(null) });
+  }
+  if (escopo !== "minhas") {
+    chipsAtivos.push({ chave: "escopo", rotulo: "Todas as tarefas", remover: () => setEscopo("minhas") });
+  }
+
   /** Mover no quadro é a mesma regra da política de update da tabela "tarefas". */
   function podeMoverTarefa(tarefa) {
     if (permissao?.pode_editar === true) return true;
@@ -416,9 +434,14 @@ export default function Tarefas() {
           ))}
         </div>
 
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 mb-5">
-          <div className="flex flex-col lg:flex-row gap-3">
-            <div className="flex items-center rounded-lg border border-black/10 overflow-hidden focus-within:border-[#0F2A44] flex-1">
+        {/* A busca fica sempre à vista; escopo e ordenação abrem e fecham no
+            painel compartilhado, recolhido a cada abertura da tela. */}
+        <PainelFiltros
+          className="mb-5"
+          chips={chipsAtivos}
+          onLimpar={limparFiltros}
+          topo={
+            <div className="flex items-center rounded-lg border border-black/10 overflow-hidden focus-within:border-[#0F2A44]">
               <div className="w-10 h-10 flex items-center justify-center text-[#0F2A44]/40">
                 <Search size={16} />
               </div>
@@ -440,41 +463,41 @@ export default function Tarefas() {
                 </button>
               )}
             </div>
+          }
+        >
+          <div className="flex flex-col sm:flex-row gap-3 pt-3">
+            <select
+              value={escopo}
+              onChange={(e) => setEscopo(e.target.value)}
+              className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44] bg-white sm:min-w-[180px]"
+            >
+              <option value="minhas">Minhas tarefas</option>
+              <option value="todas">Todas as tarefas</option>
+            </select>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={escopo}
-                onChange={(e) => setEscopo(e.target.value)}
-                className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44] bg-white sm:min-w-[180px]"
+            <select
+              value={ordenacao}
+              onChange={(e) => setOrdenacao(e.target.value)}
+              className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44] bg-white sm:min-w-[200px]"
+            >
+              {ORDENACOES.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+
+            {temFiltro && (
+              <button
+                type="button"
+                onClick={limparFiltros}
+                className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44]/70 hover:bg-black/5 whitespace-nowrap"
               >
-                <option value="minhas">Minhas tarefas</option>
-                <option value="todas">Todas as tarefas</option>
-              </select>
-
-              <select
-                value={ordenacao}
-                onChange={(e) => setOrdenacao(e.target.value)}
-                className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44] bg-white sm:min-w-[200px]"
-              >
-                {ORDENACOES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-
-              {temFiltro && (
-                <button
-                  type="button"
-                  onClick={limparFiltros}
-                  className="px-3 py-2.5 rounded-lg border border-black/10 text-sm text-[#0F2A44]/70 hover:bg-black/5 whitespace-nowrap"
-                >
-                  Limpar filtros
-                </button>
-              )}
-            </div>
+                Limpar filtros
+              </button>
+            )}
           </div>
-        </div>
+        </PainelFiltros>
 
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
