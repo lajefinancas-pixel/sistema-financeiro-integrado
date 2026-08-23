@@ -40,6 +40,7 @@ const MODULOS = {
   fornecedores: "Fornecedores",
   pagamentos: "Pagamentos",
   tributario: "Tributário",
+  certidoes: "Certidões",
   relatorios: "Relatórios",
   auditoria: "Auditoria",
   administracao: "Administração",
@@ -58,6 +59,11 @@ const ACOES = {
   excluiu: "Excluiu",
   aprovou: "Aprovou",
   rejeitou: "Rejeitou",
+  // Certidões: renovar preserva a emissão anterior como histórico, e mudar a
+  // situação à mão (ex.: "Em renovação") é uma decisão de quem acompanha o
+  // documento — as duas ficam distinguíveis na trilha.
+  renovou_certidao: "Renovou certidão",
+  alterou_situacao: "Alterou a situação",
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
   exportou_auditoria: "Exportou relatório de auditoria",
@@ -486,6 +492,14 @@ const CAMPOS = {
   tarefa_atrasada: "Aviso de tarefa atrasada",
   tarefa_aguardando_aprovacao: "Aviso de alteração pendente de aprovação",
   acao_critica: "Aviso de ação crítica",
+  // Campos das certidões (cadastro, edição, renovação e exclusão).
+  numero_documento: "Número / documento",
+  tipo_certidao: "Tipo de certidão",
+  data_emissao: "Data de emissão",
+  data_vencimento: "Data de vencimento",
+  observacoes: "Observações",
+  arquivo: "Documento anexado",
+  certidao_anterior: "Emissão anterior",
   // Campos do evento de solicitação de restauração de backup.
   justificativa: "Justificativa",
   solicitado_em: "Solicitado em",
