@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CardCertidoes from "../components/certidoes/CardCertidoes";
+import SecoesPessoais from "../components/painel/SecoesPessoais";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
@@ -361,6 +362,10 @@ export default function Dashboard() {
             </div>
             {/* Resumo do módulo Certidões — só o total, sem listar documentos. */}
             <CardCertidoes />
+
+            {/* Seções pessoais: as tarefas de quem está logado e o que precisa
+                de atenção agora. Compactas de propósito — resumo e atalho. */}
+            <SecoesPessoais />
 
             <div className="grid grid-cols-3 gap-5">
               <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5">
