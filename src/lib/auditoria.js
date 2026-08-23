@@ -64,6 +64,10 @@ const ACOES = {
   // documento — as duas ficam distinguíveis na trilha.
   renovou_certidao: "Renovou certidão",
   alterou_situacao: "Alterou a situação",
+  // Lixeira do sistema (Configurações > Sistema): desfazer a exclusão lógica ou
+  // concluí-la apagando a linha do banco. A segunda é sempre nível crítico.
+  restaurou: "Restaurou da Lixeira",
+  excluiu_definitivamente: "Excluiu definitivamente",
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
   exportou_auditoria: "Exportou relatório de auditoria",

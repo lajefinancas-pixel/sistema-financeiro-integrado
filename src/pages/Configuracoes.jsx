@@ -261,7 +261,7 @@ export default function Configuracoes() {
                 onSalvo={recarregar}
               />
             ) : categoriaAtual === "sistema" ? (
-              <CategoriaSistema />
+              <CategoriaSistema podeGerenciarLixeira={podeEditar} />
             ) : (
               <EmBreve
                 titulo={categoria?.label ?? "Categoria"}
