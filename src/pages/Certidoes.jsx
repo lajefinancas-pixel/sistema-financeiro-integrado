@@ -259,6 +259,17 @@ export default function Certidoes() {
     setFornecedorFoco(null);
   }
 
+  /**
+   * Remoção de um filtro pelo chip, com o painel fechado. Mexe no formulário e
+   * no que está aplicado ao mesmo tempo, como "Limpar Filtros" já fazia --
+   * nenhum critério novo entra aqui.
+   */
+  function removerFiltro(alteracao) {
+    setFiltros((atual) => ({ ...atual, ...alteracao }));
+    setFiltrosAplicados((atual) => ({ ...atual, ...alteracao }));
+    setFornecedorFoco(null);
+  }
+
   /** Atalho rápido: vale na hora, sem esperar "Aplicar Filtros". */
   function usarAtalho(id) {
     setFiltros((atual) => ({ ...atual, atalho: id }));
@@ -428,10 +439,12 @@ export default function Certidoes() {
 
             <FiltrosCertidoes
               filtros={filtros}
+              filtrosAplicados={filtrosAplicados}
               onMudar={setFiltros}
               onAplicar={aplicarFiltros}
               onLimpar={limparFiltros}
               onAtalho={usarAtalho}
+              onRemover={removerFiltro}
               secretarias={secretarias}
               tipos={tipos}
               totalEncontrado={listaVisivel.length}

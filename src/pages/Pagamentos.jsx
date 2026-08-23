@@ -3,6 +3,7 @@ import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSp
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
+import PainelFiltros from "../components/comuns/PainelFiltros";
 import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
 import { registrarEvento } from "../lib/auditoria";
@@ -1006,6 +1007,20 @@ export default function Pagamentos() {
     const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
     return fornecedor?.valores ?? [];
   }, [fornecedoresDaSecretaria, fornecedorEscolhido]);
+
+  // Chips da barra de filtros: só leitura do que já está escolhido na tela.
+  // Secretaria e data sempre têm valor, então os chips informam sem remover.
+  const chipsContexto = [];
+  const nomeSecretariaAtual = secretarias.find((s) => String(s.id) === String(secretariaId))?.nome;
+  if (nomeSecretariaAtual) {
+    chipsContexto.push({ chave: "secretaria", rotulo: `Secretaria: ${nomeSecretariaAtual}` });
+  }
+  if (data) {
+    chipsContexto.push({
+      chave: "data",
+      rotulo: `Data: ${new Date(data + "T00:00:00").toLocaleDateString("pt-BR")}`,
+    });
+  }
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
@@ -1026,23 +1041,39 @@ export default function Pagamentos() {
             <button onClick={exportarExcel} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">
               <FileSpreadsheet size={14} /> Excel
             </button>
-            <select
-              value={secretariaId}
-              onChange={(e) => { setSecretariaId(e.target.value); setProgramacaoAtualId(null); }}
-              className="px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
-            >
-              {secretarias.map((s) => (
-                <option key={s.id} value={s.id}>{s.nome}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={data}
-              onChange={(e) => { setData(e.target.value); setProgramacaoAtualId(null); }}
-              className="px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
-            />
           </div>
         </div>
+
+        {/* Secretaria e data escolhem a programação da tela. Ficam recolhidos ao
+            abrir a página e continuam à vista nos chips da barra. */}
+        <PainelFiltros
+          className="mb-6"
+          chips={chipsContexto}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3 pt-3">
+            <label className="block">
+              <span className="text-xs font-medium text-[#0F2A44]/70">Secretaria</span>
+              <select
+                value={secretariaId}
+                onChange={(e) => { setSecretariaId(e.target.value); setProgramacaoAtualId(null); }}
+                className="block w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
+              >
+                {secretarias.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-[#0F2A44]/70">Data</span>
+              <input
+                type="date"
+                value={data}
+                onChange={(e) => { setData(e.target.value); setProgramacaoAtualId(null); }}
+                className="block w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm bg-white"
+              />
+            </label>
+          </div>
+        </PainelFiltros>
 
         {erro && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5 print:hidden">

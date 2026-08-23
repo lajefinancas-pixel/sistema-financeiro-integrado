@@ -17,6 +17,7 @@ import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { auditarExclusao } from "../lib/exclusaoRegistros";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import PainelFiltros from "../components/comuns/PainelFiltros";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -854,6 +855,8 @@ export default function Saldos() {
   const dataSelecionadaBR = new Date(dataSelecionada + "T00:00:00").toLocaleDateString("pt-BR", {
     day: "2-digit", month: "long", year: "numeric",
   });
+  // Mesma data em formato curto, para caber no chip da barra de filtros.
+  const dataSelecionadaCurtaBR = new Date(dataSelecionada + "T00:00:00").toLocaleDateString("pt-BR");
   const totalGeralHistorico = somar(contasPorSecretariaNaData.map((s) => s.total));
 
   const secretariasAtual = React.useMemo(
@@ -1306,62 +1309,70 @@ export default function Saldos() {
           )
         )}
         {modoVisualizacao === "historico" && (
-          <div className="grid grid-cols-[280px_1fr] gap-6 print:block">
-            <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-4 h-fit print:hidden">
-              <div className="flex items-center justify-between mb-3">
-                <button onClick={() => mudarMes(-1)} className="text-[#0F2A44]/50 hover:text-[#0F2A44]">
-                  <ChevronLeft size={18} />
+          <div className="print:block">
+            {/* O calendário é o filtro desta visão: fica recolhido ao abrir a
+                tela e o dia escolhido continua à vista no chip da barra. */}
+            <PainelFiltros
+              className="mb-6"
+              chips={[{ chave: "data", rotulo: `Data: ${dataSelecionadaCurtaBR}` }]}
+              onLimpar={dataSelecionada === hojeISO() ? undefined : () => setDataSelecionada(hojeISO())}
+            >
+              <div className="w-full sm:w-[280px]">
+                <div className="flex items-center justify-between mb-3">
+                  <button onClick={() => mudarMes(-1)} className="text-[#0F2A44]/50 hover:text-[#0F2A44]">
+                    <ChevronLeft size={18} />
+                  </button>
+                  <span className="text-sm font-semibold text-[#0F2A44]">
+                    {MESES[mesExibido]} {anoExibido}
+                  </span>
+                  <button onClick={() => mudarMes(1)} className="text-[#0F2A44]/50 hover:text-[#0F2A44]">
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {DIAS_SEMANA.map((d, i) => (
+                    <div key={i} className="text-center text-[10px] font-medium text-[#0F2A44]/40 py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {dias.map((dia, i) => {
+                    if (dia === null) return <div key={i} />;
+                    const iso = toISO(new Date(anoExibido, mesExibido, dia));
+                    const temSaldo = datasComSaldo.has(iso);
+                    const selecionado = iso === dataSelecionada;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setDataSelecionada(iso)}
+                        className={`relative aspect-square rounded-lg text-xs flex items-center justify-center ${
+                          selecionado
+                            ? "bg-[#0F2A44] text-white font-semibold"
+                            : temSaldo
+                            ? "text-[#0F2A44] font-medium hover:bg-black/5"
+                            : "text-[#0F2A44]/30 hover:bg-black/5"
+                        }`}
+                      >
+                        {dia}
+                        {temSaldo && !selecionado && (
+                          <span className="absolute bottom-0.5 w-1 h-1 rounded-full bg-[#C9A227]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => setDataSelecionada(hojeISO())}
+                  className="w-full mt-3 text-xs text-center py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
+                >
+                  Ir para hoje
                 </button>
-                <span className="text-sm font-semibold text-[#0F2A44]">
-                  {MESES[mesExibido]} {anoExibido}
-                </span>
-                <button onClick={() => mudarMes(1)} className="text-[#0F2A44]/50 hover:text-[#0F2A44]">
-                  <ChevronRight size={18} />
-                </button>
               </div>
-
-              <div className="grid grid-cols-7 gap-1 mb-1">
-                {DIAS_SEMANA.map((d, i) => (
-                  <div key={i} className="text-center text-[10px] font-medium text-[#0F2A44]/40 py-1">
-                    {d}
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-7 gap-1">
-                {dias.map((dia, i) => {
-                  if (dia === null) return <div key={i} />;
-                  const iso = toISO(new Date(anoExibido, mesExibido, dia));
-                  const temSaldo = datasComSaldo.has(iso);
-                  const selecionado = iso === dataSelecionada;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => setDataSelecionada(iso)}
-                      className={`relative aspect-square rounded-lg text-xs flex items-center justify-center ${
-                        selecionado
-                          ? "bg-[#0F2A44] text-white font-semibold"
-                          : temSaldo
-                          ? "text-[#0F2A44] font-medium hover:bg-black/5"
-                          : "text-[#0F2A44]/30 hover:bg-black/5"
-                      }`}
-                    >
-                      {dia}
-                      {temSaldo && !selecionado && (
-                        <span className="absolute bottom-0.5 w-1 h-1 rounded-full bg-[#C9A227]" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={() => setDataSelecionada(hojeISO())}
-                className="w-full mt-3 text-xs text-center py-2 rounded-lg border border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
-              >
-                Ir para hoje
-              </button>
-            </div>
+            </PainelFiltros>
 
             <div>
               <div className="mb-4">
