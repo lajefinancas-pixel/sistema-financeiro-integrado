@@ -594,3 +594,193 @@ export async function registrarSolicitacaoRestauracao({ justificativa, usuarioId
   }
   return mensagemAmigavel(error, "A solicitação não pôde ser registrada no histórico de backups.");
 }
+
+/* -------------------------------------------------------------------------
+ * Vigilância do backup diário (alerta do Painel Principal)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * A partir de quantas horas sem backup concluído a rotina diária é considerada
+ * não cumprida.
+ *
+ * A rotina roda uma vez por dia (HORARIO_BACKUP_AUTOMATICO). Esperar exatamente
+ * 24 h acenderia o alerta enquanto a execução do dia ainda estivesse começando;
+ * esperar 48 h deixaria um dia inteiro passar em silêncio. Trinta horas é o
+ * meio-termo: um dia perdido acende o alerta já na manhã seguinte, e um atraso
+ * de algumas horas na própria rotina não vira alarme falso.
+ */
+export const HORAS_SEM_BACKUP_AUTOMATICO = 30;
+
+/** Motivos possíveis do alerta, com o texto de apoio de cada um. */
+const MOTIVOS_ALERTA = {
+  falhou:
+    "A última execução da rotina automática terminou com falha e nenhum backup foi concluído depois dela.",
+  atrasado:
+    `Nenhum backup foi concluído nas últimas ${HORAS_SEM_BACKUP_AUTOMATICO} horas — a rotina diária não chegou ao fim no horário previsto.`,
+  nunca:
+    "Nenhuma execução da rotina automática de backup foi registrada no sistema até agora.",
+};
+
+export function motivoAlertaBackup(valor) {
+  return MOTIVOS_ALERTA[valor] ?? null;
+}
+
+/** Instante de referência de um registro (início da execução). */
+function instanteDoRegistro(registro) {
+  const valor = registro?.iniciadoEm ?? registro?.criadoEm ?? null;
+  if (!valor) return null;
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? null : data;
+}
+
+/**
+ * A rotina diária de backup está em dia?
+ *
+ * Responde à pergunta que o Painel Principal faz: existe hoje um backup válido,
+ * ou alguém precisa ir olhar? Duas situações acendem o alerta:
+ *
+ *   1. o backup automático mais recente terminou com status 'falhou';
+ *   2. não há nenhum backup concluído dentro da janela de vigilância — sinal de
+ *      que a rotina agendada simplesmente não rodou.
+ *
+ * O que APAGA o alerta é a existência de um backup válido mais recente. "Válido"
+ * é um registro concluído, automático OU manual: quem abre o alerta, vai em
+ * Configurações → Backup e gera um backup manual resolveu de fato o problema que
+ * o alerta aponta, e o painel precisa reconhecer isso.
+ *
+ * Uma execução automática ainda 'em_andamento' dentro da janela não é falha: a
+ * rotina está rodando agora, e o alerta espera o desfecho.
+ *
+ * Nunca lança: o painel não pode quebrar por causa desta consulta. Quando a
+ * tabela não existe ou a leitura falha, devolve `disponivel: false` e nenhum
+ * alerta — afirmar que o backup falhou sem ter conseguido ler o registro seria
+ * inventar informação.
+ *
+ * @returns { disponivel, alerta, motivo, ultimoAutomatico, ultimoValido }
+ */
+export async function situacaoBackupDiario({ agora = new Date() } = {}) {
+  const semDados = {
+    disponivel: false,
+    alerta: false,
+    motivo: null,
+    ultimoAutomatico: null,
+    ultimoValido: null,
+  };
+
+  const limite = new Date(agora.getTime() - HORAS_SEM_BACKUP_AUTOMATICO * 60 * 60 * 1000);
+  const ordenar = (query, completa) =>
+    query.order(completa ? "iniciado_em" : "criado_em", { ascending: false });
+
+  let automatico;
+  let concluidos;
+  try {
+    automatico = await consultar((query, completa) =>
+      ordenar(query, completa).eq("tipo", "automatico").limit(1)
+    );
+    if (automatico.error) return semDados;
+
+    concluidos = await consultar((query, completa) =>
+      ordenar(query, completa).in("tipo", ["automatico", "manual"]).eq("status", "concluido").limit(1)
+    );
+    if (concluidos.error) return semDados;
+  } catch {
+    return semDados;
+  }
+
+  const ultimoAutomatico = normalizar(automatico.data?.[0], automatico.completa);
+  const ultimoValido = normalizar(concluidos.data?.[0], concluidos.completa);
+
+  const emQueAutomatico = instanteDoRegistro(ultimoAutomatico);
+  const emQueValido = instanteDoRegistro(ultimoValido);
+
+  const base = { disponivel: true, ultimoAutomatico, ultimoValido };
+
+  // 1. A rotina falhou. Só um backup concluído DEPOIS da falha limpa o alerta.
+  if (ultimoAutomatico?.status === "falhou") {
+    const cobertoDepois = emQueValido && emQueAutomatico && emQueValido > emQueAutomatico;
+    if (!cobertoDepois) return { ...base, alerta: true, motivo: "falhou" };
+    return { ...base, alerta: false, motivo: null };
+  }
+
+  // 2. Existe backup concluído dentro da janela? Então está em dia.
+  if (emQueValido && emQueValido >= limite) return { ...base, alerta: false, motivo: null };
+
+  // 3. A execução automática começou há pouco e ainda não terminou: aguarda.
+  if (
+    ultimoAutomatico?.status === "em_andamento" &&
+    emQueAutomatico &&
+    emQueAutomatico >= limite
+  ) {
+    return { ...base, alerta: false, motivo: null };
+  }
+
+  return { ...base, alerta: true, motivo: ultimoAutomatico ? "atrasado" : "nunca" };
+}
+
+/* -------------------------------------------------------------------------
+ * Permissões consultadas fora da tela de Configurações
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Pergunta ao banco o resultado de uma das funções de permissão da categoria
+ * (public.pode_ver_backups / public.pode_gerar_backup_manual).
+ *
+ * Devolve null quando a função não existe neste banco (migration não aplicada)
+ * ou a chamada falha — cabe a quem chamou decidir o que fazer nesse caso.
+ */
+async function perguntarAoBanco(funcao) {
+  try {
+    const { data, error } = await supabase.rpc(funcao);
+    if (error) return null;
+    return data === true;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * O usuário pode ver a situação dos backups? (mesma regra de pode_ver_backups())
+ *
+ * Usada pelo alerta do Painel Principal, que fica fora da tela de Configurações
+ * e por isso precisa perguntar a permissão por conta própria. Sem ela o alerta
+ * não aparece: para quem não enxerga backups, o RLS devolve zero registros, e
+ * zero registros não podem ser lidos como "a rotina não rodou".
+ */
+export async function permissaoVerBackups(usuarioId) {
+  const doBanco = await perguntarAoBanco("pode_ver_backups");
+  if (doBanco !== null) return doBanco;
+
+  if (!usuarioId) return false;
+
+  const permissoes = await carregarPermissoesBackup(usuarioId);
+  if (permissoes.moduloDisponivel && permissoes.visualizar) return true;
+
+  // A mesma porta que a função do banco abre: quem já visualiza Administração
+  // enxerga a situação dos backups, porque a categoria vive nas Configurações.
+  const { data, error } = await supabase
+    .from("permissoes_efetivas")
+    .select("pode_visualizar")
+    .eq("usuario_id", usuarioId)
+    .eq("modulo", "administracao")
+    .limit(1);
+
+  if (error) return false;
+  return data?.[0]?.pode_visualizar === true;
+}
+
+/**
+ * O usuário pode gerar um backup manual? (mesma regra de pode_gerar_backup_manual())
+ *
+ * Usada pela opção "Criar backup antes de continuar" nas operações críticas.
+ * Quando o banco ainda não conhece o módulo 'backup', devolve false: sem a
+ * estrutura da categoria o insert seria recusado pelo RLS, e oferecer a opção
+ * só levaria a pessoa a um erro no meio de uma operação crítica.
+ */
+export async function permissaoGerarBackupManual(usuarioId) {
+  const doBanco = await perguntarAoBanco("pode_gerar_backup_manual");
+  if (doBanco !== null) return doBanco;
+
+  if (!usuarioId) return false;
+  const permissoes = await carregarPermissoesBackup(usuarioId);
+  return permissoes.moduloDisponivel === true && permissoes.gerar === true;
+}
