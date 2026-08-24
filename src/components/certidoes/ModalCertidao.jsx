@@ -1,7 +1,6 @@
 import React from "react";
 import { FileText, Paperclip, RefreshCw, Trash2, Upload } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA, ModalShell } from "../equipe/comuns";
-import SeletorFornecedor from "./SeletorFornecedor";
 import {
   MODULO,
   OPCOES_SITUACAO,
@@ -12,6 +11,7 @@ import {
   enviarArquivo,
   hojeISO,
   nomeDoAnexo,
+  nomeFornecedor,
   situacaoPorData,
   vencimentoSugerido,
 } from "../../lib/certidoes";
@@ -20,12 +20,6 @@ import { mensagemAmigavel } from "../../lib/erros";
 
 /**
  * Cadastro e edição de uma certidão.
- *
- * O campo "Fornecedor" é abastecido pela view de identificação dos fornecedores
- * (`fornecedoresIdentificacao`), liberada pela permissão do módulo Certidões —
- * quem cuida da regularidade documental escolhe o fornecedor por nome ou
- * CPF/CNPJ sem precisar de acesso ao módulo Fornecedores. A tela que abre o
- * modal (Certidões ou Vida do Fornecedor) passa a lista pronta em `fornecedores`.
  *
  * Duas regras guiam o formulário:
  *   * o tipo escolhido manda no vencimento — tipo sem vencimento esconde o
@@ -36,7 +30,6 @@ import { mensagemAmigavel } from "../../lib/erros";
 export default function ModalCertidao({
   certidao,
   fornecedores,
-  carregandoFornecedores = false,
   tipos,
   usuario,
   podeRenovar = false,
@@ -67,19 +60,6 @@ export default function ModalCertidao({
     const atual = tipos.find((t) => t.id === certidao?.tipo_certidao_id);
     return atual && !ativos.some((t) => t.id === atual.id) ? [...ativos, atual] : ativos;
   }, [tipos, certidao?.tipo_certidao_id]);
-
-  /**
-   * Opções do seletor: a lista recebida mais o fornecedor já gravado na
-   * certidão, caso ele não venha nela (cadastro inativado, por exemplo). Sem
-   * isso a edição perderia de vista o fornecedor do próprio documento.
-   */
-  const fornecedoresDisponiveis = React.useMemo(() => {
-    const lista = fornecedores ?? [];
-    const atual = certidao?.fornecedores ?? null;
-    const id = atual?.id ?? certidao?.fornecedor_id ?? null;
-    if (!id || lista.some((f) => String(f.id) === String(id))) return lista;
-    return atual ? [...lista, atual] : lista;
-  }, [fornecedores, certidao?.fornecedores, certidao?.fornecedor_id]);
 
   const tipoEscolhido = tiposDisponiveis.find((t) => t.id === campos.tipo_certidao_id) ?? null;
   const possuiVencimento = tipoEscolhido ? tipoEscolhido.possui_vencimento !== false : true;
@@ -142,9 +122,7 @@ export default function ModalCertidao({
         ? await atualizarCertidao(certidao.id, valores, tipoEscolhido)
         : await criarCertidao(valores, tipoEscolhido, usuario?.id ?? null);
 
-      const fornecedor = fornecedoresDisponiveis.find(
-        (f) => String(f.id) === String(salva.fornecedor_id),
-      );
+      const fornecedor = fornecedores.find((f) => f.id === salva.fornecedor_id);
       registrarAuditoria(salva, fornecedor);
 
       onSalva?.(salva, edicao);
@@ -257,14 +235,21 @@ export default function ModalCertidao({
         {erro && <Alerta>{erro}</Alerta>}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SeletorFornecedor
-            fornecedores={fornecedoresDisponiveis}
-            valor={campos.fornecedor_id}
-            aoEscolher={(id) => alterar("fornecedor_id", id)}
-            carregando={carregandoFornecedores}
-            desabilitado={salvando}
-            obrigatorio
-          />
+          <Campo label="Fornecedor" obrigatorio>
+            <select
+              value={campos.fornecedor_id}
+              onChange={(e) => alterar("fornecedor_id", e.target.value)}
+              className={CLASSE_ENTRADA}
+            >
+              <option value="">Selecione o fornecedor</option>
+              {fornecedores.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {nomeFornecedor(f)}
+                  {f.cpf_cnpj ? ` — ${f.cpf_cnpj}` : ""}
+                </option>
+              ))}
+            </select>
+          </Campo>
 
           <Campo label="Tipo de certidão" obrigatorio>
             <select

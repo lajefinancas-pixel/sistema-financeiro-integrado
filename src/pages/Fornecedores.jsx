@@ -464,26 +464,6 @@ export default function Fornecedores() {
   // Fornecedor que terá uma certidão cadastrada (null = modal fechado).
   const [novaCertidaoPara, setNovaCertidaoPara] = React.useState(null);
 
-  /**
-   * O que o modal de certidão recebe desta tela: só a identificação do cadastro,
-   * no mesmo formato da fonte usada pelo módulo Certidões. Dado bancário, valor
-   * em aberto e histórico de pagamento não entram no seletor de fornecedor, por
-   * aqui nem por lá.
-   */
-  const fornecedoresParaCertidao = React.useMemo(
-    () =>
-      (fornecedores ?? []).map((f) => ({
-        id: f.id,
-        razao_social: f.razao_social ?? null,
-        nome_fantasia: f.nome_fantasia ?? null,
-        cpf_cnpj: f.cpf_cnpj ?? null,
-        ativo: f.ativo,
-        secretaria_id: f.secretaria_id ?? null,
-        secretarias: f.secretarias ?? null,
-      })),
-    [fornecedores],
-  );
-
   React.useEffect(() => {
     carregarDados();
     carregarDatasPagamento();
@@ -2200,7 +2180,7 @@ export default function Fornecedores() {
       {novaCertidaoPara && (
         <ModalCertidao
           certidao={{ fornecedor_id: novaCertidaoPara.id }}
-          fornecedores={fornecedoresParaCertidao}
+          fornecedores={fornecedores}
           tipos={tiposCertidao}
           usuario={usuarioCertidoes}
           onFechar={() => setNovaCertidaoPara(null)}
