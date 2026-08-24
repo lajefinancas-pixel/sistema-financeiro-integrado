@@ -21,11 +21,12 @@ import { mensagemAmigavel } from "../../lib/erros";
 /**
  * Cadastro e edição de uma certidão.
  *
- * O campo "Fornecedor" é abastecido pela view de identificação dos fornecedores
- * (`fornecedoresIdentificacao`), liberada pela permissão do módulo Certidões —
+ * O campo "Fornecedor" é abastecido pela fonte de identificação do próprio
+ * módulo (`fornecedoresIdentificacao`), liberada pela permissão de Certidões —
  * quem cuida da regularidade documental escolhe o fornecedor por nome ou
- * CPF/CNPJ sem precisar de acesso ao módulo Fornecedores. A tela que abre o
- * modal (Certidões ou Vida do Fornecedor) passa a lista pronta em `fornecedores`.
+ * CPF/CNPJ sem precisar de acesso ao módulo Fornecedores, e sem herdar nenhum
+ * filtro da tela de Fornecedores. A tela que abre o modal (Certidões ou Vida do
+ * Fornecedor) passa a lista pronta em `fornecedores`.
  *
  * Duas regras guiam o formulário:
  *   * o tipo escolhido manda no vencimento — tipo sem vencimento esconde o
