@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CardCertidoes from "../components/certidoes/CardCertidoes";
+import AlertaBackupDiario from "../components/painel/AlertaBackupDiario";
 import SecoesPessoais from "../components/painel/SecoesPessoais";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
@@ -300,6 +301,10 @@ export default function Dashboard() {
             {erro}
           </div>
         )}
+
+        {/* Backup diário que falhou ou não rodou. Fora do "carregando" do painel:
+            o aviso tem vida própria e não espera os saldos para aparecer. */}
+        <AlertaBackupDiario />
         {carregando ? (
           <div className="text-sm text-[#0F2A44]/50 mt-6">Carregando painel...</div>
         ) : (

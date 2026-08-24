@@ -17,6 +17,10 @@ import { mensagemAmigavel } from "../../lib/erros";
  *                      pagamento, fornecedor e certidão
  * @param bloqueio      { texto, acao: { rotulo, descricao, onAcionar } } — impede
  *                      a exclusão e oferece a alternativa (ex.: inativar)
+ * @param complemento   conteúdo extra no fim do corpo, para as telas que
+ *                      precisam oferecer algo junto da confirmação (a Lixeira
+ *                      usa isto para "Criar backup antes de continuar"). Sem
+ *                      ele, o modal é exatamente o de sempre.
  * @param onConfirmar   async (motivo) => void; a exclusão em si
  */
 export default function ModalConfirmarExclusao({
@@ -27,6 +31,7 @@ export default function ModalConfirmarExclusao({
   aviso = null,
   exigirMotivo = false,
   bloqueio = null,
+  complemento = null,
   verificando = false,
   textoConfirmar = "Confirmar exclusão",
   onCancelar,
@@ -170,6 +175,8 @@ export default function ModalConfirmarExclusao({
         {bloqueado && bloqueio.acao?.descricao && (
           <p className="text-xs text-[#0F2A44]/55 leading-relaxed">{bloqueio.acao.descricao}</p>
         )}
+
+        {!bloqueado && complemento}
       </div>
     </ModalShell>
   );

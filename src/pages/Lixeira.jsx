@@ -4,10 +4,13 @@ import { ArrowLeft, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import OpcaoBackupAntes from "../components/comuns/OpcaoBackupAntes";
 import FiltrosLixeira from "../components/lixeira/FiltrosLixeira";
 import ItemLixeira from "../components/lixeira/ItemLixeira";
+import ModalConfirmarRestauracao from "../components/lixeira/ModalConfirmarRestauracao";
 import { Alerta } from "../components/equipe/comuns";
 import { usePermissaoModulo } from "../lib/permissoes";
+import { useBackupAntesDeContinuar } from "../lib/backupAntesDeContinuar";
 import { mensagemAmigavel } from "../lib/erros";
 import {
   FILTROS_VAZIOS,
@@ -51,7 +54,12 @@ export default function Lixeira() {
   const [semSuporte, setSemSuporte] = React.useState([]);
   const [filtros, setFiltros] = React.useState(FILTROS_VAZIOS);
   const [restaurando, setRestaurando] = React.useState(null);
+  const [restauracaoPendente, setRestauracaoPendente] = React.useState(null);
   const [exclusaoPendente, setExclusaoPendente] = React.useState(null);
+
+  // "Criar backup antes de continuar": a mesma opção serve às duas operações
+  // críticas desta tela, uma de cada vez.
+  const opcaoBackup = useBackupAntesDeContinuar(usuario?.id ?? null);
 
   const montado = React.useRef(true);
   React.useEffect(() => {
@@ -85,17 +93,39 @@ export default function Lixeira() {
   const visiveis = React.useMemo(() => aplicarFiltros(itens, filtros), [itens, filtros]);
   const usuarios = React.useMemo(() => usuariosDaLixeira(itens), [itens]);
 
-  async function restaurar(item) {
-    setRestaurando(item.chave);
+  /** Abre a confirmação da restauração, onde o backup prévio pode ser pedido. */
+  function pedirRestauracao(item) {
     setErro(null);
     setAviso(null);
+    opcaoBackup.reiniciar();
+    setRestauracaoPendente(item);
+  }
+
+  function fecharRestauracao() {
+    setRestauracaoPendente(null);
+    opcaoBackup.reiniciar();
+  }
+
+  /**
+   * Restaura o registro. Quando a caixa "Criar backup antes de continuar" está
+   * marcada, o backup vem primeiro: se ele falhar, `executarSeMarcado` lança e
+   * a restauração não chega a acontecer.
+   */
+  async function restaurar(item) {
+    const backup = await opcaoBackup.executarSeMarcado("restaurar um registro da Lixeira");
+    if (!montado.current) return;
+
+    setRestaurando(item.chave);
     try {
       await restaurarRegistro(item, { usuarioId: usuario?.id ?? null });
       if (!montado.current) return;
       setItens((atuais) => atuais.filter((i) => i.chave !== item.chave));
-      setAviso(`${tipoInfo(item.tipo).label} "${item.titulo}" restaurado: voltou a aparecer nas listagens do sistema.`);
-    } catch (e) {
-      if (montado.current) setErro(mensagemAmigavel(e, "Não foi possível restaurar este registro."));
+      setRestauracaoPendente(null);
+      opcaoBackup.reiniciar();
+      setAviso(
+        `${tipoInfo(item.tipo).label} "${item.titulo}" restaurado: voltou a aparecer nas listagens do sistema.` +
+          (backup ? " Um backup manual foi gerado antes da restauração." : ""),
+      );
     } finally {
       if (montado.current) setRestaurando(null);
     }
@@ -109,6 +139,7 @@ export default function Lixeira() {
   function pedirExclusaoDefinitiva(item) {
     setErro(null);
     setAviso(null);
+    opcaoBackup.reiniciar();
     setExclusaoPendente({ item, verificando: true, bloqueio: null });
 
     vinculosDaExclusaoDefinitiva(item)
@@ -131,14 +162,21 @@ export default function Lixeira() {
     const pendente = exclusaoPendente;
     if (!pendente) return;
 
+    // Backup pedido na confirmação vem antes da exclusão: se ele não concluir,
+    // a exceção sobe para o modal e o registro continua onde está.
+    const backup = await opcaoBackup.executarSeMarcado("excluir definitivamente um registro da Lixeira");
+    if (!montado.current) return;
+
     await excluirDefinitivamente(pendente.item, { motivo, usuarioId: usuario?.id ?? null });
 
     if (!montado.current) return;
     setItens((atuais) => atuais.filter((i) => i.chave !== pendente.item.chave));
     setExclusaoPendente(null);
+    opcaoBackup.reiniciar();
     setAviso(
       `${tipoInfo(pendente.item.tipo).label} "${pendente.item.titulo}" apagado permanentemente. ` +
-        "O registro e a justificativa ficaram guardados na trilha de auditoria.",
+        "O registro e a justificativa ficaram guardados na trilha de auditoria." +
+        (backup ? " Um backup manual foi gerado antes da exclusão." : ""),
     );
   }
 
@@ -279,13 +317,22 @@ export default function Lixeira() {
                 podeRestaurar={podeAbrir}
                 podeExcluirDefinitivo={podeApagar}
                 restaurando={restaurando === item.chave}
-                onRestaurar={restaurar}
+                onRestaurar={pedirRestauracao}
                 onExcluir={pedirExclusaoDefinitiva}
               />
             ))}
           </ul>
         )}
       </div>
+
+      {restauracaoPendente && (
+        <ModalConfirmarRestauracao
+          item={restauracaoPendente}
+          opcaoBackup={opcaoBackup}
+          onCancelar={fecharRestauracao}
+          onConfirmar={() => restaurar(restauracaoPendente)}
+        />
+      )}
 
       {exclusaoPendente && (
         <ModalConfirmarExclusao
@@ -298,7 +345,11 @@ export default function Lixeira() {
           textoConfirmar="Excluir definitivamente"
           detalhes={exclusaoPendente.item.detalhes}
           bloqueio={exclusaoPendente.bloqueio ? { texto: exclusaoPendente.bloqueio } : null}
-          onCancelar={() => setExclusaoPendente(null)}
+          complemento={<OpcaoBackupAntes opcao={opcaoBackup} />}
+          onCancelar={() => {
+            setExclusaoPendente(null);
+            opcaoBackup.reiniciar();
+          }}
           onConfirmar={confirmarExclusaoDefinitiva}
         />
       )}
