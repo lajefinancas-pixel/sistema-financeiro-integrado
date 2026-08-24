@@ -32,16 +32,13 @@ import {
   MODULO,
   formatarData,
   listarCertidoes,
+  listarFornecedores,
   listarTipos,
   nomeFornecedor,
   nomeSecretaria,
   secretariasDosFornecedores,
   urlDeDownload,
 } from "../lib/certidoes";
-import {
-  comFornecedorIdentificado,
-  listarFornecedoresIdentificacao,
-} from "../lib/fornecedoresIdentificacao";
 import {
   FILTROS_VAZIOS,
   ORDENACOES,
@@ -115,13 +112,10 @@ export default function Certidoes() {
       setCarregando(true);
       setErro(null);
       try {
-        // Os fornecedores vêm da fonte de identificação do próprio módulo
-        // (nome, CPF/CNPJ, secretaria e situação), liberada pela permissão de
-        // Certidões — não pela do módulo Fornecedores.
         const [listaCertidoes, listaTipos, listaFornecedores] = await Promise.all([
           listarCertidoes(),
           listarTipos(),
-          listarFornecedoresIdentificacao(),
+          listarFornecedores(),
         ]);
         if (!ativo) return;
         setCertidoes(listaCertidoes);
@@ -197,18 +191,10 @@ export default function Certidoes() {
   // Secretarias oferecidas no filtro: as que aparecem nos fornecedores carregados.
   const secretarias = React.useMemo(() => secretariasDosFornecedores(fornecedores), [fornecedores]);
 
-  // O fornecedor embutido em cada certidão obedece à RLS do módulo Fornecedores;
-  // para quem só tem Certidões ele chega nulo e o nome some da listagem. A fonte
-  // de identificação já carregada refaz esse vínculo — só onde ele falta.
-  const certidoesComFornecedor = React.useMemo(
-    () => comFornecedorIdentificado(certidoes, fornecedores),
-    [certidoes, fornecedores],
-  );
-
   // Listagem exibida: filtros aplicados + ordenação escolhida.
   const listaVisivel = React.useMemo(
-    () => ordenarCertidoes(filtrarCertidoes(certidoesComFornecedor, fornecedores, filtrosAplicados), ordenacao),
-    [certidoesComFornecedor, fornecedores, filtrosAplicados, ordenacao],
+    () => ordenarCertidoes(filtrarCertidoes(certidoes, fornecedores, filtrosAplicados), ordenacao),
+    [certidoes, fornecedores, filtrosAplicados, ordenacao],
   );
 
   const grupos = React.useMemo(() => {
@@ -554,7 +540,6 @@ export default function Certidoes() {
         <ModalCertidao
           certidao={certidaoEmEdicao}
           fornecedores={fornecedores}
-          carregandoFornecedores={carregando}
           tipos={tipos}
           usuario={usuarioLogado}
           podeRenovar={podeRenovar}

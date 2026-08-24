@@ -184,18 +184,6 @@ export async function atualizarTipo(id, campos) {
 // Fornecedores (somente leitura — o cadastro continua na tela de Fornecedores)
 // ---------------------------------------------------------------------------
 
-/**
- * Leitura direta do cadastro de fornecedores.
- *
- * O módulo de Certidões NÃO usa mais esta função como fonte do seletor: ela lê
- * public.fornecedores, protegida pelo RLS do módulo Fornecedores, e por isso
- * devolvia lista vazia para quem só tem Certidões. A fonte do módulo agora é
- * `listarFornecedoresIdentificacao` (lib/fornecedoresIdentificacao.js), sobre a
- * view public.fornecedores_identificacao.
- *
- * Esta continua aqui como caminho de retaguarda, usado enquanto a migration da
- * view não for aplicada no Supabase, e pela Central de Relatórios.
- */
 export async function listarFornecedores() {
   // A secretaria vem junto porque a listagem de certidões filtra por ela — o
   // vínculo é o do cadastro do fornecedor, sem coluna nova em certidoes.
