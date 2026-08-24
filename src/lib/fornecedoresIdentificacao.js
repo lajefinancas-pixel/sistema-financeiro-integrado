@@ -1,46 +1,30 @@
 import { supabase } from "./supabaseClient";
-import { nomeFornecedor } from "./certidoes";
+import { listarFornecedores, nomeFornecedor } from "./certidoes";
 
 /**
  * Fornecedores vistos pelo módulo "Certidões" — só identificação.
  *
- * A fonte preferencial é a view public.fornecedores_identificacao
+ * A fonte é a view public.fornecedores_identificacao
  * (migration 20260824120000_fornecedores_identificacao_certidoes.sql), que
  * devolve apenas id, razão social, nome fantasia, CPF/CNPJ, secretaria e
  * situação. Nada de dados bancários, valores em aberto, notas, histórico de
  * pagamentos ou informação tributária passa por aqui.
  *
- * Quem libera a lista é a permissão do módulo Certidões (certidoes.pode_visualizar
- * — a tela só chega a pedir os fornecedores depois de conferi-la) e nunca a do
- * módulo Fornecedores. É essa troca que faz o seletor funcionar para quem cuida
- * da regularidade documental e não tem (nem deve ter) acesso ao módulo
- * Fornecedores.
+ * A view é liberada por permissão efetiva no módulo 'certidoes' — não por
+ * fornecedores.pode_visualizar. É essa troca que faz o seletor funcionar para
+ * quem cuida da regularidade documental e não tem (nem deve ter) acesso ao
+ * módulo Fornecedores.
  *
- * O MÓDULO NÃO HERDA MAIS NENHUM FILTRO DA TELA DE FORNECEDORES.
- * Enquanto a view não existir no banco, a leitura cai no cadastro
- * (public.fornecedores) — mas por uma consulta própria, escrita aqui, que pede
- * só as colunas de identificação. Era o caminho antigo, que reaproveitava a
- * consulta da tela de Fornecedores, que zerava o seletor: ela vem com os
- * recortes daquele módulo (o "só ativos" da listagem, o filtro de exclusão
- * lógica montado pelo utilitário compartilhado e o vínculo obrigatório com
- * secretarias). Qualquer um deles, sozinho, é capaz de devolver lista vazia —
- * ou derrubar a consulta inteira — para quem só tem Certidões, mesmo com o
- * cadastro cheio e o RLS liberado.
- *
- * O único recorte que sobra é "fornecedor excluído não aparece", e ele é
- * aplicado sobre o resultado já em memória: nenhuma coluna ausente e nenhuma
- * tabela vizinha sem permissão consegue transformar a lista inteira em zero.
+ * Os únicos recortes aplicados são os dois pedidos pelo módulo, e ambos vivem
+ * dentro da view: excluído = não e o controle de acesso por secretaria. Nenhum
+ * filtro do módulo Fornecedores (ativo, situação documental, filtros salvos)
+ * é herdado — era um deles que zerava a lista.
  */
 
 /** Nome da view. */
 export const FONTE_IDENTIFICACAO = "fornecedores_identificacao";
 
 const COLUNAS = "id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, secretaria_nome, ativo";
-
-/** Cadastro (retaguarda): as mesmas colunas de identificação, uma a uma. */
-const CADASTRO = "fornecedores";
-const COLUNAS_CADASTRO = "id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, ativo";
-const COLUNA_EXCLUSAO = "excluido_em";
 
 /**
  * O erro significa "a view ainda não existe neste banco" (migration pendente),
@@ -53,19 +37,9 @@ function fonteAusente(erro) {
 }
 
 /**
- * O erro é "esta coluna não existe aqui" (banco sem a migration da exclusão
- * lógica), e não uma falha de uso?
- */
-function colunaAusente(erro) {
-  const codigo = String(erro?.code ?? "");
-  if (["42703", "PGRST202", "PGRST204"].includes(codigo)) return true;
-  return new RegExp(COLUNA_EXCLUSAO, "i").test(String(erro?.message ?? ""));
-}
-
-/**
- * Linha no mesmo formato que o restante do módulo já espera do fornecedor (com
- * `secretarias.nome` aninhado), para que filtros, agrupamento por fornecedor e
- * exportações continuem lendo os mesmos campos de antes.
+ * Linha da view no mesmo formato que o restante do módulo já espera do
+ * fornecedor (com `secretarias.nome` aninhado), para que filtros, agrupamento
+ * por fornecedor e exportações continuem lendo os mesmos campos de antes.
  */
 function normalizar(linha) {
   const secretariaId = linha?.secretaria_id ?? null;
@@ -81,77 +55,13 @@ function normalizar(linha) {
 }
 
 /**
- * Nome da secretaria de cada fornecedor, buscado à parte.
- *
- * Separado de propósito: pedir `secretarias ( id, nome )` embutido na consulta
- * do cadastro faz a leitura dos fornecedores depender da permissão de outra
- * tabela — sem ela, a consulta inteira falha e o seletor fica vazio. Aqui, sem
- * acesso às secretarias a lista continua completa; só o rótulo da secretaria
- * deixa de aparecer.
- */
-async function nomesDasSecretarias(linhas) {
-  const ids = [
-    ...new Set(
-      linhas.map((linha) => linha?.secretaria_id).filter((id) => id !== null && id !== undefined),
-    ),
-  ];
-  if (ids.length === 0) return new Map();
-
-  try {
-    const { data, error } = await supabase.from("secretarias").select("id, nome").in("id", ids);
-    if (error) return new Map();
-    return new Map((data ?? []).map((s) => [String(s.id), s.nome ?? ""]));
-  } catch {
-    return new Map();
-  }
-}
-
-/**
- * Leitura de retaguarda: a identificação direto do cadastro, usada enquanto a
- * view não existir no banco.
- *
- * A coluna de exclusão lógica é pedida junto quando existe, e o descarte dos
- * excluídos acontece em memória — em banco sem essa migration a consulta é
- * refeita sem ela, em vez de falhar.
- */
-async function lerIdentificacaoDoCadastro() {
-  let { data, error } = await supabase
-    .from(CADASTRO)
-    .select(`${COLUNAS_CADASTRO}, ${COLUNA_EXCLUSAO}`)
-    .order("razao_social", { nullsFirst: false });
-
-  if (error && colunaAusente(error)) {
-    ({ data, error } = await supabase
-      .from(CADASTRO)
-      .select(COLUNAS_CADASTRO)
-      .order("razao_social", { nullsFirst: false }));
-  }
-  if (error) throw error;
-
-  const vigentes = (data ?? []).filter((linha) => !linha?.[COLUNA_EXCLUSAO]);
-  const secretarias = await nomesDasSecretarias(vigentes);
-
-  return vigentes.map((linha) =>
-    normalizar({ ...linha, secretaria_nome: secretarias.get(String(linha?.secretaria_id)) ?? "" }),
-  );
-}
-
-/**
  * Fornecedores disponíveis para escolha no módulo Certidões.
  *
- * A view responde primeiro. Ela não existir (migration pendente) — ou existir e
- * não devolver nenhuma linha, o que só acontece quando algum recorte dentro
- * dela zera o resultado — leva à leitura direta da identificação no cadastro.
- * A tela só chega até aqui depois de confirmar certidoes.pode_visualizar, e o
- * RLS do banco continua valendo nas duas leituras; o que muda é que uma lista
- * vazia deixa de ser o desfecho silencioso de um filtro que não é deste módulo.
- *
- * ATENÇÃO ao mexer na view: a retaguarda por lista vazia é segura porque hoje
- * `secretarias_do_meu_usuario_em_certidoes()` devolve NULL (ninguém é restrito
- * a secretaria alguma) e a view não recorta nada além disso. No dia em que essa
- * restrição por secretaria passar a existir de fato, este trecho precisa sair
- * daqui — senão um usuário restrito cujo recorte devolva zero linhas passaria a
- * ver o cadastro inteiro.
+ * Enquanto a migration não for aplicada no Supabase, a view não existe e a
+ * consulta cai no caminho antigo (leitura de public.fornecedores). Assim a aba
+ * continua funcionando como hoje para quem já tem os dois módulos, em vez de
+ * quebrar; para quem só tem Certidões a lista segue vazia até a migration
+ * rodar — e a tela mostra o aviso amigável, nunca um erro técnico.
  */
 export async function listarFornecedoresIdentificacao() {
   const { data, error } = await supabase
@@ -160,20 +70,11 @@ export async function listarFornecedoresIdentificacao() {
     .order("razao_social", { nullsFirst: false });
 
   if (error) {
-    if (fonteAusente(error)) return lerIdentificacaoDoCadastro();
+    if (fonteAusente(error)) return listarFornecedores();
     throw error;
   }
 
-  const daView = (data ?? []).map(normalizar);
-  if (daView.length > 0) return daView;
-
-  // Sem linha nenhuma: confere no cadastro antes de dar a lista por vazia. Se
-  // essa leitura também não vier (RLS, por exemplo), vale o resultado da view.
-  try {
-    return await lerIdentificacaoDoCadastro();
-  } catch {
-    return daView;
-  }
+  return (data ?? []).map(normalizar);
 }
 
 // ---------------------------------------------------------------------------
