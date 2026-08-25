@@ -963,7 +963,10 @@ export default function Pagamentos() {
 
   async function definirContaPagamento(id) {
     setErro(null);
-    const contaId = id || null;
+    const contaId = id === null || id === undefined || id === "" ? null : Number(id);
+    if (contaId !== null && !Number.isInteger(contaId)) {
+      throw erroAmigavel("A conta de pagamento selecionada é inválida.");
+    }
     const { data: resultado, error } = await supabase.rpc("definir_conta_pagamento_programacao", {
       p_programacao_id: programacaoAtualId,
       p_conta_id: contaId,
