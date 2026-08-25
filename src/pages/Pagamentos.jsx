@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy, Lock, Unlock, Scale } from "lucide-react";
+import { Plus, X, Trash2, Check, ChevronRight, Pencil, Printer, FileText, FileSpreadsheet, Copy, Lock, Unlock, Search, ArrowRightLeft } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -15,10 +15,7 @@ import {
   TOLERANCIA,
   emCentavos,
   somar,
-  rateioFecha,
-  ratearAutomaticamente,
   textoSaldoInsuficiente,
-  textoRateioDivergente,
   textoDoMotivo,
 } from "../lib/rateioPagamentos";
 import { montarSaldosDasContas } from "../lib/saldosContas";
@@ -27,16 +24,16 @@ import {
   buscarSaldoRealPorConta,
   estruturaDeRateioAusente,
 } from "../lib/saldosContasDados";
+import { calcularConferenciaTransferencias, confirmarTransferencias, estornarTransferencia } from "../lib/transferenciasContas";
+import { listarFormasPagamento, resumirFormaPagamento } from "../lib/dadosPagamentoFornecedor";
+import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Aviso usado quando o banco deste ambiente ainda não recebeu a estrutura de
-// rateio (coluna valor_rateado, razão de movimentações e função de efetivação).
-const AVISO_RATEIO_INDISPONIVEL =
-  "O rateio entre contas ainda não está disponível neste ambiente. " +
-  "Peça ao administrador para aplicar a atualização do banco de dados antes de efetivar pagamentos.";
+// Aviso usado quando o banco deste ambiente ainda não recebeu a estrutura nova.
+const AVISO_RATEIO_INDISPONIVEL = "A estrutura de conta de pagamento e transferências ainda não está disponível neste ambiente.";
 
 export default function Pagamentos() {
   const [carregando, setCarregando] = React.useState(true);
@@ -48,6 +45,7 @@ export default function Pagamentos() {
   const { usuario: usuarioLogado, permissao: permissaoPagamentos } =
     usePermissaoModulo("pagamentos");
   const podeExcluir = permissaoPagamentos?.pode_excluir === true;
+  const { valores: permissoesEspeciais } = usePermissoesEspeciais();
 
   const [secretarias, setSecretarias] = React.useState([]);
   const [secretariaId, setSecretariaId] = React.useState("");
@@ -63,11 +61,14 @@ export default function Pagamentos() {
 
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [contasFinalizadas, setContasFinalizadas] = React.useState(false);
+  const [contaPagamentoId, setContaPagamentoId] = React.useState("");
+  const [buscaConta, setBuscaConta] = React.useState("");
+  const [filtroBancoConta, setFiltroBancoConta] = React.useState("");
   const [pagamentos, setPagamentos] = React.useState([]);
+  const [transferenciasRealizadas, setTransferenciasRealizadas] = React.useState([]);
   const [fechado, setFechado] = React.useState(false);
 
-  // Contas desta programação na ordem em que foram escolhidas, com o rateio
-  // gravado no banco; `rateioLocal` é o que está na tela agora.
+  // Contas de origem e valores de transferência ainda não confirmados.
   const [contasDaProgramacao, setContasDaProgramacao] = React.useState([]);
   const [rateioLocal, setRateioLocal] = React.useState({});
   const [rateioSalvo, setRateioSalvo] = React.useState({});
@@ -85,6 +86,8 @@ export default function Pagamentos() {
 
   const [fornecedorEscolhido, setFornecedorEscolhido] = React.useState("");
   const [valorEmAbertoEscolhido, setValorEmAbertoEscolhido] = React.useState("");
+  const [formasPagamentoFornecedor, setFormasPagamentoFornecedor] = React.useState([]);
+  const [formaPagamentoId, setFormaPagamentoId] = React.useState("");
   const [avulso, setAvulso] = React.useState({ nome: "", descricao: "", valor: "" });
 
   const [mostrarCopiar, setMostrarCopiar] = React.useState(false);
@@ -94,6 +97,7 @@ export default function Pagamentos() {
   const timersRef = React.useRef({});
   // Trava síncrona contra duplo clique em "Marcar como pago".
   const efetivandoRef = React.useRef(null);
+  const transferindoRef = React.useRef(false);
 
   React.useEffect(() => {
     carregarSecretarias();
@@ -113,6 +117,23 @@ export default function Pagamentos() {
       carregarProgramacoesDoDia();
     }
   }, [secretariaId, data]);
+
+  React.useEffect(() => {
+    let ativo = true;
+    if (!fornecedorEscolhido) {
+      setFormasPagamentoFornecedor([]);
+      setFormaPagamentoId("");
+      return () => { ativo = false; };
+    }
+    listarFormasPagamento(fornecedorEscolhido)
+      .then((formas) => {
+        if (!ativo) return;
+        setFormasPagamentoFornecedor(formas ?? []);
+        setFormaPagamentoId((formas ?? []).find((forma) => forma.isPrimary)?.id ?? "");
+      })
+      .catch(() => { if (ativo) setFormasPagamentoFornecedor([]); });
+    return () => { ativo = false; };
+  }, [fornecedorEscolhido]);
 
   React.useEffect(() => {
     if (programacaoAtualId) {
@@ -244,29 +265,30 @@ export default function Pagamentos() {
     try {
       const { data: prog, error: eProg } = await supabase
         .from("programacoes_pagamento")
-        .select("id, fechado")
+        .select("id, fechado, conta_pagamento_id")
         .eq("id", programacaoAtualId)
         .single();
       if (eProg) throw eProg;
 
       setFechado(prog.fechado);
+      setContaPagamentoId(prog.conta_pagamento_id ?? "");
 
       const { data: pc, error: ePc } = await supabase
         .from("programacao_contas")
-        .select("conta_id, valor_rateado, ordem")
+        .select("conta_id, valor_transferir, ordem")
         .eq("programacao_id", programacaoAtualId);
 
       let linhasDeContas = pc;
       if (ePc) {
         if (!estruturaDeRateioAusente(ePc)) throw ePc;
-        // Banco sem a estrutura de rateio: a tela ainda abre, só não rateia.
+        // Banco sem a estrutura nova: a tela ainda abre em modo protegido.
         setRateioIndisponivel(true);
         const { data: simples, error: eSimples } = await supabase
           .from("programacao_contas")
           .select("conta_id")
           .eq("programacao_id", programacaoAtualId);
         if (eSimples) throw eSimples;
-        linhasDeContas = (simples ?? []).map((r) => ({ ...r, valor_rateado: 0, ordem: null }));
+        linhasDeContas = (simples ?? []).map((r) => ({ ...r, valor_transferir: 0, ordem: null }));
       }
 
       const ordenadas = [...(linhasDeContas ?? [])].sort(
@@ -277,7 +299,7 @@ export default function Pagamentos() {
       setContasDaProgramacao(ordenadas);
 
       const rateio = {};
-      for (const r of ordenadas) rateio[r.conta_id] = emCentavos(paraNumeroMoeda(r.valor_rateado));
+      for (const r of ordenadas) rateio[r.conta_id] = emCentavos(paraNumeroMoeda(r.valor_transferir));
       setRateioLocal(rateio);
       setRateioSalvo(rateio);
 
@@ -291,12 +313,14 @@ export default function Pagamentos() {
       const { data: pgs, error: ePgs } = await vigentes(
         supabase
           .from("pagamentos")
-          .select("id, fornecedor_id, valor_em_aberto_id, valor_a_pagar, situacao, nome_avulso, descricao, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)")
+          .select("id, fornecedor_id, valor_em_aberto_id, valor_a_pagar, situacao, nome_avulso, descricao, forma_pagamento_id, forma_pagamento_resumo, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal)")
           .eq("programacao_id", programacaoAtualId)
           .order("created_at", { ascending: true }),
       );
       if (ePgs) throw ePgs;
       setPagamentos(pgs ?? []);
+      const { data: transferencias, error: erroTransferencias } = await supabase.from("transferencias_contas").select("id,conta_origem_id,conta_destino_id,valor,criada_em,observacao,estornada_em,transferencia_original_id").eq("programacao_id", programacaoAtualId).order("criada_em", { ascending: false });
+      if (!erroTransferencias) setTransferenciasRealizadas(transferencias ?? []);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível abrir a programação selecionada."));
     }
@@ -305,23 +329,21 @@ export default function Pagamentos() {
   async function fecharMovimento() {
     setErro(null);
 
-    // Só fecha quando as contas, o rateio e o saldo estão coerentes.
-    if (contasSelecionadas.size === 0) {
-      setErro("Escolha as contas bancárias desta programação antes de fechar o movimento.");
+    if (!contaPagamentoId) {
+      setErro("Escolha a conta de pagamento desta programação antes de fechar o movimento.");
       return;
     }
     if (saldoInsuficiente) {
       setErro(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
       return;
     }
-    if (!rateioIndisponivel && !rateioConfere) {
-      setErro(textoRateioDivergente(somaDoRateio, totalProgramado));
+    if (somaDoRateio > TOLERANCIA) {
+      setErro("Existem valores de transferência informados e ainda não confirmados.");
       return;
     }
     if (!confirm("Fechar o movimento deste dia? A programação ficará somente para leitura até ser reaberta.")) return;
     setSalvando(true);
     try {
-      if (temRateioNaoSalvo) await salvarRateio();
       const { error } = await supabase
         .from("programacoes_pagamento")
         .update({ fechado: true })
@@ -586,12 +608,11 @@ export default function Pagamentos() {
       }
 
       if (contasParaCopiar && contasParaCopiar.length > 0) {
-        // O rateio não é copiado: a programação nova começa com tudo pendente,
-        // e o valor de cada conta é definido (ou rateado) de novo.
+        // Valores de transferência não são copiados para a nova programação.
         const novasContas = contasParaCopiar.map((c, i) => ({
           programacao_id: nova.id,
           conta_id: c.conta_id,
-          ...(eContasOrigem ? {} : { ordem: c.ordem ?? i + 1, valor_rateado: 0 }),
+          ...(eContasOrigem ? {} : { ordem: c.ordem ?? i + 1, valor_transferir: 0 }),
         }));
         const { error: eInsContas } = await supabase.from("programacao_contas").insert(novasContas);
         if (eInsContas) throw eInsContas;
@@ -658,17 +679,27 @@ export default function Pagamentos() {
         const { error } = await supabase.from("programacao_contas").insert({
           programacao_id: programacaoAtualId,
           conta_id: contaId,
-          ...(rateioIndisponivel ? {} : { ordem: proximaOrdem, valor_rateado: 0 }),
+          ...(rateioIndisponivel ? {} : { ordem: proximaOrdem, valor_transferir: 0 }),
         });
         if (error) throw error;
       }
 
-      // Recarrega para manter contas, ordem e rateio em sincronia com o banco.
+      // Recarrega para manter seleção, ordem e valores em sincronia.
       await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível alterar as contas desta programação."));
     }
+  }
+
+  async function selecionarTodasContas() {
+    if (!programacaoAtualId || fechado) return;
+    const novas = contasFiltradas.filter((conta) => !contasSelecionadas.has(conta.id));
+    if (!novas.length) return;
+    const inicio = contasDaProgramacao.reduce((maior, conta) => Math.max(maior, conta.ordem ?? 0), 0);
+    const { error } = await supabase.from("programacao_contas").insert(novas.map((conta, indice) => ({ programacao_id: programacaoAtualId, conta_id: conta.id, ordem: inicio + indice + 1, valor_transferir: 0 })));
+    if (error) { setErro(mensagemAmigavel(error, "Não foi possível selecionar todas as contas.")); return; }
+    await carregarProgramacaoAtual();
   }
 
   async function abrirAddCadastrado() {
@@ -696,11 +727,14 @@ export default function Pagamentos() {
         valor_em_aberto_id: valorEmAbertoEscolhido,
         valor_a_pagar: restante,
         situacao: "pendente",
+        forma_pagamento_id: formaPagamentoId || null,
+        forma_pagamento_resumo: formaPagamentoId ? resumirFormaPagamento(formasPagamentoFornecedor.find((forma) => forma.id === formaPagamentoId)) : null,
       });
       if (error) throw error;
 
       setFornecedorEscolhido("");
       setValorEmAbertoEscolhido("");
+      setFormaPagamentoId("");
       setMostrarAddCadastrado(false);
       await carregarProgramacaoAtual();
       await carregarProgramacoesDoDia();
@@ -764,7 +798,7 @@ export default function Pagamentos() {
     setRateioLocal((atual) => ({ ...atual, [contaId]: emCentavos(novoValor) }));
   }
 
-  /** Grava no banco o rateio informado (uma linha de programacao_contas por conta). */
+  /** Grava apenas a intenção informada; nenhum saldo é movimentado nesta etapa. */
   async function persistirRateio(valores) {
     if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
 
@@ -775,7 +809,7 @@ export default function Pagamentos() {
     for (const [contaId, valor] of alteradas) {
       const { error } = await supabase
         .from("programacao_contas")
-        .update({ valor_rateado: emCentavos(valor) })
+        .update({ valor_transferir: emCentavos(valor) })
         .eq("programacao_id", programacaoAtualId)
         .eq("conta_id", contaId);
       if (error) throw error;
@@ -784,7 +818,7 @@ export default function Pagamentos() {
     setRateioSalvo((atual) => ({ ...atual, ...valores }));
     setContasDaProgramacao((atual) =>
       atual.map((c) =>
-        c.conta_id in valores ? { ...c, valor_rateado: emCentavos(valores[c.conta_id]) } : c
+        c.conta_id in valores ? { ...c, valor_transferir: emCentavos(valores[c.conta_id]) } : c
       )
     );
     await carregarProgramacoesDoDia();
@@ -800,52 +834,51 @@ export default function Pagamentos() {
     try {
       await salvarRateio();
     } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível salvar o rateio entre as contas."));
+      setErro(mensagemAmigavel(e, "Não foi possível salvar os valores de transferência."));
     } finally {
       setSalvandoRateio(false);
     }
   }
 
-  /**
-   * Rateio automático: usa as contas na ordem em que foram escolhidas e enche
-   * uma até esgotar o saldo disponível antes de passar para a próxima.
-   */
-  async function ratearAutomaticamenteNaTela() {
-    setSalvandoRateio(true);
+  async function definirContaPagamento(id) {
+    setErro(null);
+    const { error } = await supabase.from("programacoes_pagamento").update({ conta_pagamento_id: id || null }).eq("id", programacaoAtualId);
+    if (error) throw error;
+    setContaPagamentoId(id);
+    if (id && contasSelecionadas.has(id)) await toggleConta(id);
+  }
+
+  async function confirmarTransferenciasNaTela() {
+    if (transferindoRef.current || somaDoRateio <= 0) return;
+    if (!permissoesEspeciais.executar_transferencia) { setErro("Você não possui permissão para executar transferências."); return; }
+    if (!contaPagamentoId) { setErro("Escolha primeiro a conta de pagamento."); return; }
+    const transferencias = contasSelecionadasComSaldo.filter((conta) => emCentavos(rateioLocal[conta.id]) > 0).map((conta) => ({ sourceAccountId: conta.id, amount: emCentavos(rateioLocal[conta.id]) }));
+    const invalida = transferencias.find((item) => item.amount > (contasSelecionadasComSaldo.find((conta) => conta.id === item.sourceAccountId)?.saldoHoje ?? 0));
+    if (invalida) { setErro("O valor a transferir não pode superar o saldo disponível da conta de origem."); return; }
+    if (!confirm(`Confirmar ${transferencias.length} transferência(s), totalizando ${formatBRL(somaDoRateio)}?`)) return;
+    transferindoRef.current = true; setSalvandoRateio(true); setErro(null);
+    try {
+      if (temRateioNaoSalvo) await salvarRateio();
+      await confirmarTransferencias({ programId: programacaoAtualId, destinationAccountId: contaPagamentoId, transfers: transferencias, idempotencyKey: crypto.randomUUID(), note: `Programação diária de ${data}` });
+      setRateioLocal({}); setRateioSalvo({});
+      await carregarContasEFornecedores(secretariaId); await carregarProgramacaoAtual(); await carregarProgramacoesDoDia();
+    } catch (e) { setErro(mensagemAmigavel(e, "Não foi possível confirmar as transferências.")); }
+    finally { transferindoRef.current = false; setSalvandoRateio(false); }
+  }
+
+  async function estornarTransferenciaNaTela(transferencia) {
+    if (!permissoesEspeciais.estornar_transferencia || transferencia.estornada_em || transferencia.transferencia_original_id) return;
+    const motivo = prompt("Informe a observação do estorno:");
+    if (!motivo?.trim()) return;
+    if (!confirm(`Estornar a transferência de ${formatBRL(transferencia.valor)}?`)) return;
     setErro(null);
     try {
-      if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
-      if (contasSelecionadasComSaldo.length === 0) {
-        throw erroAmigavel("Escolha as contas bancárias desta programação antes de ratear.");
-      }
-
-      const { rateio, faltante } = ratearAutomaticamente(
-        contasSelecionadasComSaldo.map((c) => ({
-          id: c.id,
-          disponivel: c.saldoHoje,
-          minimo: c.debitadoNestaProgramacao,
-        })),
-        totalProgramado
-      );
-
-      setRateioLocal((atual) => ({ ...atual, ...rateio }));
-      await persistirRateio(rateio);
-
-      if (faltante > 0) {
-        throw erroAmigavel(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
-      }
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível ratear automaticamente entre as contas."));
-    } finally {
-      setSalvandoRateio(false);
-    }
+      await estornarTransferencia(transferencia.id, motivo.trim());
+      await carregarContasEFornecedores(secretariaId); await carregarProgramacaoAtual(); await carregarProgramacoesDoDia();
+    } catch (e) { setErro(mensagemAmigavel(e, "Não foi possível estornar a transferência.")); }
   }
 
-  /**
-   * Efetivação do pagamento: valida rateio e saldo, debita de cada conta apenas
-   * o valor rateado para ela e muda a situação -- tudo numa única transação no
-   * banco. Um segundo clique não gera novo débito.
-   */
+  /** Efetiva o pagamento integralmente na conta concentradora, com idempotência. */
   async function marcarPago(pagamento) {
     // Duplo clique: o pedido só sai uma vez (e o banco também é idempotente).
     if (pagamento.situacao === "pago" || efetivandoRef.current) return;
@@ -854,16 +887,11 @@ export default function Pagamentos() {
     setEfetivandoId(pagamento.id);
     try {
       if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
-      if (contasSelecionadas.size === 0) {
-        throw erroAmigavel("Escolha as contas bancárias desta programação antes de efetivar o pagamento.");
-      }
+      if (!contaPagamentoId) throw erroAmigavel("Escolha a conta de pagamento desta programação.");
       if (saldoInsuficiente) {
         throw erroAmigavel(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
       }
-      if (temRateioNaoSalvo) await salvarRateio();
-      if (!rateioConfere) {
-        throw erroAmigavel(textoRateioDivergente(somaDoRateio, totalProgramado));
-      }
+      if (somaDoRateio > 0) throw erroAmigavel("Confirme ou limpe os valores de transferência antes de efetivar pagamentos.");
 
       const { data: resultado, error } = await supabase.rpc("marcar_pagamento_pago", {
         p_pagamento_id: String(pagamento.id),
@@ -918,15 +946,15 @@ export default function Pagamentos() {
     linhas.push({ Fornecedor: "SALDO DISPONÍVEL", "Valor a pagar": saldoDisponivel, Situação: "" });
     linhas.push({ Fornecedor: "RESTA", "Valor a pagar": saldoRestante, Situação: "" });
 
-    // Rateio: quanto sai de cada conta escolhida (a soma fecha com o total).
+    // Transferências ainda informadas na conferência da programação.
     contasSelecionadasComSaldo.forEach((c) => {
       linhas.push({
-        Fornecedor: `RATEIO -- ${c.banco} · ${c.nome_conta}`,
+        Fornecedor: `TRANSFERÊNCIA PREVISTA -- ${c.banco} · ${c.nome_conta}`,
         "Valor a pagar": emCentavos(rateioLocal[c.id] ?? 0),
         Situação: "",
       });
     });
-    linhas.push({ Fornecedor: "SOMA DO RATEIO", "Valor a pagar": somaDoRateio, Situação: "" });
+    linhas.push({ Fornecedor: "TOTAL A TRANSFERIR", "Valor a pagar": somaDoRateio, Situação: "" });
 
     const ws = XLSX.utils.json_to_sheet(linhas);
 
@@ -962,7 +990,7 @@ export default function Pagamentos() {
     }));
   }, [contasDaSecretaria, reservaPorConta, programacaoAtualId]);
 
-  // As contas ficam na ordem em que foram escolhidas (a mesma do rateio automático).
+  // As contas ficam na ordem em que foram escolhidas.
   const contasSelecionadasComSaldo = React.useMemo(() => {
     const posicao = new Map(contasDaProgramacao.map((c, i) => [String(c.conta_id), i]));
     return contasComSaldoDisponivelHoje
@@ -974,24 +1002,23 @@ export default function Pagamentos() {
       );
   }, [contasComSaldoDisponivelHoje, contasSelecionadas, contasDaProgramacao]);
 
-  // Item 1: o saldo disponível da programação é a SOMA dos saldos das contas escolhidas.
+  const contaPagamento = React.useMemo(() => contasComSaldoDisponivelHoje.find((c) => String(c.id) === String(contaPagamentoId)), [contasComSaldoDisponivelHoje, contaPagamentoId]);
+
+  // O pagamento sai integralmente desta única conta.
   const saldoDisponivel = React.useMemo(() => {
-    return somar(contasSelecionadasComSaldo.map((c) => c.saldoHoje));
-  }, [contasSelecionadasComSaldo]);
+    return contaPagamento?.saldoHoje ?? 0;
+  }, [contaPagamento]);
 
   const totalProgramado = React.useMemo(() => {
     return somar(pagamentos.map((p) => p.valor_a_pagar));
   }, [pagamentos]);
 
-  // Item 6: resta = saldo disponível das contas desta programação - total dela.
-  const saldoRestante = emCentavos(saldoDisponivel - totalProgramado);
-
-  // Soma sobre todas as contas da programação (é essa soma que o banco valida).
+  // Soma das transferências ainda não confirmadas.
   const somaDoRateio = React.useMemo(() => {
     return somar(contasDaProgramacao.map((c) => rateioLocal[c.conta_id] ?? 0));
   }, [contasDaProgramacao, rateioLocal]);
-
-  const rateioConfere = rateioFecha(somaDoRateio, totalProgramado);
+  const conferenciaTransferencias = calcularConferenciaTransferencias({ saldoDestino: saldoDisponivel, transferencias: contasDaProgramacao.map((c) => ({ valor: rateioLocal[c.conta_id] ?? 0 })), totalPagamentos: totalProgramado });
+  const saldoRestante = conferenciaTransferencias.restaAposPagamentos;
   const saldoInsuficiente = totalProgramado - saldoDisponivel > TOLERANCIA;
 
   const temRateioNaoSalvo = React.useMemo(() => {
@@ -1000,8 +1027,15 @@ export default function Pagamentos() {
     );
   }, [contasDaProgramacao, rateioLocal, rateioSalvo]);
 
-  const podeEfetivar =
-    !rateioIndisponivel && contasSelecionadas.size > 0 && !saldoInsuficiente && rateioConfere;
+  const podeEfetivar = !rateioIndisponivel && Boolean(contaPagamentoId) && !saldoInsuficiente && somaDoRateio <= TOLERANCIA;
+
+  const contasFiltradas = React.useMemo(() => contasComSaldoDisponivelHoje.filter((conta) => {
+    const termo = buscaConta.trim().toLocaleLowerCase("pt-BR");
+    const texto = `${conta.banco} ${conta.nome_conta} ${conta.numero_conta || ""}`.toLocaleLowerCase("pt-BR");
+    return String(conta.id) !== String(contaPagamentoId) && (!termo || texto.includes(termo)) && (!filtroBancoConta || conta.banco === filtroBancoConta);
+  }), [contasComSaldoDisponivelHoje, buscaConta, filtroBancoConta, contaPagamentoId]);
+
+  const totalSelecionado = somar(contasSelecionadasComSaldo.map((conta) => conta.saldoHoje));
 
   const todosValoresEmAberto = React.useMemo(() => {
     const fornecedor = fornecedoresDaSecretaria.find((f) => String(f.id) === String(fornecedorEscolhido));
@@ -1233,152 +1267,21 @@ export default function Pagamentos() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 print:break-inside-avoid">
-                  <div className="flex items-center justify-between mb-1">
-                    <h2 className="text-sm font-semibold text-[#0F2A44]">Contas bancárias desta programação</h2>
-                    {!fechado && (
-                      !contasFinalizadas ? (
-                        <button
-                          onClick={() => setContasFinalizadas(true)}
-                          disabled={contasSelecionadas.size === 0}
-                          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40 print:hidden"
-                        >
-                          <Check size={13} /> Finalizar escolha
-                        </button>
-                      ) : (
-                        <div className="flex items-center gap-2 print:hidden">
-                          <button
-                            onClick={ratearAutomaticamenteNaTela}
-                            disabled={salvandoRateio || rateioIndisponivel}
-                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44] disabled:opacity-40"
-                          >
-                            <Scale size={13} /> Ratear automaticamente
-                          </button>
-                          <button
-                            onClick={salvarRateioNaTela}
-                            disabled={salvandoRateio || rateioIndisponivel || !temRateioNaoSalvo}
-                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-40"
-                          >
-                            <Check size={13} /> {salvandoRateio ? "Salvando..." : "Salvar rateio"}
-                          </button>
-                          <button
-                            onClick={() => setContasFinalizadas(false)}
-                            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]"
-                          >
-                            <Pencil size={13} /> Editar contas
-                          </button>
-                        </div>
-                      )
-                    )}
-                  </div>
-                  <p className="text-xs text-[#0F2A44]/50 mb-3 print:hidden">
-                    O saldo já considera o que outras programações de hoje reservaram nas mesmas contas.
-                    Cada conta é debitada apenas pelo valor rateado para ela, e só quando o pagamento é marcado como pago.
-                  </p>
+                <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 print:break-inside-avoid space-y-5">
+                  <div><h2 className="text-sm font-semibold text-[#0F2A44]">1. Conta de pagamento</h2><p className="text-xs text-[#0F2A44]/50 mt-1">Todos os pagamentos desta programação saem integralmente de uma única conta.</p><select value={contaPagamentoId} onChange={(e) => definirContaPagamento(e.target.value).catch((falha) => setErro(mensagemAmigavel(falha, "Não foi possível definir a conta de pagamento.")))} disabled={fechado} className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"><option value="">Selecione a conta concentradora...</option>{contasComSaldoDisponivelHoje.map((conta) => <option key={conta.id} value={conta.id}>{conta.banco} · {conta.numero_conta || "--"} · {conta.nome_conta} — {formatBRL(conta.saldoHoje)}</option>)}</select>{contaPagamentoId && <div className={`mt-2 text-xs ${saldoInsuficiente ? "text-[#A16207]" : "text-[#16803C]"}`}>{saldoInsuficiente ? `Falta transferir ${formatBRL(Math.max(0, totalProgramado - saldoDisponivel))}` : "✓ Saldo suficiente"}</div>}</div>
 
-                  {rateioIndisponivel && (
-                    <div className="bg-[#FFF6E5] border border-[#EA9A1E]/30 text-[#8A5B00] text-xs rounded-lg px-3 py-2.5 mb-3 print:hidden">
-                      {AVISO_RATEIO_INDISPONIVEL}
-                    </div>
-                  )}
+                  {saldoInsuficiente && !fechado && <div><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-sm font-semibold text-[#0F2A44]">2. Contas de origem</h2><p className="text-xs text-[#0F2A44]/50 mt-1">Selecionar conta não movimenta dinheiro.</p></div><button type="button" onClick={selecionarTodasContas} className="rounded-lg border border-black/10 px-3 py-2 text-xs">Selecionar todas</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="relative"><Search size={14} className="absolute left-3 top-2.5 text-[#0F2A44]/40"/><input value={buscaConta} onChange={(e)=>setBuscaConta(e.target.value)} placeholder="Buscar conta" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></label><select value={filtroBancoConta} onChange={(e)=>setFiltroBancoConta(e.target.value)} className="rounded-lg border border-black/10 px-3 py-2 text-sm"><option value="">Todos os bancos</option>{[...new Set(contasComSaldoDisponivelHoje.map((conta)=>conta.banco))].sort().map((banco)=><option key={banco}>{banco}</option>)}</select></div><div className="mt-3 max-h-56 overflow-auto divide-y divide-black/5 rounded-lg border border-black/5">{contasFiltradas.map((conta)=><label key={conta.id} className="flex cursor-pointer items-center justify-between px-3 py-2.5"><span className="flex items-center gap-2 text-sm"><input type="checkbox" checked={contasSelecionadas.has(conta.id)} onChange={()=>toggleConta(conta.id)} className="h-4 w-4 accent-[#0F2A44]"/>{conta.banco} · {conta.nome_conta}</span><strong className="text-sm tabular-nums text-[#0F2A44]">{formatBRL(conta.saldoHoje)}</strong></label>)}</div><div className="mt-3 flex flex-wrap gap-2">{contasSelecionadasComSaldo.map((conta)=><button type="button" key={conta.id} onClick={()=>toggleConta(conta.id)} className="rounded-full bg-[#F0F3F5] px-3 py-1 text-xs text-[#0F2A44]">{conta.numero_conta || conta.nome_conta} ×</button>)}</div><div className="mt-3 grid grid-cols-2 gap-3 rounded-lg bg-[#F5F7F8] p-3 text-xs"><div><span className="text-[#0F2A44]/50">Contas selecionadas</span><strong className="block text-base text-[#0F2A44]">{contasSelecionadas.size}</strong></div><div><span className="text-[#0F2A44]/50">Total disponível selecionado</span><strong className="block text-base text-[#0F2A44]">{formatBRL(totalSelecionado)}</strong></div></div></div>}
 
-                  {!contasFinalizadas ? (
-                    contasComSaldoDisponivelHoje.length === 0 ? (
-                      <div className="text-xs text-[#0F2A44]/40">Nenhuma conta cadastrada para esta secretaria.</div>
-                    ) : (
-                      <div className="divide-y divide-black/5">
-                        {contasComSaldoDisponivelHoje.map((c) => {
-                          const selecionada = contasSelecionadas.has(c.id);
-                          return (
-                            <label key={c.id} className="flex items-center justify-between py-2.5 cursor-pointer">
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={selecionada}
-                                  disabled={fechado}
-                                  onChange={() => toggleConta(c.id)}
-                                  className="w-4 h-4 rounded accent-[#0F2A44]"
-                                />
-                                <span className="text-sm text-[#0F2A44]">{c.banco} · {c.nome_conta}</span>
-                              </div>
-                              <span className="text-sm tabular-nums text-[#0F2A44]/70">{formatBRL(c.saldoHoje)}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40 border-b border-black/5">
-                          <th className="py-2 font-medium">Instituição</th>
-                          <th className="py-2 font-medium">Conta Nº</th>
-                          <th className="py-2 font-medium">Objeto</th>
-                          <th className="py-2 font-medium text-right">Saldo</th>
-                          <th className="py-2 font-medium text-right">Rateio (débito desta conta)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {contasSelecionadasComSaldo.map((c) => (
-                          <tr key={c.id} className="border-b border-black/5">
-                            <td className="py-2">{c.banco}</td>
-                            <td className="py-2 text-[#0F2A44]/70">{c.numero_conta || "--"}</td>
-                            <td className="py-2">{c.nome_conta}</td>
-                            <td className="py-2 text-right tabular-nums">{formatBRL(c.saldoHoje)}</td>
-                            <td className="py-2 text-right">
-                              {fechado || rateioIndisponivel ? (
-                                <span className="tabular-nums">{formatBRL(rateioLocal[c.id] ?? 0)}</span>
-                              ) : (
-                                <CampoMoeda
-                                  valor={rateioLocal[c.id] ?? 0}
-                                  onValorChange={(numero) => editarRateioLocal(c.id, numero)}
-                                  className="w-36 px-2 py-1 rounded border border-black/10 text-sm text-right tabular-nums print:border-none print:w-auto"
-                                />
-                              )}
-                              {c.debitadoNestaProgramacao > 0 && (
-                                <div className="text-[10px] text-[#16A34A] mt-0.5 print:hidden">
-                                  já debitado: {formatBRL(c.debitadoNestaProgramacao)}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-[#0F2A44]/[0.03]">
-                          <td colSpan={3} className="py-2.5 font-semibold text-[#0F2A44]">TOTAL SALDO</td>
-                          <td className="py-2.5 text-right font-semibold text-[#0F2A44]">{formatBRL(saldoDisponivel)}</td>
-                          <td
-                            className="py-2.5 text-right font-semibold tabular-nums"
-                            style={{ color: rateioConfere ? "#0F2A44" : "#DC2626" }}
-                          >
-                            {formatBRL(somaDoRateio)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  )}
+                  {contasSelecionadasComSaldo.length > 0 && !fechado && <div><h2 className="text-sm font-semibold text-[#0F2A44]">3. Valores a transferir</h2><div className="mt-2 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-[11px] uppercase text-[#0F2A44]/45"><th className="py-2">Conta de origem</th><th className="py-2 text-right">Saldo disponível</th><th className="py-2 text-right">Valor a transferir</th></tr></thead><tbody>{contasSelecionadasComSaldo.map((conta)=><tr key={conta.id} className="border-b border-black/5"><td className="py-2">{conta.banco} · {conta.numero_conta || conta.nome_conta}</td><td className="py-2 text-right font-semibold tabular-nums">{formatBRL(conta.saldoHoje)}</td><td className="py-2 text-right"><CampoMoeda valor={rateioLocal[conta.id] ?? 0} onValorChange={(numero)=>editarRateioLocal(conta.id, Math.min(numero, conta.saldoHoje))} className="w-40 rounded border border-black/10 px-2 py-1 text-right text-sm"/></td></tr>)}</tbody></table></div></div>}
 
-                  {contasFinalizadas && !rateioIndisponivel && (
-                    <div className="mt-3 text-xs print:hidden">
-                      {rateioConfere ? (
-                        <div className="flex items-center gap-1.5 text-[#16A34A]">
-                          <Check size={13} />
-                          Rateio conferido: a soma do rateio é igual ao total dos pagamentos desta programação.
-                        </div>
-                      ) : (
-                        <div className="bg-[#FFF1F1] border border-red-200 text-red-700 rounded-lg px-3 py-2.5">
-                          {textoRateioDivergente(somaDoRateio, totalProgramado)}
-                          {temRateioNaoSalvo && " Salve o rateio para concluir."}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {somaDoRateio > 0 && <div className="rounded-xl border border-[#0F2A44]/10 bg-[#F8FAFB] p-4"><h2 className="flex items-center gap-2 text-sm font-semibold text-[#0F2A44]"><ArrowRightLeft size={15}/> 4. Conferência antes da confirmação</h2><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 text-xs"><div>Total a transferir<strong className="block text-base">{formatBRL(conferenciaTransferencias.totalTransferir)}</strong></div><div>Saldo atual destino<strong className="block text-base">{formatBRL(saldoDisponivel)}</strong></div><div>Saldo após transferências<strong className="block text-base">{formatBRL(conferenciaTransferencias.saldoAposTransferencias)}</strong></div><div>Total dos pagamentos<strong className="block text-base">{formatBRL(totalProgramado)}</strong></div><div>Resta após pagamentos<strong className={`block text-base ${conferenciaTransferencias.restaAposPagamentos < 0 ? "text-red-600" : "text-[#16803C]"}`}>{formatBRL(conferenciaTransferencias.restaAposPagamentos)}</strong></div></div><div className="mt-3 flex gap-2"><button type="button" onClick={salvarRateioNaTela} disabled={!temRateioNaoSalvo || salvandoRateio} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-40">Salvar valores</button><button type="button" onClick={confirmarTransferenciasNaTela} disabled={salvandoRateio || conferenciaTransferencias.restaAposPagamentos < 0 || !permissoesEspeciais.executar_transferencia} className="rounded-lg bg-[#0F2A44] px-4 py-2 text-xs text-white disabled:opacity-40">{salvandoRateio ? "Confirmando..." : "Confirmar transferências"}</button></div><p className="mt-2 text-[11px] text-[#0F2A44]/50">Somente confirmar movimenta os saldos. A transferência não é registrada como despesa.</p></div>}
+
+                  {transferenciasRealizadas.length > 0 && <div><h2 className="text-sm font-semibold text-[#0F2A44]">Histórico de transferências</h2><div className="mt-2 divide-y divide-black/5 rounded-lg border border-black/5">{transferenciasRealizadas.map((transferencia)=><div key={transferencia.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-xs"><div><strong className="text-[#0F2A44]">{nomeDaConta(transferencia.conta_origem_id)} → {nomeDaConta(transferencia.conta_destino_id)}</strong><div className="mt-0.5 text-[#0F2A44]/50">{new Date(transferencia.criada_em).toLocaleString("pt-BR")} · ID {transferencia.id}</div></div><div className="flex items-center gap-3"><strong className="text-sm tabular-nums">{formatBRL(transferencia.valor)}</strong>{transferencia.estornada_em || transferencia.transferencia_original_id ? <span className="rounded bg-[#FFF6E5] px-2 py-1 text-[#8A5B00]">Estorno registrado</span> : permissoesEspeciais.estornar_transferencia && <button type="button" onClick={()=>estornarTransferenciaNaTela(transferencia)} className="rounded border border-red-200 px-2 py-1 text-red-600">Estornar</button>}</div></div>)}</div></div>}
                 </div>
 
-                {saldoInsuficiente && contasSelecionadas.size > 0 && (
+                {saldoInsuficiente && contaPagamentoId && (
                   <div className="bg-[#FFF1F1] border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-6 print:hidden">
-                    <div className="font-semibold mb-1">Saldo insuficiente nas contas selecionadas</div>
+                    <div className="font-semibold mb-1">Saldo insuficiente na conta de pagamento</div>
                     <div className="grid grid-cols-3 gap-3 text-xs tabular-nums">
                       <div>
                         <div className="opacity-70">Saldo disponível</div>
@@ -1447,6 +1350,16 @@ export default function Pagamentos() {
                           </option>
                         ))}
                       </select>
+                      {fornecedorEscolhido && (
+                        <label className="col-span-2 rounded-lg border border-black/10 p-3 text-xs text-[#0F2A44]/70">
+                          <span className="mb-2 block font-medium text-[#0F2A44]">Dados cadastrados para conferência</span>
+                          <select value={formaPagamentoId} onChange={(e) => setFormaPagamentoId(e.target.value)} className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm">
+                            <option value="">Não vincular forma de pagamento</option>
+                            {formasPagamentoFornecedor.map((forma) => <option key={forma.id} value={forma.id}>{resumirFormaPagamento(forma)}</option>)}
+                          </select>
+                          <span className="mt-2 flex items-center gap-2"><input type="checkbox" checked={Boolean(formaPagamentoId)} onChange={(e) => setFormaPagamentoId(e.target.checked ? (formasPagamentoFornecedor.find((forma) => forma.isPrimary)?.id || formasPagamentoFornecedor[0]?.id || "") : "")}/> Usar estes dados para pagamento</span>
+                        </label>
+                      )}
                     </div>
                     <button
                       onClick={adicionarPagamentoCadastrado}
@@ -1513,6 +1426,7 @@ export default function Pagamentos() {
                                   não cadastrado
                                 </span>
                               )}
+                              {p.forma_pagamento_resumo && <div className="mt-1 text-[11px] text-[#0F2A44]/50">{p.forma_pagamento_resumo}</div>}
                             </td>
                             <td className="px-5 py-2.5 text-right">
                               {fechado ? (
@@ -1539,13 +1453,13 @@ export default function Pagamentos() {
                                   title={
                                     rateioIndisponivel
                                       ? AVISO_RATEIO_INDISPONIVEL
-                                      : contasSelecionadas.size === 0
-                                        ? "Escolha as contas bancárias desta programação."
+                                      : !contaPagamentoId
+                                        ? "Escolha a conta de pagamento desta programação."
                                         : saldoInsuficiente
                                           ? textoSaldoInsuficiente(saldoDisponivel, totalProgramado)
-                                          : !rateioConfere
-                                            ? textoRateioDivergente(somaDoRateio, totalProgramado)
-                                            : "Debita de cada conta o valor rateado para ela."
+                                          : somaDoRateio > 0
+                                            ? "Confirme ou limpe as transferências informadas."
+                                            : "Debita integralmente da conta de pagamento."
                                   }
                                   className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md disabled:opacity-40 disabled:hover:text-[#0F2A44]/60 print:hidden"
                                 >

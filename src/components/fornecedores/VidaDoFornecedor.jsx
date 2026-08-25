@@ -20,6 +20,7 @@ import {
 } from "../../lib/certidoes";
 import { resumoDocumental } from "../../lib/certidoesFornecedor";
 import NotasDoFornecedor from "./NotasDoFornecedor";
+import DadosParaPagamento from "./DadosParaPagamento";
 import { Bloco, Campo, Indicador, Vazio, textoOuTraco } from "./blocos";
 
 /**
@@ -87,6 +88,8 @@ export default function VidaDoFornecedor({
   onMudarSituacao,
   onExcluirValor,
   onVerHistorico,
+  permissoesPagamento,
+  onDadosPagamentoChange,
 }) {
   const valores = fornecedor.valores ?? [];
 
@@ -134,6 +137,12 @@ export default function VidaDoFornecedor({
           </div>
         </div>
       </Bloco>
+
+      <DadosParaPagamento
+        fornecedorId={fornecedor.id}
+        permissoes={permissoesPagamento}
+        onChange={onDadosPagamentoChange}
+      />
 
       <Bloco icone={Wallet} titulo="Financeiro">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

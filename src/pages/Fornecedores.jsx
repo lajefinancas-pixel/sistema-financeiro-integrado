@@ -14,6 +14,8 @@ import { carregarPagamentosPorFornecedor } from "../lib/vidaFornecedor";
 import { MODULO as MODULO_CERTIDOES, listarTipos as listarTiposCertidao } from "../lib/certidoes";
 import { carregarCertidoesPorFornecedor, detalheDocumental, resumoDocumental } from "../lib/certidoesFornecedor";
 import { usePermissaoModulo } from "../lib/permissoes";
+import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
+import { resumirDadosPagamentoFornecedores } from "../lib/dadosPagamentoFornecedor";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
 import PainelFiltros from "../components/comuns/PainelFiltros";
@@ -392,6 +394,8 @@ export default function Fornecedores() {
   const [erro, setErro] = React.useState(null);
   const [secretarias, setSecretarias] = React.useState([]);
   const [fornecedores, setFornecedores] = React.useState([]);
+  const [dadosPagamentoPorFornecedor, setDadosPagamentoPorFornecedor] = React.useState({});
+  const { valores: permissoesEspeciais } = usePermissoesEspeciais();
   const [expandido, setExpandido] = React.useState(salvoNaSessao?.expandido ?? null);
   // Fornecedor com o histórico aberto no modal (null quando nenhum está aberto).
   const [historicoDe, setHistoricoDe] = React.useState(null);
@@ -617,6 +621,9 @@ export default function Fornecedores() {
 
       setSecretarias(secs ?? []);
       setFornecedores(comValores);
+      resumirDadosPagamentoFornecedores(comValores.map((fornecedor) => fornecedor.id))
+        .then(setDadosPagamentoPorFornecedor)
+        .catch(() => {});
     } catch (e) {
       setErro(mensagemAmigavel(e, "Erro ao carregar dados."));
     } finally {
@@ -2077,6 +2084,9 @@ export default function Fornecedores() {
                       <div className="text-xs text-[#0F2A44]/50 truncate">
                         {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
                       </div>
+                      <div className={`mt-1 text-[11px] ${dadosPagamentoPorFornecedor[String(f.id)] || f.dados_bancarios ? "text-[#16803C]" : "text-[#9A6700]"}`}>
+                        {dadosPagamentoPorFornecedor[String(f.id)] || f.dados_bancarios ? "Dados bancários ✓" : "Dados para pagamento pendentes"}
+                      </div>
                     </button>
                     <div className="flex items-center gap-3 shrink-0">
                       {documental && (
@@ -2140,6 +2150,8 @@ export default function Fornecedores() {
                       onMudarSituacao={mudarSituacao}
                       onExcluirValor={excluirValor}
                       onVerHistorico={() => setHistoricoDe(f)}
+                      permissoesPagamento={permissoesEspeciais}
+                      onDadosPagamentoChange={(formas) => setDadosPagamentoPorFornecedor((atual) => ({ ...atual, [String(f.id)]: formas.length > 0 }))}
                     />
                   )}
                 </div>
