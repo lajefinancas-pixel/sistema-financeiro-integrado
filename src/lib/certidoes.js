@@ -10,7 +10,7 @@ import { excluirRegistro, filtroVigentes } from "./exclusaoRegistros";
  *                     cada um dizendo se vence e em quantos dias;
  *   certidoes      -> a certidão de um fornecedor, com o anexo no bucket
  *                     "certidoes-anexos";
- *   fornecedores   -> opções do campo "Fornecedor" (somente leitura);
+ *   fornecedores_identificacao -> opções seguras do campo "Fornecedor";
  *   usuarios       -> nome de quem cadastrou a certidão.
  *
  * A situação é gravada no cadastro, mas a tela reavalia pelas datas na hora de
@@ -185,17 +185,33 @@ export async function atualizarTipo(id, campos) {
 // ---------------------------------------------------------------------------
 
 export async function listarFornecedores() {
-  // A secretaria vem junto porque a listagem de certidões filtra por ela — o
-  // vínculo é o do cadastro do fornecedor, sem coluna nova em certidoes.
-  const vigentes = await filtroVigentes("fornecedores");
-  const { data, error } = await vigentes(
-    supabase
-      .from("fornecedores")
-      .select("id, razao_social, nome_fantasia, cpf_cnpj, ativo, secretaria_id, secretarias ( id, nome )")
-      .order("razao_social"),
-  );
+  const { data, error } = await supabase
+    .from("fornecedores_identificacao")
+    .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, ativo")
+    .order("razao_social", { nullsFirst: false });
   if (error) throw error;
-  return data ?? [];
+
+  const fornecedores = data ?? [];
+  const idsSecretarias = [...new Set(fornecedores.map((item) => item.secretaria_id).filter(Boolean))];
+  if (idsSecretarias.length === 0) return fornecedores;
+
+  const { data: secretarias, error: erroSecretarias } = await supabase
+    .from("secretarias")
+    .select("id, nome")
+    .in("id", idsSecretarias);
+
+  if (erroSecretarias) {
+    console.error("[Certidões] Não foi possível carregar os nomes das secretarias.", erroSecretarias);
+    return fornecedores;
+  }
+
+  const secretariaPorId = new Map((secretarias ?? []).map((item) => [String(item.id), item]));
+  return fornecedores.map((fornecedor) => ({
+    ...fornecedor,
+    secretarias: fornecedor.secretaria_id
+      ? secretariaPorId.get(String(fornecedor.secretaria_id)) ?? null
+      : null,
+  }));
 }
 
 export function nomeFornecedor(fornecedor) {
@@ -229,7 +245,7 @@ const COLUNAS_CERTIDAO = `
   substituida_por, substituida_em,
   fornecedores ( id, razao_social, nome_fantasia, cpf_cnpj ),
   tipos_certidao ( id, nome, possui_vencimento, prazo_padrao_dias, obrigatorio ),
-  usuarios ( id, nome_completo )
+  usuarios:usuarios!certidoes_responsavel_id_fkey ( id, nome_completo )
 `;
 
 /**
