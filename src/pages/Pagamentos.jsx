@@ -6,7 +6,6 @@ import Layout from "../components/Layout";
 import PainelFiltros from "../components/comuns/PainelFiltros";
 import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
-import { registrarEvento } from "../lib/auditoria";
 import { mensagemAmigavel, erroAmigavel } from "../lib/erros";
 import { usePermissaoModulo } from "../lib/permissoes";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
@@ -16,7 +15,6 @@ import {
   emCentavos,
   somar,
   textoSaldoInsuficiente,
-  textoDoMotivo,
 } from "../lib/rateioPagamentos";
 import { montarSaldosDasContas } from "../lib/saldosContas";
 import {
@@ -27,6 +25,8 @@ import {
 import { calcularConferenciaTransferencias, confirmarTransferencias, estornarTransferencia } from "../lib/transferenciasContas";
 import { listarFormasPagamento, resumirFormaPagamento } from "../lib/dadosPagamentoFornecedor";
 import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
+import ModalBaixaPagamento from "../components/pagamentos/ModalBaixaPagamento";
+import { resumoBaixas } from "../lib/regrasBaixas";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -105,6 +105,8 @@ export default function Pagamentos() {
   const [filtroBancoConta, setFiltroBancoConta] = React.useState("");
   const [filtroSecretariaConta, setFiltroSecretariaConta] = React.useState("");
   const [pagamentos, setPagamentos] = React.useState([]);
+  const [baixasPorPagamento, setBaixasPorPagamento] = React.useState({});
+  const [baixaPendente, setBaixaPendente] = React.useState(null);
   const [transferenciasRealizadas, setTransferenciasRealizadas] = React.useState([]);
   const [fechado, setFechado] = React.useState(false);
 
@@ -114,7 +116,6 @@ export default function Pagamentos() {
   const [rateioSalvo, setRateioSalvo] = React.useState({});
   const [salvandoRateio, setSalvandoRateio] = React.useState(false);
   const [rateioIndisponivel, setRateioIndisponivel] = React.useState(false);
-  const [efetivandoId, setEfetivandoId] = React.useState(null);
 
   // Por conta: quanto outras programações do dia reservaram e quanto esta
   // programação já debitou de verdade (Map montado pela fonte única de saldo).
@@ -135,8 +136,6 @@ export default function Pagamentos() {
   const [programacaoParaCopiarId, setProgramacaoParaCopiarId] = React.useState("");
 
   const timersRef = React.useRef({});
-  // Trava síncrona contra duplo clique em "Marcar como pago".
-  const efetivandoRef = React.useRef(null);
   const transferindoRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -188,6 +187,10 @@ export default function Pagamentos() {
       setContasFinalizadas(false);
     }
   }, [programacaoAtualId]);
+
+  React.useEffect(() => {
+    if (programacaoAtualId && permissoesEspeciais.visualizar_baixas) carregarProgramacaoAtual();
+  }, [permissoesEspeciais.visualizar_baixas]);
 
   async function carregarSecretarias() {
     try {
@@ -407,6 +410,25 @@ export default function Pagamentos() {
       }
       if (ePgs) throw ePgs;
       setPagamentos(pgs ?? []);
+      const idsPagamentos = (pgs ?? []).map((pagamento) => String(pagamento.id));
+      if (idsPagamentos.length > 0 && permissoesEspeciais.visualizar_baixas) {
+        const { data: baixas, error: erroBaixas } = await supabase
+          .from("pagamentos_baixas")
+          .select("id,pagamento_id,valor_pago,data_pagamento,conta_id,usuario_id,status,criado_em,motivo_estorno,contas_bancarias(nome_conta,numero_conta,bancos(nome)),usuarios(nome_completo)")
+          .in("pagamento_id", idsPagamentos)
+          .order("data_pagamento", { ascending: false });
+        if (erroBaixas) {
+          console.error("[Pagamentos] Histórico de baixas indisponível.", erroBaixas);
+          setBaixasPorPagamento({});
+        } else {
+          setBaixasPorPagamento((baixas ?? []).reduce((mapa, baixa) => {
+            (mapa[String(baixa.pagamento_id)] ??= []).push(baixa);
+            return mapa;
+          }, {}));
+        }
+      } else {
+        setBaixasPorPagamento({});
+      }
       const { data: transferencias, error: erroTransferencias } = await supabase.from("transferencias_contas").select("id,conta_origem_id,conta_destino_id,valor,criada_em,observacao,estornada_em,transferencia_original_id").eq("programacao_id", programacaoAtualId).order("criada_em", { ascending: false });
       if (erroTransferencias) {
         console.error("[Pagamentos] Histórico de transferências indisponível; mantendo a programação aberta.", {
@@ -941,10 +963,32 @@ export default function Pagamentos() {
 
   async function definirContaPagamento(id) {
     setErro(null);
-    const { error } = await supabase.from("programacoes_pagamento").update({ conta_pagamento_id: id || null }).eq("id", programacaoAtualId);
-    if (error) throw error;
-    setContaPagamentoId(id);
-    if (id && contasSelecionadas.has(id)) await toggleConta(id);
+    const contaId = id || null;
+    const { data: resultado, error } = await supabase.rpc("definir_conta_pagamento_programacao", {
+      p_programacao_id: programacaoAtualId,
+      p_conta_id: contaId,
+    });
+    if (error) {
+      console.error("[Pagamentos] Erro do Supabase ao definir a conta de pagamento.", {
+        programacaoId: programacaoAtualId,
+        contaId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw error;
+    }
+    if (resultado?.ok === false) throw erroAmigavel(resultado?.mensagem || "Não foi possível definir a conta de pagamento.");
+    setContaPagamentoId(contaId ?? "");
+    if (contaId && contasSelecionadas.has(contaId)) {
+      try {
+        await toggleConta(contaId);
+      } catch (falhaRemocao) {
+        console.error("[Pagamentos] A conta de pagamento foi definida, mas não pôde ser removida das contas de origem.", falhaRemocao);
+      }
+    }
+    await carregarProgramacoesDoDia();
   }
 
   async function confirmarTransferenciasNaTela() {
@@ -975,59 +1019,6 @@ export default function Pagamentos() {
       await estornarTransferencia(transferencia.id, motivo.trim());
       await carregarContasEFornecedores(secretariaId); await carregarProgramacaoAtual(); await carregarProgramacoesDoDia();
     } catch (e) { setErro(mensagemAmigavel(e, "Não foi possível estornar a transferência.")); }
-  }
-
-  /** Efetiva o pagamento integralmente na conta concentradora, com idempotência. */
-  async function marcarPago(pagamento) {
-    // Duplo clique: o pedido só sai uma vez (e o banco também é idempotente).
-    if (pagamento.situacao === "pago" || efetivandoRef.current) return;
-    efetivandoRef.current = pagamento.id;
-    setErro(null);
-    setEfetivandoId(pagamento.id);
-    try {
-      if (rateioIndisponivel) throw erroAmigavel(AVISO_RATEIO_INDISPONIVEL);
-      if (!contaPagamentoId) throw erroAmigavel("Escolha a conta de pagamento desta programação.");
-      if (saldoInsuficiente) {
-        throw erroAmigavel(textoSaldoInsuficiente(saldoDisponivel, totalProgramado));
-      }
-      if (somaDoRateio > 0) throw erroAmigavel("Confirme ou limpe os valores de transferência antes de efetivar pagamentos.");
-
-      const { data: resultado, error } = await supabase.rpc("marcar_pagamento_pago", {
-        p_pagamento_id: String(pagamento.id),
-      });
-      if (error) {
-        throw estruturaDeRateioAusente(error) ? erroAmigavel(AVISO_RATEIO_INDISPONIVEL) : error;
-      }
-      if (resultado && resultado.ok === false) {
-        throw erroAmigavel(textoDoMotivo(resultado, nomeDaConta(resultado.conta_id)));
-      }
-
-      // Auditoria: efetivar pagamento move dinheiro das contas, por isso o
-      // evento é crítico. Registrar nunca interfere na efetivação, que já foi
-      // concluída no banco neste ponto.
-      const nomeFornecedor = pagamento.fornecedores?.razao_social ?? pagamento.nome_avulso ?? "Pagamento";
-      await registrarEvento({
-        modulo: "pagamentos",
-        acao: "alterou",
-        registroAfetado: `${nomeFornecedor} — ${formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar))}`,
-        valorAnterior: { situacao: "Pendente" },
-        valorNovo: {
-          situacao: "Pago",
-          valor_pago: formatBRL(paraNumeroMoeda(pagamento.valor_a_pagar)),
-          data_pagamento: data,
-        },
-        nivel: "critico",
-      });
-
-      await carregarContasEFornecedores(secretariaId);
-      await carregarProgramacaoAtual();
-      await carregarProgramacoesDoDia();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível marcar este pagamento como pago."));
-    } finally {
-      efetivandoRef.current = null;
-      setEfetivandoId(null);
-    }
   }
 
   function nomeDaConta(contaId) {
@@ -1126,7 +1117,6 @@ export default function Pagamentos() {
     );
   }, [contasDaProgramacao, rateioLocal, rateioSalvo]);
 
-  const podeEfetivar = !rateioIndisponivel && Boolean(contaPagamentoId) && !saldoInsuficiente && somaDoRateio <= TOLERANCIA;
 
   const bancosDisponiveis = React.useMemo(
     () => [...new Set(contasComSaldoDisponivelHoje.map((conta) => conta.banco).filter(Boolean))].sort(),
@@ -1615,8 +1605,11 @@ export default function Pagamentos() {
                         </tr>
                       </thead>
                       <tbody>
-                        {pagamentos.map((p) => (
-                          <tr key={p.id} className="border-b border-black/5">
+                        {pagamentos.map((p) => {
+                          const baixasDoPagamento = baixasPorPagamento[String(p.id)] ?? [];
+                          const resumo = resumoBaixas(p.valor_a_pagar, baixasDoPagamento);
+                          return (
+                          <tr key={p.id} className="border-b border-black/5 align-top">
                             <td className="px-5 py-2.5">
                               {p.fornecedores?.razao_social ?? p.nome_avulso}
                               {!p.fornecedor_id && (
@@ -1625,6 +1618,7 @@ export default function Pagamentos() {
                                 </span>
                               )}
                               {p.forma_pagamento_resumo && <div className="mt-1 text-[11px] text-[#0F2A44]/50">{p.forma_pagamento_resumo}</div>}
+                              {baixasDoPagamento.length > 0 && <div className="mt-2 space-y-1 text-[11px] text-[#0F2A44]/55">{baixasDoPagamento.map((baixa)=><div key={baixa.id}>{new Date(`${baixa.data_pagamento}T00:00:00`).toLocaleDateString("pt-BR")} · {formatBRL(baixa.valor_pago)} · {baixa.contas_bancarias?.bancos?.nome ?? baixa.contas_bancarias?.nome_conta ?? "Conta"} · {baixa.usuarios?.nome_completo ?? "Usuário não identificado"} · {baixa.status === "estornada" ? "Estornada" : "Efetivada"}</div>)}</div>}
                             </td>
                             <td className="px-5 py-2.5 text-right">
                               {fechado ? (
@@ -1638,32 +1632,22 @@ export default function Pagamentos() {
                               )}
                             </td>
                             <td className="px-5 py-2.5 text-center">
-                              {p.situacao === "pago" ? (
-                                <span className="text-xs font-medium text-[#16A34A] bg-[#EAFBF0] px-2 py-1 rounded-md">
-                                  Pago
+                              <div className="space-y-1">
+                                <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${resumo.situacao === "pago" ? "bg-[#EAFBF0] text-[#16A34A]" : resumo.situacao === "parcialmente_pago" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-[#0F2A44]/60"}`}>
+                                  {resumo.situacao === "pago" ? "Pago" : resumo.situacao === "parcialmente_pago" ? "Parcialmente pago" : "Em aberto"}
                                 </span>
-                              ) : fechado ? (
-                                <span className="text-xs font-medium text-[#0F2A44]/50">Pendente</span>
-                              ) : (
+                                <div className="text-[10px] text-[#0F2A44]/45">Total {formatBRL(resumo.valorTotal)} · baixado {formatBRL(resumo.totalBaixado)} · aberto {formatBRL(resumo.saldoEmAberto)}</div>
+                              {resumo.saldoEmAberto > 0 && permissoesEspeciais.registrar_baixa && p.fornecedor_id && (
                                 <button
-                                  onClick={() => marcarPago(p)}
-                                  disabled={!podeEfetivar || efetivandoId !== null}
-                                  title={
-                                    rateioIndisponivel
-                                      ? AVISO_RATEIO_INDISPONIVEL
-                                      : !contaPagamentoId
-                                        ? "Escolha a conta de pagamento desta programação."
-                                        : saldoInsuficiente
-                                          ? textoSaldoInsuficiente(saldoDisponivel, totalProgramado)
-                                          : somaDoRateio > 0
-                                            ? "Confirme ou limpe as transferências informadas."
-                                            : "Debita integralmente da conta de pagamento."
-                                  }
+                                  onClick={() => setBaixaPendente(p)}
+                                  title="Registra a saída real e permite pagamento parcial."
                                   className="text-xs font-medium text-[#0F2A44]/60 hover:text-[#0F2A44] border border-black/10 px-2 py-1 rounded-md disabled:opacity-40 disabled:hover:text-[#0F2A44]/60 print:hidden"
                                 >
-                                  {efetivandoId === p.id ? "Efetivando..." : "Marcar como pago"}
+                                  Registrar baixa
                                 </button>
                               )}
+                              {!p.fornecedor_id && <div className="text-[10px] text-amber-700">Vincule um fornecedor cadastrado para registrar baixa.</div>}
+                              </div>
                             </td>
                             {!fechado && (
                               <td className="px-5 py-2.5 text-right print:hidden">
@@ -1684,7 +1668,7 @@ export default function Pagamentos() {
                               </td>
                             )}
                           </tr>
-                        ))}
+                        )})}
                       </tbody>
                       <tfoot>
                         <tr className="bg-[#0F2A44]/[0.03]">
@@ -1722,6 +1706,21 @@ export default function Pagamentos() {
           detalhes={exclusaoPendente.detalhes}
           onCancelar={() => setExclusaoPendente(null)}
           onConfirmar={confirmarExclusao}
+        />
+      )}
+      {baixaPendente && (
+        <ModalBaixaPagamento
+          pagamento={baixaPendente}
+          fornecedores={fornecedoresDaSecretaria}
+          contas={contasDaSecretaria}
+          contaSugeridaId={contaPagamentoId}
+          baixas={baixasPorPagamento[String(baixaPendente.id)] ?? []}
+          onFechar={() => setBaixaPendente(null)}
+          onConcluida={async () => {
+            await carregarContasEFornecedores(secretariaId);
+            await carregarProgramacaoAtual();
+            await carregarProgramacoesDoDia();
+          }}
         />
       )}
     </Layout>

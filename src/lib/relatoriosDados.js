@@ -47,6 +47,12 @@ import {
   textoHistorico,
 } from "./tarefas";
 
+function nomeDaConta(conta) {
+  if (!conta) return "";
+  const texto = [conta.bancos?.nome, conta.nome_conta].filter(Boolean).join(" · ");
+  return conta.numero_conta ? `${texto} (${conta.numero_conta})` : texto;
+}
+
 /** Contas bancárias com saldo, prontas para os relatórios financeiros. */
 export async function carregarBaseFinanceira() {
   const { data: secs, error: erroSecretarias } = await supabase
@@ -135,12 +141,35 @@ export async function carregarBaseFornecedores() {
 // aqui o rótulo apenas repete essa leitura, sem recalcular nada.
 const SITUACOES_PAGAMENTO = {
   pago: "Pago",
+  parcialmente_pago: "Parcialmente pago",
+  em_aberto: "Em aberto",
   cancelado: "Cancelado",
   pendente: "Pendente",
 };
 
 function rotuloSituacaoPagamento(situacao) {
   return SITUACOES_PAGAMENTO[situacao] ?? "Pendente";
+}
+
+export async function carregarBaseBaixas() {
+  const [baixas, fornecedores, contas] = await Promise.all([
+    buscarPaginado(() => supabase.from("pagamentos_baixas").select("id,fornecedor_id,pagamento_id,valor_pago,data_pagamento,conta_id,status,documento,observacao,criado_em").order("id", { ascending: true })),
+    supabase.from("fornecedores").select("id,razao_social").then(({ data, error }) => { if (error) throw error; return data ?? []; }),
+    supabase.from("contas_bancarias").select("id,nome_conta,numero_conta,bancos(nome)").then(({ data, error }) => { if (error) throw error; return data ?? []; }),
+  ]);
+  const fornecedorPorId = new Map(fornecedores.map((item) => [String(item.id), item.razao_social]));
+  const contaPorId = new Map(contas.map((item) => [String(item.id), nomeDaConta(item)]));
+  return { baixas: baixas.map((baixa) => ({
+    id: baixa.id,
+    fornecedor: fornecedorPorId.get(String(baixa.fornecedor_id)) ?? "Fornecedor não identificado",
+    conta: contaPorId.get(String(baixa.conta_id)) ?? "Conta não identificada",
+    data: soData(baixa.data_pagamento),
+    valor: paraNumeroMoeda(baixa.valor_pago),
+    status: baixa.status === "estornada" ? "Estornada" : "Efetivada",
+    origem: baixa.pagamento_id ? "Programada" : "Avulsa",
+    documento: baixa.documento ?? "",
+    observacao: baixa.observacao ?? "",
+  })) };
 }
 
 /**
