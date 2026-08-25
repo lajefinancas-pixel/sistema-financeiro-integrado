@@ -11,9 +11,14 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@dnd-kit/core@^6.3.1",
+        "npm:@netlify/database@2",
+        "npm:@netlify/functions@6",
         "npm:@supabase/supabase-js@^2.45.0",
         "npm:@vitejs/plugin-react@^4.3.1",
         "npm:autoprefixer@^10.4.19",
+        "npm:drizzle-kit@^1.0.0-beta.22",
+        "npm:drizzle-orm@^1.0.0-beta.22",
         "npm:jspdf-autotable@^5.0.8",
         "npm:jspdf@^4.2.1",
         "npm:lucide-react@0.383",

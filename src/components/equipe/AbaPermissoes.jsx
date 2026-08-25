@@ -10,6 +10,7 @@ import {
 } from "../../lib/permissoesUsuario";
 import { Alerta } from "./comuns";
 import { mensagemAmigavel } from "../../lib/erros";
+import { ACOES_ESPECIAIS, carregarPermissoesEspeciaisUsuario, salvarPermissoesEspeciaisUsuario } from "../../lib/permissoesEspeciais";
 
 /** Ponto dourado que marca um valor diferente do padrão do perfil. */
 function MarcaExcecao({ titulo = "Diferente do padrão do perfil" }) {
@@ -52,15 +53,34 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
   const [dados, setDados] = React.useState(null); // { perfil, padrao, excecoes }
   const [valores, setValores] = React.useState(null); // estado atual dos checkboxes
   const [base, setBase] = React.useState(null); // último estado salvo, para detectar alterações
+  const [especiais, setEspeciais] = React.useState({});
+  const [baseEspeciais, setBaseEspeciais] = React.useState({});
 
   const carregar = React.useCallback(async () => {
     setCarregando(true);
     setErro(null);
     try {
       const resultado = await carregarPermissoesDoUsuario(usuarioId);
+      const especiaisExplicitas = await carregarPermissoesEspeciaisUsuario(usuarioId);
+      const fornecedor = resultado.valores.fornecedores ?? {};
+      const pagamentos = resultado.valores.pagamentos ?? {};
+      const especiaisPadrao = {
+        visualizar_dados_bancarios: fornecedor.pode_visualizar === true,
+        cadastrar_dados_bancarios: fornecedor.pode_cadastrar === true,
+        editar_dados_bancarios: fornecedor.pode_editar === true,
+        excluir_dados_bancarios: fornecedor.pode_excluir === true,
+        visualizar_pix: fornecedor.pode_visualizar === true,
+        cadastrar_pix: fornecedor.pode_cadastrar === true,
+        editar_pix: fornecedor.pode_editar === true,
+        executar_transferencia: pagamentos.pode_aprovar === true,
+        estornar_transferencia: pagamentos.pode_excluir === true,
+      };
+      const especiaisCarregadas = { ...especiaisPadrao, ...especiaisExplicitas };
       setDados({ perfilId: resultado.perfilId, perfil: resultado.perfil, padrao: resultado.padrao, excecoes: resultado.excecoes });
       setValores(resultado.valores);
       setBase(resultado.valores);
+      setEspeciais(especiaisCarregadas);
+      setBaseEspeciais(especiaisCarregadas);
       return resultado;
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível carregar as permissões deste usuário."));
@@ -76,8 +96,8 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
 
   const alterado = React.useMemo(() => {
     if (!valores || !base) return false;
-    return JSON.stringify(valores) !== JSON.stringify(base);
-  }, [valores, base]);
+    return JSON.stringify(valores) !== JSON.stringify(base) || JSON.stringify(especiais) !== JSON.stringify(baseEspeciais);
+  }, [valores, base, especiais, baseEspeciais]);
 
   function alterar(modulo, campo, marcado) {
     setAviso(null);
@@ -96,6 +116,7 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
         valores: escolhidos,
         excecoes: dados.excecoes,
       });
+      await salvarPermissoesEspeciaisUsuario(usuarioId, especiais, null);
       // Recarrega da view para exibir a permissão efetiva de verdade, e avisa
       // caso o banco tenha resolvido algum módulo de forma diferente da pedida.
       const recarregado = await carregar();
@@ -214,6 +235,18 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
           );
         })}
       </div>
+
+      <section className="rounded-xl border border-black/5 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 bg-[#F5F3EF]/60 border-b border-black/5">
+          <h3 className="text-sm font-semibold text-[#0F2A44]">Dados para pagamento e transferências</h3>
+          <p className="mt-1 text-[11px] text-[#0F2A44]/50">Controles independentes para operações bancárias sensíveis.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 px-2.5 py-2.5">
+          {ACOES_ESPECIAIS.map(({ id, label }) => (
+            <CaixaPermissao key={id} label={label} marcado={especiais[id] === true} excecao={especiais[id] !== baseEspeciais[id]} desabilitado={!podeEditar || salvando} onAlterar={(marcado) => setEspeciais((atual) => ({ ...atual, [id]: marcado }))}/>
+          ))}
+        </div>
+      </section>
 
       {podeEditar && !semPerfil && (
         <div className="sticky bottom-0 -mx-1 px-1 pt-3 pb-1 bg-gradient-to-t from-white via-white to-white/0">
