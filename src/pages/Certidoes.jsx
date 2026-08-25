@@ -62,6 +62,15 @@ const ABAS = [
   { id: "tipos", label: "Tipos de Certidão", icone: Settings2 },
 ];
 
+async function carregarComDiagnostico(recurso, consulta) {
+  try {
+    return await consulta();
+  } catch (erro) {
+    console.error(`[Certidões] Falha ao carregar ${recurso}.`, erro);
+    throw erro;
+  }
+}
+
 export default function Certidoes() {
   const { carregando: verificando, usuario: usuarioLogado, permissao, erro: erroPermissao } =
     usePermissaoModulo(MODULO);
@@ -113,16 +122,16 @@ export default function Certidoes() {
       setErro(null);
       try {
         const [listaCertidoes, listaTipos, listaFornecedores] = await Promise.all([
-          listarCertidoes(),
-          listarTipos(),
-          listarFornecedores(),
+          carregarComDiagnostico("certidões", listarCertidoes),
+          carregarComDiagnostico("tipos de certidão", listarTipos),
+          carregarComDiagnostico("fornecedores", listarFornecedores),
         ]);
         if (!ativo) return;
         setCertidoes(listaCertidoes);
         setTipos(listaTipos);
         setFornecedores(listaFornecedores);
       } catch (e) {
-        if (ativo) setErro(mensagemAmigavel(e, "Não foi possível carregar as certidões."));
+        if (ativo) setErro(mensagemAmigavel(e, "Ocorreu um erro ao carregar os dados do módulo."));
       } finally {
         if (ativo) setCarregando(false);
       }
