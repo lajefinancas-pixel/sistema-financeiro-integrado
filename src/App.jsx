@@ -7,6 +7,7 @@ import Saldos from "./pages/Saldos";
 import Fornecedores from "./pages/Fornecedores";
 import Certidoes from "./pages/Certidoes";
 import Pagamentos from "./pages/Pagamentos";
+import Baixas from "./pages/Baixas";
 import Tarefas from "./pages/Tarefas";
 import Historico from "./pages/Historico";
 import Relatorios from "./pages/Relatorios";
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/fornecedores" element={<RotaProtegida><Fornecedores /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
+      <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />
       <Route path="/tarefas" element={<RotaProtegida><Tarefas /></RotaProtegida>} />
       <Route path="/equipe/usuarios" element={<RotaProtegida><Usuarios /></RotaProtegida>} />
       <Route path="/historico" element={<RotaProtegida><Historico /></RotaProtegida>} />
