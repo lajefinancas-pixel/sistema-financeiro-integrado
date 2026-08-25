@@ -967,12 +967,14 @@ export default function Pagamentos() {
     if (contaId !== null && !Number.isInteger(contaId)) {
       throw erroAmigavel("A conta de pagamento selecionada é inválida.");
     }
-    const { data: resultado, error } = await supabase.rpc("definir_conta_pagamento_programacao", {
-      p_programacao_id: programacaoAtualId,
-      p_conta_id: contaId,
-    });
+    const { data: programacaoAtualizada, error } = await supabase
+      .from("programacoes_pagamento")
+      .update({ conta_pagamento_id: contaId })
+      .eq("id", programacaoAtualId)
+      .select("id, conta_pagamento_id")
+      .single();
     if (error) {
-      console.error("[Pagamentos] Erro do Supabase ao definir a conta de pagamento.", {
+      console.error("[Pagamentos] Erro do Supabase ao atualizar programacoes_pagamento.conta_pagamento_id.", {
         programacaoId: programacaoAtualId,
         contaId,
         code: error.code,
@@ -982,8 +984,7 @@ export default function Pagamentos() {
       });
       throw error;
     }
-    if (resultado?.ok === false) throw erroAmigavel(resultado?.mensagem || "Não foi possível definir a conta de pagamento.");
-    setContaPagamentoId(contaId ?? "");
+    setContaPagamentoId(programacaoAtualizada?.conta_pagamento_id ?? "");
     if (contaId && contasSelecionadas.has(contaId)) {
       try {
         await toggleConta(contaId);

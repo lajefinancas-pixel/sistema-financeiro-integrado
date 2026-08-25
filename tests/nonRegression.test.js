@@ -57,16 +57,18 @@ test("programações antigas usam campos opcionais sem bloquear pagamentos", asy
   assert.match(pagina, /console\.error\("\[Pagamentos\] Falha ao carregar os dados essenciais/);
 });
 
-test("conta de pagamento usa RPC dedicada sem movimentar saldo", async () => {
+test("conta de pagamento grava diretamente na coluna real da programação", async () => {
   const [pagina, migration, correcaoTipo] = await Promise.all([
     read("src/pages/Pagamentos.jsx"),
     read("supabase/migrations/20260825160000_corrigir_conta_pagamento_programacao.sql"),
     read("supabase/migrations/20260825180000_corrigir_tipo_conta_pagamento_integer.sql"),
   ]);
-  assert.match(pagina, /rpc\("definir_conta_pagamento_programacao"/);
+  assert.match(pagina, /from\("programacoes_pagamento"\)[\s\S]+update\(\{ conta_pagamento_id: contaId \}\)/);
+  assert.match(pagina, /select\("id, conta_pagamento_id"\)/);
+  assert.doesNotMatch(pagina, /rpc\("definir_conta_pagamento_programacao"/);
   assert.match(pagina, /Number\.isInteger\(contaId\)/);
-  assert.match(pagina, /Erro do Supabase ao definir a conta de pagamento/);
-  assert.match(pagina, /setContaPagamentoId\(contaId \?\? ""\)/);
+  assert.match(pagina, /Erro do Supabase ao atualizar programacoes_pagamento\.conta_pagamento_id/);
+  assert.match(pagina, /setContaPagamentoId\(programacaoAtualizada\?\.conta_pagamento_id \?\? ""\)/);
   assert.match(migration, /add column if not exists conta_pagamento_id/);
   assert.match(migration, /update public\.programacoes_pagamento[\s\S]+set conta_pagamento_id = p_conta_id/);
   assert.doesNotMatch(migration, /update public\.saldos_historico|insert into public\.saldos_historico/);
