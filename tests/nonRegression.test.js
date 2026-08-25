@@ -58,16 +58,24 @@ test("programações antigas usam campos opcionais sem bloquear pagamentos", asy
 });
 
 test("conta de pagamento usa RPC dedicada sem movimentar saldo", async () => {
-  const [pagina, migration] = await Promise.all([
+  const [pagina, migration, correcaoTipo] = await Promise.all([
     read("src/pages/Pagamentos.jsx"),
     read("supabase/migrations/20260825160000_corrigir_conta_pagamento_programacao.sql"),
+    read("supabase/migrations/20260825180000_corrigir_tipo_conta_pagamento_integer.sql"),
   ]);
   assert.match(pagina, /rpc\("definir_conta_pagamento_programacao"/);
+  assert.match(pagina, /Number\.isInteger\(contaId\)/);
   assert.match(pagina, /Erro do Supabase ao definir a conta de pagamento/);
   assert.match(pagina, /setContaPagamentoId\(contaId \?\? ""\)/);
   assert.match(migration, /add column if not exists conta_pagamento_id/);
   assert.match(migration, /update public\.programacoes_pagamento[\s\S]+set conta_pagamento_id = p_conta_id/);
   assert.doesNotMatch(migration, /update public\.saldos_historico|insert into public\.saldos_historico/);
+  assert.match(correcaoTipo, /p_conta_id integer/);
+  assert.match(correcaoTipo, /drop function if exists public\.definir_conta_pagamento_programacao\(uuid, uuid\)/);
+  assert.match(correcaoTipo, /security definer/);
+  assert.match(correcaoTipo, /set row_security = off/);
+  assert.match(correcaoTipo, /set conta_pagamento_id = p_conta_id/);
+  assert.doesNotMatch(correcaoTipo, /update public\.saldos_historico|insert into public\.saldos_historico/);
 });
 
 test("histórico e relatórios continuam lendo programações sem campos novos", async () => {
