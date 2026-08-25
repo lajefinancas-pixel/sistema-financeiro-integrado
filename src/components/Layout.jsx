@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
-  Home, Landmark, Users, Calendar, History, BarChart2, Settings, ReceiptText,
+  Home, Landmark, Users, Calendar, History, BarChart2, Settings,
   LogOut, ShieldCheck, ClipboardList, FileCheck2, Menu, X, PanelLeftClose,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
@@ -13,7 +13,6 @@ const navItems = [
   { to: "/fornecedores", label: "Fornecedores", icon: Users },
   { to: "/certidoes", label: "Certidões", icon: FileCheck2 },
   { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
-  { to: "/baixas", label: "Baixas de Pagamentos", icon: ReceiptText },
   { to: "/tarefas", label: "Tarefas", icon: ClipboardList },
   { to: "/historico", label: "Histórico", icon: History },
   { to: "/relatorios", label: "Relatórios", icon: BarChart2 },

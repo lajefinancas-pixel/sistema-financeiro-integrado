@@ -15,7 +15,7 @@ import PainelFiltros from "../components/comuns/PainelFiltros";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
-  carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos, carregarBaseBaixas, carregarBaseCertidoes,
+  carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos, carregarBaseCertidoes,
 } from "../lib/relatoriosDados";
 import {
   CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
@@ -55,7 +55,6 @@ const BASES_COMPLEMENTARES = [
   { chave: "tarefas", nome: "Usuários e Gestão", carregar: carregarBaseTarefas },
   { chave: "historico", nome: "Atividades e Auditoria", carregar: carregarBaseHistorico },
   { chave: "pagamentos", nome: "Pagamentos", carregar: carregarBasePagamentos },
-  { chave: "baixas", nome: "Baixas", carregar: carregarBaseBaixas },
   { chave: "certidoes", nome: "Certidões", carregar: carregarBaseCertidoes },
 ];
 

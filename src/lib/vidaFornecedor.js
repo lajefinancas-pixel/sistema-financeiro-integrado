@@ -15,8 +15,6 @@ import { filtroVigentes } from "./exclusaoRegistros";
 
 const SITUACOES_PAGAMENTO = {
   pago: "Pago",
-  parcialmente_pago: "Parcialmente pago",
-  em_aberto: "Em aberto",
   cancelado: "Cancelado",
   pendente: "Pendente",
 };
@@ -41,33 +39,6 @@ function nomeDaConta(conta) {
  * avulso): é por ele que a lista de notas mostra o pagamento relacionado.
  */
 export async function carregarPagamentosPorFornecedor() {
-  const { data: baixas, error: erroBaixas } = await supabase
-    .from("pagamentos_baixas")
-    .select("id,fornecedor_id,pagamento_id,valor_pago,data_pagamento,conta_id,status,documento,observacao")
-    .order("data_pagamento", { ascending: false });
-  if (!erroBaixas) {
-    const { data: contasBaixas } = await supabase
-      .from("contas_bancarias")
-      .select("id,nome_conta,numero_conta,bancos(nome),secretarias(nome)");
-    const contaPorId = new Map((contasBaixas ?? []).map((conta) => [String(conta.id), conta]));
-    const porFornecedor = {};
-    (baixas ?? []).forEach((baixa) => {
-      const conta = contaPorId.get(String(baixa.conta_id));
-      (porFornecedor[String(baixa.fornecedor_id)] ??= []).push({
-        id: baixa.id,
-        pagamento_id: baixa.pagamento_id ?? null,
-        data: soData(baixa.data_pagamento),
-        valor: paraNumeroMoeda(baixa.valor_pago),
-        contas: conta ? [nomeDaConta(conta)] : [],
-        secretaria: conta?.secretarias?.nome ?? "",
-        status: baixa.status === "estornada" ? "Estornada" : "Efetivada",
-        efetivada: baixa.status === "efetivada",
-        descricao: baixa.observacao ?? baixa.documento ?? "",
-      });
-    });
-    return porFornecedor;
-  }
-
   // Pagamento excluído não entra no histórico do fornecedor.
   const vigentes = await filtroVigentes("pagamentos");
   const pagamentos = await buscarPaginado(() =>
