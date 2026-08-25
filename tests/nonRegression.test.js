@@ -34,12 +34,35 @@ test("migração mantém transferência separada de pagamento", async () => {
 test("tela contém seleção múltipla, conta concentradora e conferência", async () => {
   const pagina = await read("src/pages/Pagamentos.jsx");
   assert.match(pagina, /Selecionar todas/);
-  assert.match(pagina, /Buscar conta/);
+  assert.match(pagina, /Buscar por nome, banco ou conta/);
   assert.match(pagina, /Conta de pagamento/);
+  assert.match(pagina, /tipo="radio"/);
+  assert.match(pagina, /tipo="checkbox"/);
+  assert.match(pagina, /Todas as secretarias/);
+  assert.match(pagina, /WebkitOverflowScrolling/);
   assert.match(pagina, /Valor a transferir/);
   assert.match(pagina, /Confirmar transferências/);
   assert.match(pagina, /Debita integralmente da conta de pagamento/);
+  assert.doesNotMatch(pagina, /<select[^>]+value=\{contaPagamentoId\}/);
   assert.doesNotMatch(pagina, /Ratear automaticamente/);
+});
+
+test("programações antigas usam campos opcionais sem bloquear pagamentos", async () => {
+  const pagina = await read("src/pages/Pagamentos.jsx");
+  assert.match(pagina, /select\("id, fechado"\)/);
+  assert.match(pagina, /conta_pagamento_id: null/);
+  assert.match(pagina, /forma_pagamento_id: null/);
+  assert.match(pagina, /setPagamentos\(pgs \?\? \[\]\)/);
+  assert.match(pagina, /console\.error\("\[Pagamentos\] Falha ao carregar os dados essenciais/);
+});
+
+test("histórico e relatórios continuam lendo programações sem campos novos", async () => {
+  const [historico, relatorios] = await Promise.all([
+    read("src/lib/historicoMovimentacoes.js"),
+    read("src/lib/relatoriosDados.js"),
+  ]);
+  assert.doesNotMatch(historico, /conta_pagamento_id|transferencias_contas/);
+  assert.doesNotMatch(relatorios, /conta_pagamento_id|transferencias_contas/);
 });
 
 test("fornecedor aceita PIX, conta bancária e forma principal", async () => {
