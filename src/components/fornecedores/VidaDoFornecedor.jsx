@@ -92,8 +92,13 @@ export default function VidaDoFornecedor({
   onDadosPagamentoChange,
 }) {
   const valores = fornecedor.valores ?? [];
+  const [periodoPagamentos, setPeriodoPagamentos] = React.useState({ inicio: "", fim: "" });
+  const pagamentosFiltrados = (pagamentos ?? []).filter((pagamento) =>
+    (!periodoPagamentos.inicio || pagamento.data >= periodoPagamentos.inicio) &&
+    (!periodoPagamentos.fim || pagamento.data <= periodoPagamentos.fim)
+  );
 
-  const totalPago = (pagamentos ?? []).reduce((acc, p) => acc + numero(p.valor), 0);
+  const totalPago = pagamentosFiltrados.filter((pagamento) => pagamento.efetivada !== false).reduce((acc, p) => acc + numero(p.valor), 0);
   const totalAberto = numero(fornecedor.totalAberto);
   // Sem a leitura dos pagamentos, o que depende deles aparece como "--" em vez
   // de um total zerado que pareceria real.
@@ -177,11 +182,16 @@ export default function VidaDoFornecedor({
       />
 
       <Bloco icone={Banknote} titulo="Pagamentos realizados">
+        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="text-[11px] text-[#0F2A44]/55">De<input type="date" value={periodoPagamentos.inicio} onChange={(e)=>setPeriodoPagamentos({...periodoPagamentos,inicio:e.target.value})} className="mt-1 block w-full rounded-lg border border-black/10 px-2 py-1.5 text-xs"/></label>
+          <label className="text-[11px] text-[#0F2A44]/55">Até<input type="date" value={periodoPagamentos.fim} onChange={(e)=>setPeriodoPagamentos({...periodoPagamentos,fim:e.target.value})} className="mt-1 block w-full rounded-lg border border-black/10 px-2 py-1.5 text-xs"/></label>
+          <div className="rounded-lg bg-[#F4F7F9] px-3 py-2 text-xs text-[#0F2A44]/60">Total pago no período<strong className="ml-2 text-[#0F2A44]">{formatBRL(totalPago)}</strong></div>
+        </div>
         {carregandoPagamentos ? (
           <Vazio>Carregando pagamentos...</Vazio>
         ) : erroPagamentos ? (
           <div className="text-xs text-red-600">{erroPagamentos}</div>
-        ) : (pagamentos ?? []).length === 0 ? (
+        ) : pagamentosFiltrados.length === 0 ? (
           <Vazio>Nenhum pagamento efetivado para este fornecedor até agora.</Vazio>
         ) : (
           <div className="overflow-x-auto">
@@ -196,7 +206,7 @@ export default function VidaDoFornecedor({
                 </tr>
               </thead>
               <tbody>
-                {pagamentos.map((p) => (
+                {pagamentosFiltrados.map((p) => (
                   <tr key={p.id} className="border-t border-black/5">
                     <td className="py-2 pr-3 text-xs text-[#0F2A44]/70 whitespace-nowrap">
                       {formatarData(p.data)}
