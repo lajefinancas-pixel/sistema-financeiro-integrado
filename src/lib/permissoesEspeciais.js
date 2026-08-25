@@ -11,11 +11,6 @@ export const ACOES_ESPECIAIS = [
   { id: "editar_pix", label: "Editar PIX" },
   { id: "executar_transferencia", label: "Executar transferência entre contas" },
   { id: "estornar_transferencia", label: "Cancelar/estornar transferência" },
-  { id: "visualizar_baixas", label: "Visualizar baixas" },
-  { id: "registrar_baixa", label: "Registrar baixa" },
-  { id: "registrar_baixa_avulsa", label: "Registrar baixa avulsa (sem programação)" },
-  { id: "editar_baixa", label: "Editar baixa" },
-  { id: "estornar_baixa", label: "Estornar baixa" },
 ];
 
 export function usePermissoesEspeciais() {

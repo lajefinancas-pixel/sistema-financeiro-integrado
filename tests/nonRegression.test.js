@@ -42,8 +42,7 @@ test("tela contém seleção múltipla, conta concentradora e conferência", asy
   assert.match(pagina, /WebkitOverflowScrolling/);
   assert.match(pagina, /Valor a transferir/);
   assert.match(pagina, /Confirmar transferências/);
-  assert.match(pagina, /Registrar baixa/);
-  assert.match(pagina, /permite pagamento parcial/);
+  assert.match(pagina, /Debita integralmente da conta de pagamento/);
   assert.doesNotMatch(pagina, /<select[^>]+value=\{contaPagamentoId\}/);
   assert.doesNotMatch(pagina, /Ratear automaticamente/);
 });
@@ -55,19 +54,6 @@ test("programações antigas usam campos opcionais sem bloquear pagamentos", asy
   assert.match(pagina, /forma_pagamento_id: null/);
   assert.match(pagina, /setPagamentos\(pgs \?\? \[\]\)/);
   assert.match(pagina, /console\.error\("\[Pagamentos\] Falha ao carregar os dados essenciais/);
-});
-
-test("conta de pagamento usa RPC dedicada sem movimentar saldo", async () => {
-  const [pagina, migration] = await Promise.all([
-    read("src/pages/Pagamentos.jsx"),
-    read("supabase/migrations/20260825160000_corrigir_conta_pagamento_programacao.sql"),
-  ]);
-  assert.match(pagina, /rpc\("definir_conta_pagamento_programacao"/);
-  assert.match(pagina, /Erro do Supabase ao definir a conta de pagamento/);
-  assert.match(pagina, /setContaPagamentoId\(contaId \?\? ""\)/);
-  assert.match(migration, /add column if not exists conta_pagamento_id/);
-  assert.match(migration, /update public\.programacoes_pagamento[\s\S]+set conta_pagamento_id = p_conta_id/);
-  assert.doesNotMatch(migration, /update public\.saldos_historico|insert into public\.saldos_historico/);
 });
 
 test("histórico e relatórios continuam lendo programações sem campos novos", async () => {
