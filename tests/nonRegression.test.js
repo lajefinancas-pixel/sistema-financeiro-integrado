@@ -33,6 +33,8 @@ test("migração mantém transferência separada de pagamento", async () => {
 
 test("tela aplica saldo primeiro, seleção múltipla e concentração opcional", async () => {
   const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /carregarSaldosDasContas/);
+  assert.match(pagina, /comReservas:\s*false/);
   assert.match(pagina, /Selecionar todas/);
   assert.match(pagina, /Buscar conta, banco ou número/);
   assert.match(pagina, /Contas selecionadas/);
@@ -42,7 +44,8 @@ test("tela aplica saldo primeiro, seleção múltipla e concentração opcional"
   assert.match(pagina, /Somente a confirmação movimenta débito e crédito na mesma transação/);
   assert.match(pagina, /Origens da concentração/);
   assert.doesNotMatch(pagina, /conta_pagamento_id/);
-  assert.match(pagina, /somar\(contasSelecionadasComSaldo\.map\(\(conta\) => conta\.saldoHoje\)\)/);
+  assert.match(pagina, /totalizarSaldos\(contasSelecionadasComSaldo\)\.saldoReal/);
+  assert.doesNotMatch(pagina, /saldoHoje/);
 });
 
 test("relação aceita parcial, avulso e excesso sem bloqueio", async () => {
