@@ -31,53 +31,74 @@ test("migração mantém transferência separada de pagamento", async () => {
   assert.doesNotMatch(sql, /insert into public\.pagamentos[\s\S]*transferencias_contas/i);
 });
 
-test("tela contém seleção múltipla, conta concentradora e conferência", async () => {
-  const pagina = await read("src/pages/Pagamentos.jsx");
+test("tela aplica saldo primeiro, seleção múltipla e concentração opcional", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
   assert.match(pagina, /Selecionar todas/);
-  assert.match(pagina, /Buscar por nome, banco ou conta/);
-  assert.match(pagina, /Conta de pagamento/);
-  assert.match(pagina, /tipo="radio"/);
-  assert.match(pagina, /tipo="checkbox"/);
-  assert.match(pagina, /Todas as secretarias/);
-  assert.match(pagina, /WebkitOverflowScrolling/);
-  assert.match(pagina, /Valor a transferir/);
-  assert.match(pagina, /Confirmar transferências/);
-  assert.match(pagina, /Registrar baixa/);
-  assert.match(pagina, /permite pagamento parcial/);
-  assert.doesNotMatch(pagina, /<select[^>]+value=\{contaPagamentoId\}/);
-  assert.doesNotMatch(pagina, /Ratear automaticamente/);
+  assert.match(pagina, /Buscar conta, banco ou número/);
+  assert.match(pagina, /Contas selecionadas/);
+  assert.match(pagina, /Total disponível hoje/);
+  assert.match(pagina, /sticky top-0/);
+  assert.match(pagina, /Concentrar saldos/);
+  assert.match(pagina, /Somente a confirmação movimenta débito e crédito na mesma transação/);
+  assert.match(pagina, /Origens da concentração/);
+  assert.doesNotMatch(pagina, /conta_pagamento_id/);
+  assert.match(pagina, /somar\(contasSelecionadasComSaldo\.map\(\(conta\) => conta\.saldoHoje\)\)/);
 });
 
-test("programações antigas usam campos opcionais sem bloquear pagamentos", async () => {
-  const pagina = await read("src/pages/Pagamentos.jsx");
-  assert.match(pagina, /select\("id, fechado"\)/);
-  assert.match(pagina, /conta_pagamento_id: null/);
-  assert.match(pagina, /forma_pagamento_id: null/);
-  assert.match(pagina, /setPagamentos\(pgs \?\? \[\]\)/);
-  assert.match(pagina, /console\.error\("\[Pagamentos\] Falha ao carregar os dados essenciais/);
+test("relação aceita parcial, avulso e excesso sem bloqueio", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /Valor em aberto/);
+  assert.match(pagina, /Valor a pagar/);
+  assert.match(pagina, /Fornecedor não cadastrado/);
+  assert.match(pagina, /A proposta excede o disponível/);
+  assert.match(pagina, /A edição e a impressão continuam liberadas/);
+  assert.doesNotMatch(pagina, /totalPagar\s*>\s*totalDisponivel[\s\S]*return/);
 });
 
-test("conta de pagamento grava diretamente na coluna real da programação", async () => {
-  const [pagina, migration, correcaoTipo] = await Promise.all([
-    read("src/pages/Pagamentos.jsx"),
-    read("supabase/migrations/20260825160000_corrigir_conta_pagamento_programacao.sql"),
-    read("supabase/migrations/20260825180000_corrigir_tipo_conta_pagamento_integer.sql"),
+test("conta de origem pertence ao pagamento e respeita a secretaria", async () => {
+  const [pagina, migration] = await Promise.all([
+    read("src/pages/PagamentosRedesenhado.jsx"),
+    read("supabase/migrations/20260826120000_fluxo_real_pagamentos_diarios.sql"),
   ]);
-  assert.match(pagina, /from\("programacoes_pagamento"\)[\s\S]+update\(\{ conta_pagamento_id: contaId \}\)/);
-  assert.match(pagina, /select\("id, conta_pagamento_id"\)/);
-  assert.doesNotMatch(pagina, /rpc\("definir_conta_pagamento_programacao"/);
-  assert.match(pagina, /Number\.isInteger\(contaId\)/);
-  assert.match(pagina, /Erro do Supabase ao atualizar programacoes_pagamento\.conta_pagamento_id/);
-  assert.match(pagina, /setContaPagamentoId\(programacaoAtualizada\?\.conta_pagamento_id \?\? ""\)/);
-  assert.match(migration, /add column if not exists conta_pagamento_id/);
-  assert.match(migration, /update public\.programacoes_pagamento[\s\S]+set conta_pagamento_id = p_conta_id/);
-  assert.doesNotMatch(migration, /update public\.saldos_historico|insert into public\.saldos_historico/);
-  assert.match(correcaoTipo, /p_conta_id integer/);
-  assert.match(correcaoTipo, /drop function if exists public\.definir_conta_pagamento_programacao\(uuid, uuid\)/);
-  assert.match(correcaoTipo, /security definer/);
-  assert.match(correcaoTipo, /set row_security = off/);
-  assert.match(correcaoTipo, /set conta_pagamento_id = p_conta_id/);
-  assert.doesNotMatch(correcaoTipo, /update public\.saldos_historico|insert into public\.saldos_historico/);
+  assert.match(pagina, /definir_conta_origem_pagamento/);
+  assert.match(pagina, /conta_origem_id/);
+  assert.match(migration, /add column if not exists conta_origem_id integer/);
+  assert.match(migration, /Pagamentos só podem usar contas da secretaria da programação/);
+  assert.match(migration, /A conta de origem precisa estar selecionada como conta de trabalho/);
+  assert.match(migration, /set conta_origem_id = p_conta_id/);
+  assert.match(migration, /conta_pagamento_id é preservada sem uso/);
+  assert.doesNotMatch(migration, /drop column[^;]+conta_pagamento_id/i);
+});
+
+test("impressão de trabalho contém contas, saldos, fornecedores e anotações", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /Relação para aprovação de pagamentos/);
+  assert.match(pagina, /Somatório dos saldos/);
+  assert.match(pagina, /Relação de fornecedores/);
+  assert.match(pagina, /Anotações \/ alteração do chefe/);
+  assert.match(pagina, /autoTable/);
+  assert.match(pagina, /window\.print/);
+  assert.match(pagina, /registrar_impressao_programacao/);
+});
+
+test("seleção não movimenta saldo e pagamento pode ocorrer sem concentração", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /programacao_contas/);
+  assert.match(pagina, /Selecionar conta não movimenta saldo/);
+  assert.doesNotMatch(pagina, /alternarConta[\s\S]{0,1800}saldos_historico/);
+  assert.match(pagina, /Indique de qual conta este pagamento sai/);
+  assert.match(pagina, /contaSugeridaId=\{baixaPendente\.conta_origem_id \|\| destinoConcentracao\}/);
+});
+
+test("transferência entre secretarias fica restrita à exceção de Finanças", async () => {
+  const [pagina, migration] = await Promise.all([
+    read("src/pages/PagamentosRedesenhado.jsx"),
+    read("supabase/migrations/20260826120000_fluxo_real_pagamentos_diarios.sql"),
+  ]);
+  assert.match(pagina, /contas de Saúde, Educação e Social/);
+  assert.match(migration, /Transferência entre secretarias permitida somente de Finanças para Saúde, Educação ou Social/);
+  assert.match(migration, /cb\.secretaria_id = v_programacao\.secretaria_id/);
+  assert.match(migration, /A conta de origem deve estar selecionada e pertencer à secretaria da programação/);
 });
 
 test("histórico e relatórios continuam lendo programações sem campos novos", async () => {
