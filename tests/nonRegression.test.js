@@ -73,15 +73,64 @@ test("conta de origem pertence ao pagamento e respeita a secretaria", async () =
   assert.doesNotMatch(migration, /drop column[^;]+conta_pagamento_id/i);
 });
 
-test("impressão de trabalho contém contas, saldos, fornecedores e anotações", async () => {
-  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
-  assert.match(pagina, /Relação para aprovação de pagamentos/);
-  assert.match(pagina, /Somatório dos saldos/);
-  assert.match(pagina, /Relação de fornecedores/);
-  assert.match(pagina, /Anotações \/ alteração do chefe/);
-  assert.match(pagina, /autoTable/);
-  assert.match(pagina, /window\.print/);
+test("impressão da programação é documento próprio, sem elementos de tela", async () => {
+  const [pagina, documento] = await Promise.all([
+    read("src/pages/PagamentosRedesenhado.jsx"),
+    read("src/lib/programacaoDocumento.js"),
+  ]);
+  // A tela não é mais capturada: a impressão e o PDF saem do documento próprio.
+  assert.match(pagina, /imprimirProgramacao/);
+  assert.match(pagina, /gerarPdfProgramacao/);
   assert.match(pagina, /registrar_impressao_programacao/);
+  assert.doesNotMatch(pagina, /window\.print/);
+  assert.doesNotMatch(pagina, /hidden print:block/);
+  // Estrutura obrigatória do documento levado ao gestor.
+  assert.match(documento, /PROGRAMAÇÃO DE PAGAMENTOS/);
+  assert.match(documento, /Contas selecionadas/);
+  assert.match(documento, /Total disponível hoje/);
+  assert.match(documento, /Relação de fornecedores/);
+  assert.match(documento, /VALOR EM ABERTO/);
+  assert.match(documento, /VALOR A PAGAR/);
+  assert.match(documento, /APROVADO/);
+  assert.match(documento, /Diferença/);
+  assert.match(documento, /Observações/);
+  assert.match(documento, /Responsável pela elaboração/);
+  assert.match(documento, /Aprovação/);
+  assert.match(documento, /Página \$\{pagina\} de \$\{paginas\}/);
+  assert.match(documento, /size: A4 portrait/);
+  assert.match(documento, /display: table-header-group/);
+  // Nada de interface no papel.
+  for (const interface_ of [/<input/, /<select/, /<button/, /checkbox/, /Buscar/, /Todos os bancos/]) {
+    assert.doesNotMatch(documento, interface_);
+  }
+});
+
+test("somente as contas marcadas vão ao documento da programação", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /contas: contasSelecionadasComSaldo\.map/);
+  assert.doesNotMatch(pagina, /contas: contasFiltradas/);
+});
+
+test("impressões já aprovadas dos outros módulos seguem intocadas", async () => {
+  const [saldos, relatorios, certidoes, pagina] = await Promise.all([
+    read("src/lib/saldosDocumento.js"),
+    read("src/lib/relatoriosDocumento.js"),
+    read("src/lib/certidoesDocumento.js"),
+    read("src/pages/PagamentosRedesenhado.jsx"),
+  ]);
+  // Saldos das Contas: ordem fixa das colunas e as três saídas.
+  assert.match(saldos, /export const COLUNAS_SALDOS = \["Banco", "Número da Conta", "Saldo", "Nome da Conta"\]/);
+  assert.match(saldos, /export function imprimirSaldos/);
+  assert.match(saldos, /export function gerarPdfSaldos/);
+  // Relatórios (base de Fornecedores, Certidões e demais módulos).
+  assert.match(relatorios, /export function imprimirRelatorio/);
+  assert.match(relatorios, /export function gerarPdfRelatorio/);
+  assert.match(relatorios, /export function exportarExcelRelatorio/);
+  assert.match(certidoes, /export function imprimirCertidoes/);
+  assert.match(certidoes, /export function gerarPdfCertidoes/);
+  assert.match(certidoes, /export function exportarExcelCertidoes/);
+  // A Programação Diária não empresta o documento de nenhum outro módulo.
+  assert.doesNotMatch(pagina, /saldosDocumento|relatoriosDocumento|certidoesDocumento/);
 });
 
 test("seleção não movimenta saldo e pagamento pode ocorrer sem concentração", async () => {

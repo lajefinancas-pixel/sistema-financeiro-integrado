@@ -1,7 +1,5 @@
 import React from "react";
 import { AlertTriangle, ArrowRightLeft, Check, ChevronRight, FileText, Lock, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import PainelFiltros from "../components/comuns/PainelFiltros";
@@ -16,6 +14,7 @@ import { filtroVigentes, excluirRegistro } from "../lib/exclusaoRegistros";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
 import { resumoBaixas } from "../lib/regrasBaixas";
+import { gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const numero = (valor) => Math.round(paraNumeroMoeda(valor) * 100) / 100;
@@ -43,7 +42,7 @@ function PainelConta({ conta, marcada, bloqueada, onChange }) {
 }
 
 export default function PagamentosRedesenhado() {
-  const { permissao } = usePermissaoModulo("pagamentos");
+  const { permissao, usuario } = usePermissaoModulo("pagamentos");
   const { valores: permissoesEspeciais } = usePermissoesEspeciais();
   const podeEditar = permissao?.pode_editar !== false;
   const podeExcluir = permissao?.pode_excluir === true;
@@ -389,39 +388,43 @@ export default function PagamentosRedesenhado() {
     await supabase.rpc("registrar_impressao_programacao", { p_programacao_id: programacaoId }).then(() => null);
   }
 
+  // A impressão e o PDF saem de um documento próprio (src/lib/programacaoDocumento.js):
+  // a tela nunca é capturada, então nenhum campo de busca, filtro, botão ou seleção
+  // vai ao papel. Aqui só juntamos os dados que o documento precisa.
+  function dadosDaImpressao() {
+    return {
+      secretaria: secretariaAtual,
+      nomeProgramacao: programacoes.find((item) => String(item.id) === String(programacaoId))?.nome_programacao || "",
+      dataProgramacao: data,
+      usuario: usuario?.nome_completo || "",
+      // Somente as contas marcadas para o dia -- nunca a lista completa de contas.
+      contas: contasSelecionadasComSaldo.map((conta) => ({
+        nome_conta: conta.nome_conta,
+        banco: conta.banco,
+        numero_conta: conta.numero_conta,
+        saldo: conta.saldo,
+      })),
+      fornecedores: pagamentos.map((pagamento) => ({
+        nome: nomePagamento(pagamento),
+        // Fornecedor não cadastrado não tem valor em aberto: a coluna sai com traço.
+        valorEmAberto: pagamento.valores_em_aberto
+          ? Math.max(0, numero(pagamento.valores_em_aberto.valor) - numero(pagamento.valores_em_aberto.valor_pago))
+          : null,
+        valorAPagar: pagamento.valor_a_pagar,
+      })),
+      totalDisponivel,
+      totalPagar,
+    };
+  }
+
   async function imprimir() {
     await registrarImpressao();
-    window.print();
+    imprimirProgramacao(dadosDaImpressao());
   }
 
   async function gerarPdf() {
     await registrarImpressao();
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const secretaria = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "Secretaria";
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(15);
-    doc.text("Relação para aprovação de pagamentos", 14, 16);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`${secretaria} · ${new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR")}`, 14, 23);
-    autoTable(doc, {
-      startY: 29,
-      head: [["Conta selecionada", "Banco", "Número", "Saldo"]],
-      body: contasSelecionadasComSaldo.map((conta) => [conta.nome_conta, conta.banco, conta.numero_conta || "--", formatBRL(conta.saldo)]),
-      foot: [["Somatório dos saldos", "", "", formatBRL(totalDisponivel)]],
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [23, 92, 76] },
-    });
-    autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 8,
-      head: [["Fornecedor", "Valor a pagar", "Anotações / alteração do chefe"]],
-      body: pagamentos.map((pagamento) => [nomePagamento(pagamento), formatBRL(pagamento.valor_a_pagar), ""]),
-      foot: [["Total a pagar", formatBRL(totalPagar), ""]],
-      styles: { fontSize: 9, minCellHeight: 13 },
-      headStyles: { fillColor: [23, 92, 76] },
-      columnStyles: { 2: { cellWidth: 70 } },
-    });
-    doc.save(`relacao-pagamentos-${data}.pdf`);
+    gerarPdfProgramacao(dadosDaImpressao());
   }
 
   async function alternarFechamento() {
@@ -502,8 +505,6 @@ export default function PagamentosRedesenhado() {
             </section>
 
             <div className="mb-8 flex justify-end print:hidden"><button onClick={alternarFechamento} className="flex items-center gap-2 rounded-lg border border-black/10 bg-white px-4 py-2 text-sm">{fechado ? <Unlock size={14}/> : <Lock size={14}/>} {fechado ? "Reabrir programação" : "Fechar após efetivação"}</button></div>
-
-            <section className="hidden print:block"><h1 className="font-serif text-2xl font-semibold">Relação para aprovação de pagamentos</h1><p className="mt-1 text-sm">{secretariaAtual} · {new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR")}</p><h2 className="mt-6 border-b pb-2 font-semibold">Contas selecionadas</h2><table className="mt-2 w-full text-sm"><thead><tr><th className="text-left">Conta</th><th className="text-left">Banco</th><th className="text-left">Número</th><th className="text-right">Saldo</th></tr></thead><tbody>{contasSelecionadasComSaldo.map((conta) => <tr key={conta.id}><td className="py-1">{conta.nome_conta}</td><td>{conta.banco}</td><td>{conta.numero_conta || "--"}</td><td className="text-right">{formatBRL(conta.saldo)}</td></tr>)}</tbody><tfoot><tr className="border-t font-bold"><td className="pt-2" colSpan="3">Somatório dos saldos</td><td className="pt-2 text-right">{formatBRL(totalDisponivel)}</td></tr></tfoot></table><h2 className="mt-7 border-b pb-2 font-semibold">Relação de fornecedores</h2><table className="mt-2 w-full text-sm"><thead><tr><th className="text-left">Fornecedor</th><th className="w-32 text-right">Valor a pagar</th><th className="w-64 text-left">Anotações / alteração do chefe</th></tr></thead><tbody>{pagamentos.map((pagamento) => <tr key={pagamento.id} className="border-b"><td className="h-14">{nomePagamento(pagamento)}</td><td className="text-right">{formatBRL(pagamento.valor_a_pagar)}</td><td/></tr>)}</tbody><tfoot><tr className="font-bold"><td className="pt-2">Total a pagar</td><td className="pt-2 text-right">{formatBRL(totalPagar)}</td><td/></tr></tfoot></table></section>
           </>}
         </>}
       </div>
