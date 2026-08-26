@@ -22,7 +22,7 @@ test("transferência não permite saldo negativo", () => {
   assert.throws(() => aplicarTransferenciaEmSaldos({ a: 10, b: 20 }, "a", "b", 11), /Saldo insuficiente/);
 });
 
-test("pagamento é comparado somente com a conta concentradora", () => {
+test("conferência pode sinalizar proposta acima do saldo sem alterar saldos", () => {
   const conferencia = calcularConferenciaTransferencias({ saldoDestino: 100, transferencias: [], totalPagamentos: 120 });
   assert.equal(conferencia.faltaTransferir, 20);
   assert.equal(conferencia.restaAposPagamentos, -20);
