@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { alternarSelecao, calcularRestante, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos } from "../src/lib/planejamentoPagamentos.js";
+import { classificarFalhaFase1, verificarEstruturaFase1 } from "../src/lib/estruturaPagamentosFase1.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const migrationPlanejamento = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
@@ -81,14 +82,93 @@ test("falhas da fase 1 registram o erro real do Supabase com contexto", async ()
   assert.match(pagina, /hint: falha\?\.hint/);
 });
 
-test("falhas de schema da fase 1 indicam a única migration e o banco correto", async () => {
-  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+test("falhas de schema da fase 1 indicam as migrations e o banco correto", async () => {
+  const [pagina, lib] = await Promise.all([
+    read("src/pages/PagamentosRedesenhado.jsx"),
+    read("src/lib/estruturaPagamentosFase1.js"),
+  ]);
   assert.match(pagina, /20260827000000_consolidar_fluxo_pagamentos_diarios\.sql/);
+  assert.match(pagina, /20260827130000_reaplicar_estrutura_pagamentos_fase_1\.sql/);
   assert.match(pagina, /no mesmo projeto Supabase usado pela aplicação/);
-  for (const codigo of ["42703", "42883", "PGRST202", "PGRST204"]) {
-    assert.match(pagina, new RegExp(codigo));
+  for (const codigo of ["42P01", "42703", "42883", "PGRST202", "PGRST204", "PGRST205"]) {
+    assert.match(lib, new RegExp(codigo));
   }
   assert.doesNotMatch(pagina, /Rode a migration informada no resumo se necessário/);
+  // A decisão nunca volta a sair de palavra solta na mensagem do erro.
+  assert.doesNotMatch(pagina, /\\b\(status\|saldo_considerado\|ativa/);
+  assert.match(pagina, /Falta no banco/);
+});
+
+test("classificação da fase 1 separa estrutura ausente de permissão e de erro comum", () => {
+  const coluna = classificarFalhaFase1({ code: "42703", message: "column programacoes_pagamento.status does not exist" });
+  assert.equal(coluna.tipo, "estrutura");
+  assert.equal(coluna.alvo, "coluna");
+  assert.equal(coluna.objeto, "programacoes_pagamento.status");
+
+  const funcao = classificarFalhaFase1({
+    code: "PGRST202",
+    message: "Could not find the function public.salvar_planejamento_programacao(p_contas) in the schema cache",
+  });
+  assert.equal(funcao.tipo, "estrutura");
+  assert.equal(funcao.alvo, "funcao");
+  assert.match(funcao.objeto, /salvar_planejamento_programacao/);
+
+  // RLS e sessão nunca podem virar "estrutura ausente".
+  assert.equal(classificarFalhaFase1({ code: "42501", message: "permission denied for table programacoes_pagamento" }).tipo, "permissao");
+  assert.equal(classificarFalhaFase1({ code: "PGRST301", message: "JWT expired" }).tipo, "permissao");
+
+  // Erro comum que só cita a palavra "status" ou "ativa" também não vira.
+  assert.equal(classificarFalhaFase1({ code: "23514", message: 'new row violates check constraint "status_valido"' }).tipo, "outro");
+  assert.equal(classificarFalhaFase1({ code: "PGRST116", message: "The result contains 0 rows" }).tipo, "outro");
+});
+
+test("verificação de estrutura só acusa falta quando o banco nega a coluna", async () => {
+  const respostas = {
+    "programacoes_pagamento:status,saldo_considerado,total_programado,restante,updated_at,ultima_impressao_em": { code: "42703", message: "column programacoes_pagamento.status does not exist" },
+    "programacoes_pagamento:status": { code: "42703", message: "column programacoes_pagamento.status does not exist" },
+    "programacao_contas:saldo_considerado,ativa,ordem": { code: "42501", message: "permission denied for table programacao_contas" },
+  };
+  const cliente = {
+    from: (tabela) => ({
+      select: (colunas) => ({
+        // Linha nenhuma devolvida: é exatamente o caso de RLS restritiva.
+        limit: async () => ({ data: [], error: respostas[`${tabela}:${colunas}`] ?? null }),
+      }),
+    }),
+  };
+
+  const resultado = await verificarEstruturaFase1(cliente);
+  assert.equal(resultado.ok, false);
+  assert.deepEqual(resultado.faltando, ["programacoes_pagamento.status"]);
+  assert.deepEqual(resultado.naoVerificado, ["programacao_contas"]);
+
+  const semFalha = { from: () => ({ select: () => ({ limit: async () => ({ data: [], error: null }) }) }) };
+  const tudoCerto = await verificarEstruturaFase1(semFalha);
+  assert.equal(tudoCerto.ok, true);
+  assert.deepEqual(tudoCerto.faltando, []);
+});
+
+test("migration de reparo é idempotente, aditiva e não movimenta dinheiro", async () => {
+  const sql = await read("supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql");
+  assert.match(sql, /^-- Reaplicação idempotente/);
+  assert.match(sql, /begin;/);
+  assert.match(sql, /commit;\s*$/);
+  assert.match(sql, /add column if not exists status/);
+  assert.match(sql, /add column if not exists saldo_considerado/);
+  assert.match(sql, /add column if not exists ativa/);
+  assert.match(sql, /add column if not exists cadastrar_fornecedor_posteriormente/);
+  assert.match(sql, /create index if not exists/);
+  assert.match(sql, /create or replace function public\.salvar_planejamento_programacao/);
+  assert.match(sql, /create or replace function public\.marcar_programacao_em_analise/);
+  assert.doesNotMatch(sql, /\bdelete\b|drop table|drop function|truncate/i);
+  assert.doesNotMatch(sql, /insert into public\.saldos_historico|update public\.saldos_historico/i);
+  assert.doesNotMatch(sql, /transferencias_contas|pagamentos_baixas|marcar_pagamento_pago/i);
+});
+
+test("migration aplicada da fase 1 continua intacta", async () => {
+  const sql = await read(migrationPlanejamento);
+  assert.match(sql, /create or replace function public\.salvar_planejamento_programacao/);
+  assert.match(sql, /create or replace function public\.marcar_programacao_em_analise/);
 });
 
 test("migration é única, idempotente e não movimenta dinheiro", async () => {

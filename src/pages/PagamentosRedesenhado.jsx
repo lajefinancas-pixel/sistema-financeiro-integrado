@@ -9,6 +9,7 @@ import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 import { alternarSelecao, calcularRestante, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
+import { FUNCOES_FASE_1, classificarFalhaFase1, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -19,6 +20,7 @@ const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-B
 const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
 const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
+const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 
 function idInteiro(valor, campo) {
   const id = Number(valor);
@@ -30,6 +32,9 @@ function idInteiro(valor, campo) {
   return id;
 }
 
+// Todo erro da Fase 1 vai inteiro para o console: o objeto original do Supabase
+// (code, message, details, hint) mais o contexto da chamada e a classificação
+// que a tela usou para escolher a mensagem. Nenhuma falha fica só como texto.
 function registrarErroFase1(operacao, falha, contexto = {}) {
   if (typeof console === "undefined") return;
   console.error(`[Pagamentos Fase 1] ${operacao}`, {
@@ -39,16 +44,38 @@ function registrarErroFase1(operacao, falha, contexto = {}) {
     details: falha?.details,
     hint: falha?.hint,
     status: falha?.status,
+    classificacao: classificarFalhaFase1(falha),
+    erroOriginal: falha,
   });
 }
 
-function mensagemFalhaFase1(falha, mensagemPadrao) {
-  const texto = `${falha?.message ?? ""} ${falha?.details ?? ""} ${falha?.hint ?? ""}`;
-  const estruturaAusente = ["42703", "42883", "PGRST202", "PGRST204"].includes(String(falha?.code ?? ""))
-    || /\b(status|saldo_considerado|ativa|cadastrar_fornecedor_posteriormente|salvar_planejamento_programacao|marcar_programacao_em_analise)\b/i.test(texto);
+function listaLegivel(itens) {
+  return itens.join(", ");
+}
 
-  if (estruturaAusente) {
-    return `A estrutura da Fase 1 não está disponível no banco conectado a esta tela. Execute ${MIGRATION_FASE_1} no mesmo projeto Supabase usado pela aplicação e recarregue a página.`;
+function mensagemEstruturaAusente(objetos) {
+  const detalhe = objetos.length ? ` Falta no banco: ${listaLegivel(objetos)}.` : "";
+  return `A estrutura da Fase 1 não está disponível no banco conectado a esta tela.${detalhe} Execute ${MIGRATION_FASE_1} e ${MIGRATION_REPARO_FASE_1} no mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo do banco está no console (F12).`;
+}
+
+// A tela só afirma "falta estrutura" quando o próprio banco disse que o objeto
+// não existe (42P01/42703/42883/PGRST200/PGRST202/PGRST204/PGRST205). Permissão
+// e sessão têm mensagem própria; o resto continua com a mensagem do contexto.
+function mensagemFalhaFase1(falha, mensagemPadrao) {
+  const classificacao = classificarFalhaFase1(falha);
+
+  if (classificacao.tipo === "estrutura") {
+    const objeto = classificacao.objeto;
+    if (classificacao.alvo === "funcao") {
+      const esperada = FUNCOES_FASE_1.find((funcao) => String(objeto ?? "").includes(funcao.nome));
+      const assinatura = esperada ? ` A tela chama ${esperada.nome}${esperada.assinatura}.` : "";
+      return `${mensagemEstruturaAusente(objeto ? [objeto] : [])} A função pode existir com outra assinatura de tipos.${assinatura}`;
+    }
+    return mensagemEstruturaAusente(objeto ? [objeto] : []);
+  }
+
+  if (classificacao.tipo === "permissao") {
+    return "Seu usuário não tem permissão para esta operação nos Pagamentos Diários (ou a sessão expirou). Isto não é falta de estrutura no banco: o erro completo está no console (F12).";
   }
 
   return mensagemAmigavel(falha, mensagemPadrao);
@@ -84,10 +111,12 @@ export default function PagamentosRedesenhado() {
   const [pagamentos, setPagamentos] = React.useState([]);
   const [mostrarAvulso, setMostrarAvulso] = React.useState(false);
   const [avulso, setAvulso] = React.useState({ nome: "", valor: 0, cadastrarDepois: false });
+  const [estrutura, setEstrutura] = React.useState(null);
   const podeEditarProgramacao = podeEditar && programacao?.fechado !== true;
 
   React.useEffect(() => {
     carregarSecretarias();
+    conferirEstrutura();
   }, []);
 
   React.useEffect(() => {
@@ -100,6 +129,23 @@ export default function PagamentosRedesenhado() {
     if (programacaoId) carregarProgramacao(programacaoId);
     else limparEdicao();
   }, [programacaoId]);
+
+  // Conferência ativa, feita ao abrir a tela: diz exatamente quais colunas
+  // faltam, em vez de esperar uma ação falhar e adivinhar o motivo. `limit(0)`
+  // não traz linha nenhuma, então policy de RLS restritiva não é confundida
+  // com estrutura ausente.
+  async function conferirEstrutura() {
+    const resultado = await verificarEstruturaFase1(supabase);
+    setEstrutura(resultado);
+    if (typeof console !== "undefined" && resultado.falhas.length) {
+      console.error("[Pagamentos Fase 1] Verificação de estrutura", {
+        faltando: resultado.faltando,
+        naoVerificado: resultado.naoVerificado,
+        funcoesEsperadas: FUNCOES_FASE_1,
+        falhas: resultado.falhas,
+      });
+    }
+  }
 
   async function carregarSecretarias() {
     try {
@@ -396,6 +442,13 @@ export default function PagamentosRedesenhado() {
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#17352F]/60">Data<input type="date" value={data} onChange={(evento) => setData(evento.target.value)} className="mt-1 block w-full rounded-lg border border-black/10 px-3 py-2 text-sm font-normal"/></label>
           <button onClick={criarProgramacao} disabled={!podeEditar || salvando} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#17352F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus size={16}/> Nova programação</button>
         </div>
+
+        {estrutura && !estrutura.ok && <div className="mb-4 rounded-xl border border-[#8A321C]/25 bg-[#FBE9DF] px-4 py-3 text-sm text-[#8A321C]">
+          <p className="font-semibold"><AlertTriangle size={15} className="mr-1 inline"/> Estrutura da Fase 1 incompleta no banco conectado a esta tela</p>
+          <p className="mt-1">Não existe no banco: <strong>{listaLegivel(estrutura.faltando)}</strong>.</p>
+          <p className="mt-1">Execute {MIGRATION_FASE_1} e {MIGRATION_REPARO_FASE_1} no mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo de cada objeto está no console (F12).</p>
+          {estrutura.naoVerificado.length > 0 && <p className="mt-1 text-xs">Sem permissão para conferir: {listaLegivel(estrutura.naoVerificado)} — estes não estão sendo acusados de faltar.</p>}
+        </div>}
 
         {(erro || mensagem) && <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={16}/></button></div>}
 
