@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { alternarSelecao, calcularRestante, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos } from "../src/lib/planejamentoPagamentos.js";
+import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos } from "../src/lib/planejamentoPagamentos.js";
 import { classificarFalhaFase1, verificarEstruturaFase1 } from "../src/lib/estruturaPagamentosFase1.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -217,6 +217,67 @@ test("somente contas selecionadas e valores propostos chegam ao documento", asyn
   assert.match(pagina, /contas: contasSelecionadasComSaldo\.map/);
   assert.match(pagina, /pagamentos: pagamentos\.map/);
   assert.doesNotMatch(pagina, /numero_nota_fiscal|retenções|dados bancários/);
+});
+
+test("lista de fornecedores mostra quem tem valor em aberto primeiro, do maior para o menor", () => {
+  const ordenados = ordenarFornecedoresPorAberto([
+    { razao_social: "ZETA", valor_em_aberto: 0 },
+    { razao_social: "BETA", valor_em_aberto: 15000 },
+    { razao_social: "ALFA", valor_em_aberto: 0 },
+    { razao_social: "GAMA", valor_em_aberto: 250000 },
+    { razao_social: "DELTA", valor_em_aberto: 3050.75 },
+  ]);
+  assert.deepEqual(ordenados.map((item) => item.razao_social), ["GAMA", "BETA", "DELTA", "ALFA", "ZETA"]);
+  // Nenhum valor é tocado pela ordenação.
+  assert.deepEqual(ordenados.map((item) => item.valor_em_aberto), [250000, 15000, 3050.75, 0, 0]);
+});
+
+test("blocos de contas e de fornecedores recolhem depois da confirmação", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  for (const rotulo of ["CONFIRMAR CONTAS", "ALTERAR CONTAS", "CONFIRMAR FORNECEDORES", "ALTERAR FORNECEDORES"]) {
+    assert.match(pagina, new RegExp(rotulo));
+  }
+  // A lista completa só existe na tela enquanto o bloco está aberto.
+  assert.match(pagina, /\{!contasConfirmadas && <div className="print:hidden">/);
+  assert.match(pagina, /\{!fornecedoresConfirmados && <div className="max-h-\[330px\] overflow-y-auto print:hidden">/);
+  // Confirmado, sobra o resumo do que foi escolhido -- com o valor editável nos fornecedores.
+  assert.match(pagina, /contasSelecionadasComSaldo\.map\(\(conta\) => <div/);
+  assert.match(pagina, /fornecedoresConfirmados \? "" : "hidden print:block"/);
+  assert.match(pagina, /onValorChange=\{\(valor\) => editarValor\(pagamento, valor\)\}/);
+  // Programação já salva abre recolhida; programação nova abre com as listas.
+  assert.match(pagina, /setContasConfirmadas\(\(vinculadas \?\? \[\]\)\.length > 0\)/);
+  assert.match(pagina, /setFornecedoresConfirmados\(\(itens \?\? \[\]\)\.length > 0\)/);
+  // Salvar recarrega os dados sem recolher nem reabrir o que o usuário deixou aberto.
+  assert.match(pagina, /carregarProgramacao\(programacao\.id, \{ manterRecolhimento: true \}\)/);
+});
+
+test("confirmar bloco é só apresentação: não grava nem movimenta saldo", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  const recolhimento = pagina.slice(pagina.indexOf("function confirmarContas"), pagina.indexOf("function alternarConta"));
+  assert.match(recolhimento, /setContasConfirmadas\(true\)/);
+  assert.match(recolhimento, /setFornecedoresConfirmados\(true\)/);
+  assert.doesNotMatch(recolhimento, /supabase|rpc\(|insert|update|salvar/i);
+  // Os totalizadores do topo seguem fora de qualquer condição de recolhimento.
+  const topo = pagina.slice(pagina.indexOf("Saldo da programação"), pagina.indexOf("Secretaria"));
+  assert.doesNotMatch(topo, /contasConfirmadas|fornecedoresConfirmados/);
+});
+
+test("impressão da página não leva listas completas nem controles de interface", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  // Busca, seleção em massa, chips, avisos e barras de botão ficam fora do papel.
+  for (const trecho of [
+    /placeholder="Buscar banco, conta ou nome" className="w-full/,
+    /placeholder="Buscar fornecedor"/,
+    /Selecionar todas/,
+    /Adicionar fornecedor avulso/,
+  ]) assert.match(pagina, trecho);
+  assert.match(pagina, /className="relative mt-3 print:hidden"/);
+  assert.match(pagina, /className="border-t border-black\/5 p-4 print:hidden"/);
+  assert.match(pagina, /className="flex flex-wrap gap-2 print:hidden"/);
+  assert.match(pagina, /overflow-x-auto pb-1 print:hidden/);
+  // O resumo confirmado é o que sobra impresso, com o valor como texto.
+  assert.match(pagina, /className="hidden text-right tabular-nums print:block"/);
+  assert.match(pagina, /contasConfirmadas \? "" : "hidden print:block"/);
 });
 
 test("backup manual e impressões dos outros módulos permanecem intactos", async () => {

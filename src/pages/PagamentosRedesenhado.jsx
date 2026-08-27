@@ -8,7 +8,7 @@ import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
-import { alternarSelecao, calcularRestante, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
+import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
 import { FUNCOES_FASE_1, classificarFalhaFase1, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 
 const hojeISO = () => {
@@ -112,6 +112,11 @@ export default function PagamentosRedesenhado() {
   const [mostrarAvulso, setMostrarAvulso] = React.useState(false);
   const [avulso, setAvulso] = React.useState({ nome: "", valor: 0, cadastrarDepois: false });
   const [estrutura, setEstrutura] = React.useState(null);
+  // Recolhimento dos blocos: organização visual da tela, nada mais. Confirmar
+  // não grava, não movimenta saldo e não muda nenhum cálculo -- apenas esconde
+  // a lista completa para sobrar na tela (e no papel) o que foi escolhido.
+  const [contasConfirmadas, setContasConfirmadas] = React.useState(false);
+  const [fornecedoresConfirmados, setFornecedoresConfirmados] = React.useState(false);
   const podeEditarProgramacao = podeEditar && programacao?.fechado !== true;
 
   React.useEffect(() => {
@@ -194,10 +199,10 @@ export default function PagamentosRedesenhado() {
         mapa[chave] = numero(mapa[chave]) + Math.max(0, numero(item.valor) - numero(item.valor_pago));
         return mapa;
       }, {});
-      setFornecedores((fornecedoresAtivos ?? []).map((fornecedor) => ({
+      setFornecedores(ordenarFornecedoresPorAberto((fornecedoresAtivos ?? []).map((fornecedor) => ({
         ...fornecedor,
         valor_em_aberto: numero(totais[String(fornecedor.id)]),
-      })).sort((a, b) => Number(b.valor_em_aberto > 0) - Number(a.valor_em_aberto > 0) || a.razao_social.localeCompare(b.razao_social, "pt-BR")));
+      }))));
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível carregar contas e fornecedores."));
     }
@@ -224,9 +229,11 @@ export default function PagamentosRedesenhado() {
     setProgramacao(null);
     setContasSelecionadas(new Set());
     setPagamentos([]);
+    setContasConfirmadas(false);
+    setFornecedoresConfirmados(false);
   }
 
-  async function carregarProgramacao(id) {
+  async function carregarProgramacao(id, { manterRecolhimento = false } = {}) {
     setErro("");
     try {
       const idProgramacao = idInteiro(id, "Programação");
@@ -244,6 +251,13 @@ export default function PagamentosRedesenhado() {
       setProgramacao({ ...programa, responsavel });
       setContasSelecionadas(new Set((vinculadas ?? []).map((item) => item.conta_id)));
       setPagamentos((itens ?? []).map((item) => ({ ...item, valor_a_pagar: numero(item.valor_a_pagar) })));
+      // Programação que já tem escolha feita abre recolhida; vazia abre com as
+      // listas visíveis para a seleção começar. Recarga feita depois de salvar
+      // mantém a tela como o usuário deixou -- salvar não recolhe nem reabre.
+      if (!manterRecolhimento) {
+        setContasConfirmadas((vinculadas ?? []).length > 0);
+        setFornecedoresConfirmados((itens ?? []).length > 0);
+      }
     } catch (falha) {
       registrarErroFase1("Falha ao abrir programação", falha, { programacaoId: id });
       setErro(mensagemFalhaFase1(falha, "Não foi possível abrir a programação."));
@@ -276,6 +290,25 @@ export default function PagamentosRedesenhado() {
     } finally {
       setSalvando(false);
     }
+  }
+
+  // Confirmar/reabrir um bloco é só apresentação: não grava, não movimenta
+  // saldo e não recalcula nada -- os totalizadores do topo continuam saindo das
+  // mesmas contas selecionadas e dos mesmos valores propostos.
+  function confirmarContas() {
+    setContasConfirmadas(true);
+  }
+
+  function alterarContas() {
+    setContasConfirmadas(false);
+  }
+
+  function confirmarFornecedores() {
+    setFornecedoresConfirmados(true);
+  }
+
+  function alterarFornecedores() {
+    setFornecedoresConfirmados(false);
   }
 
   function alternarConta(contaId) {
@@ -361,7 +394,7 @@ export default function PagamentosRedesenhado() {
       });
       if (error) throw error;
       setMensagem("Programação salva com contas, fornecedores e valores preservados.");
-      await carregarProgramacao(programacao.id);
+      await carregarProgramacao(programacao.id, { manterRecolhimento: true });
       await carregarProgramacoes(programacao.id);
       return true;
     } catch (falha) {
@@ -437,49 +470,86 @@ export default function PagamentosRedesenhado() {
           {restante < 0 && <p className="mx-auto mt-2 max-w-[1500px] rounded-lg bg-[#8A321C] px-3 py-2 text-center text-xs font-semibold text-white"><AlertTriangle size={14} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
         </div>
 
-        <div className="mb-5 grid gap-3 rounded-2xl border border-[#17352F]/10 bg-white p-4 shadow-sm lg:grid-cols-[1fr_13rem_auto] lg:items-end">
+        <div className="mb-5 grid gap-3 rounded-2xl border border-[#17352F]/10 bg-white p-4 shadow-sm print:hidden lg:grid-cols-[1fr_13rem_auto] lg:items-end">
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#17352F]/60">Secretaria<select value={secretariaId} onChange={(evento) => setSecretariaId(evento.target.value)} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm font-normal normal-case tracking-normal">{secretarias.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
           <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#17352F]/60">Data<input type="date" value={data} onChange={(evento) => setData(evento.target.value)} className="mt-1 block w-full rounded-lg border border-black/10 px-3 py-2 text-sm font-normal"/></label>
           <button onClick={criarProgramacao} disabled={!podeEditar || salvando} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#17352F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus size={16}/> Nova programação</button>
         </div>
 
-        {estrutura && !estrutura.ok && <div className="mb-4 rounded-xl border border-[#8A321C]/25 bg-[#FBE9DF] px-4 py-3 text-sm text-[#8A321C]">
+        {estrutura && !estrutura.ok && <div className="mb-4 rounded-xl border border-[#8A321C]/25 bg-[#FBE9DF] px-4 py-3 text-sm text-[#8A321C] print:hidden">
           <p className="font-semibold"><AlertTriangle size={15} className="mr-1 inline"/> Estrutura da Fase 1 incompleta no banco conectado a esta tela</p>
           <p className="mt-1">Não existe no banco: <strong>{listaLegivel(estrutura.faltando)}</strong>.</p>
           <p className="mt-1">Execute {MIGRATION_FASE_1} e {MIGRATION_REPARO_FASE_1} no mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo de cada objeto está no console (F12).</p>
           {estrutura.naoVerificado.length > 0 && <p className="mt-1 text-xs">Sem permissão para conferir: {listaLegivel(estrutura.naoVerificado)} — estes não estão sendo acusados de faltar.</p>}
         </div>}
 
-        {(erro || mensagem) && <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={16}/></button></div>}
+        {(erro || mensagem) && <div className={`mb-4 rounded-xl px-4 py-3 text-sm print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={16}/></button></div>}
 
         {carregando ? <p className="py-16 text-center text-sm text-[#17352F]/55">Carregando...</p> : <>
-          {programacoes.length > 0 && <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold ${String(programacaoId) === String(item.id) ? "border-[#17352F] bg-[#17352F] text-white" : "border-black/10 bg-white text-[#17352F]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
+          {programacoes.length > 0 && <div className="mb-5 flex gap-2 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold ${String(programacaoId) === String(item.id) ? "border-[#17352F] bg-[#17352F] text-white" : "border-black/10 bg-white text-[#17352F]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
 
           {!programacao ? <div className="rounded-2xl border border-dashed border-[#17352F]/20 bg-white/60 px-6 py-20 text-center"><h2 className="font-serif text-2xl text-[#17352F]">Comece uma programação diária</h2><p className="mx-auto mt-2 max-w-xl text-sm text-[#17352F]/60">A seleção de contas apenas calcula o valor disponível para planejamento. Nenhuma conta é debitada, reservada ou bloqueada.</p></div> : <>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#17352F] px-5 py-4 text-white">
               <div><p className="text-xs uppercase tracking-[0.16em] text-white/60">{statusLabel(programacao.status, programacao.fechado)}</p><h1 className="font-serif text-xl sm:text-2xl">{programacao.nome_programacao}</h1><p className="mt-1 text-xs text-white/60">ID {programacao.id} · programação de {dataBR(programacao.data_programacao)}</p></div>
-              <div className="flex flex-wrap gap-2"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button><button onClick={imprimir} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><Printer size={15}/> Imprimir para análise</button><button onClick={gerarPdf} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><FileDown size={15}/> PDF</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-2 rounded-lg bg-[#B98C55] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check size={15}/> Marcar em análise</button>}</div>
+              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button><button onClick={imprimir} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><Printer size={15}/> Imprimir para análise</button><button onClick={gerarPdf} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><FileDown size={15}/> PDF</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-2 rounded-lg bg-[#B98C55] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check size={15}/> Marcar em análise</button>}</div>
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[1.05fr_.95fr]">
               <section className="overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
-                <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">1. Contas de trabalho</p><h2 className="font-serif text-xl text-[#17352F]">Selecionar contas</h2><p className="mt-1 text-xs text-[#17352F]/55">Selecionar conta não movimenta saldo.</p><div className="relative mt-3"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaConta} onChange={(evento) => setBuscaConta(evento.target.value)} placeholder="Buscar banco, conta ou nome" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div></div>
-                <label className="grid cursor-pointer grid-cols-[2rem_1fr] border-b border-black/5 bg-[#F2F0E8] px-4 py-3 text-sm font-semibold text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-4 w-4 accent-[#17352F]"/> Selecionar todas</label>
-                <div className="max-h-[430px] overflow-y-auto"><div className="hidden grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] gap-3 border-b border-black/5 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#17352F]/45 md:grid"><span></span><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>{contasFiltradas.map((conta) => <label key={conta.id} className={`grid cursor-pointer gap-2 border-b border-black/5 px-4 py-3 text-sm last:border-0 md:grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] md:gap-3 ${contasSelecionadas.has(conta.id) ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={contasSelecionadas.has(conta.id)} onChange={() => alternarConta(conta.id)} className="h-4 w-4 accent-[#17352F]"/><span>{conta.banco}</span><span>{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span>{conta.nome_conta || "--"}</span></label>)}</div>
+                <div className="border-b border-black/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">1. Contas de trabalho</p>
+                  <h2 className="font-serif text-xl text-[#17352F]">{contasConfirmadas ? "Contas confirmadas" : "Selecionar contas"}</h2>
+                  <p className="mt-1 text-xs text-[#17352F]/55 print:hidden">Selecionar conta não movimenta saldo. Confirmar apenas recolhe a lista.</p>
+                  {!contasConfirmadas && <div className="relative mt-3 print:hidden"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaConta} onChange={(evento) => setBuscaConta(evento.target.value)} placeholder="Buscar banco, conta ou nome" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div>}
+                </div>
+
+                {/* Lista completa: só enquanto a seleção não foi confirmada, e nunca no papel. */}
+                {!contasConfirmadas && <div className="print:hidden">
+                  <label className="grid cursor-pointer grid-cols-[2rem_1fr] border-b border-black/5 bg-[#F2F0E8] px-4 py-3 text-sm font-semibold text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-4 w-4 accent-[#17352F]"/> Selecionar todas</label>
+                  <div className="max-h-[430px] overflow-y-auto"><div className="hidden grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] gap-3 border-b border-black/5 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#17352F]/45 md:grid"><span></span><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>{contasFiltradas.map((conta) => <label key={conta.id} className={`grid cursor-pointer gap-2 border-b border-black/5 px-4 py-3 text-sm last:border-0 md:grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] md:gap-3 ${contasSelecionadas.has(conta.id) ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={contasSelecionadas.has(conta.id)} onChange={() => alternarConta(conta.id)} className="h-4 w-4 accent-[#17352F]"/><span>{conta.banco}</span><span>{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span>{conta.nome_conta || "--"}</span></label>)}</div>
+                </div>}
+
+                {/* Resumo do que foi escolhido: na tela quando confirmado, na impressão sempre. */}
+                <div className={contasConfirmadas ? "" : "hidden print:block"}>
+                  <div className="hidden grid-cols-[1.1fr_1fr_1fr_1.2fr] gap-3 border-b border-black/5 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#17352F]/45 md:grid print:grid"><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>
+                  {contasSelecionadasComSaldo.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#17352F]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid gap-1 border-b border-black/5 px-4 py-2.5 text-sm last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-3 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span>{conta.banco}</span><span>{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span>{conta.nome_conta || "--"}</span></div>)}
+                </div>
+
                 <div className="bg-[#17352F] px-4 py-3 text-sm font-semibold text-white">{contasSelecionadas.size} {contasSelecionadas.size === 1 ? "CONTA SELECIONADA" : "CONTAS SELECIONADAS"} — SALDO TOTAL DA PROGRAMAÇÃO: {formatBRL(totalDisponivel)}</div>
+
+                <div className="flex justify-end border-t border-black/5 p-3 print:hidden">{contasConfirmadas ? <button onClick={alterarContas} className="rounded-lg border border-[#17352F]/25 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#17352F] hover:bg-[#F2F0E8]">ALTERAR CONTAS</button> : <button onClick={confirmarContas} disabled={contasSelecionadas.size === 0} className="inline-flex items-center gap-2 rounded-lg bg-[#17352F] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white disabled:opacity-40"><Check size={14}/> CONFIRMAR CONTAS</button>}</div>
               </section>
 
               <section className="overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
-                <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">2. Proposta</p><h2 className="font-serif text-xl text-[#17352F]">Fornecedores em aberto</h2><div className="relative mt-3"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar fornecedor" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div></div>
-                <div className="max-h-[330px] overflow-y-auto">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[2rem_1fr_auto] items-center gap-3 border-b border-black/5 px-4 py-3 text-sm last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-4 w-4 accent-[#17352F]"/><span className="font-medium text-[#17352F]">{fornecedor.razao_social}</span><span className={fornecedor.valor_em_aberto > 0 ? "font-semibold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)} em aberto</span></label>; })}</div>
-                <div className="border-t border-black/5 p-4"><button onClick={() => setMostrarAvulso((valor) => !valor)} className="inline-flex items-center gap-2 text-sm font-semibold text-[#A5542F]"><Plus size={15}/> Adicionar fornecedor avulso</button>{mostrarAvulso && <div className="mt-3 grid gap-3 rounded-xl bg-[#FBF3EA] p-3 sm:grid-cols-[1fr_10rem_auto]"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome" className="rounded-lg border border-black/10 px-3 py-2 text-sm"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="rounded-lg border border-black/10 px-3 py-2 text-right text-sm"/><button onClick={adicionarAvulso} className="rounded-lg bg-[#A5542F] px-3 py-2 text-sm font-semibold text-white">Adicionar</button><label className="flex items-center gap-2 text-xs text-[#17352F]/65 sm:col-span-3"><input type="checkbox" checked={avulso.cadastrarDepois} onChange={(evento) => setAvulso({ ...avulso, cadastrarDepois: evento.target.checked })}/> Cadastrar posteriormente como fornecedor</label></div>}</div>
+                <div className="border-b border-black/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">2. Proposta</p>
+                  <h2 className="font-serif text-xl text-[#17352F]">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Fornecedores em aberto"}</h2>
+                  {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar fornecedor" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div>}
+                </div>
+
+                {/* Lista completa, na ordem do maior valor em aberto para o menor. */}
+                {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[2rem_1fr_auto] items-center gap-3 border-b border-black/5 px-4 py-3 text-sm last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-4 w-4 accent-[#17352F]"/><span className="font-medium text-[#17352F]">{fornecedor.razao_social}</span><span className={fornecedor.valor_em_aberto > 0 ? "font-semibold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)} em aberto</span></label>; })}</div>}
+
+                {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
+                <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
+                  {pagamentos.length === 0 ? <p className="px-4 py-8 text-center text-sm text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-2 border-b border-black/5 px-4 py-2.5 text-sm last:border-0 sm:grid-cols-[1fr_11rem_auto] sm:items-center"><div><strong className="block text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[#A5542F]">Cadastrar posteriormente</small>}</div><label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#17352F]/45 print:hidden">Valor a pagar<CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} className="mt-1 w-full rounded-lg border border-black/10 px-3 py-2 text-right text-sm font-semibold normal-case tracking-normal text-[#17352F]"/></label><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded-lg p-2 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={16}/></button></div>)}
+                  <div className="bg-[#17352F] px-4 py-3 text-sm font-semibold text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
+                </div>
+
+                <div className="border-t border-black/5 p-4 print:hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><button onClick={() => setMostrarAvulso((valor) => !valor)} className="inline-flex items-center gap-2 text-sm font-semibold text-[#A5542F]"><Plus size={15}/> Adicionar fornecedor avulso</button>{fornecedoresConfirmados ? <button onClick={alterarFornecedores} className="rounded-lg border border-[#17352F]/25 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#17352F] hover:bg-[#F2F0E8]">ALTERAR FORNECEDORES</button> : <button onClick={confirmarFornecedores} disabled={pagamentos.length === 0} className="inline-flex items-center gap-2 rounded-lg bg-[#17352F] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white disabled:opacity-40"><Check size={14}/> CONFIRMAR FORNECEDORES</button>}</div>
+                  {mostrarAvulso && <div className="mt-3 grid gap-3 rounded-xl bg-[#FBF3EA] p-3 sm:grid-cols-[1fr_10rem_auto]"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome" className="rounded-lg border border-black/10 px-3 py-2 text-sm"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="rounded-lg border border-black/10 px-3 py-2 text-right text-sm"/><button onClick={adicionarAvulso} className="rounded-lg bg-[#A5542F] px-3 py-2 text-sm font-semibold text-white">Adicionar</button><label className="flex items-center gap-2 text-xs text-[#17352F]/65 sm:col-span-3"><input type="checkbox" checked={avulso.cadastrarDepois} onChange={(evento) => setAvulso({ ...avulso, cadastrarDepois: evento.target.checked })}/> Cadastrar posteriormente como fornecedor</label></div>}
+                </div>
               </section>
             </div>
 
-            <section className="mt-5 overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
+            {/* Bloco 3 é o detalhamento de quem já está escolhido enquanto a lista
+                está aberta. Depois de confirmar, o valor editável passa a ficar no
+                próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
+            {!fornecedoresConfirmados && <section className="mt-5 overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm print:hidden">
               <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">3. Valores</p><h2 className="font-serif text-xl text-[#17352F]">Pagamentos propostos</h2><p className="mt-1 text-xs text-[#17352F]/55">O valor é totalmente editável e pode ser menor que o total em aberto.</p></div>
               {pagamentos.length === 0 ? <p className="px-4 py-10 text-center text-sm text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-3 border-b border-black/5 px-4 py-3 last:border-0 sm:grid-cols-[1fr_13rem_auto] sm:items-center"><div><span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#17352F]/45">Fornecedor</span><strong className="block text-sm text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[#A5542F]">Cadastrar posteriormente</small>}</div><label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#17352F]/45">Valor a programar<CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} className="mt-1 w-full rounded-lg border border-black/10 px-3 py-2 text-right text-sm font-semibold normal-case tracking-normal text-[#17352F]"/></label><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded-lg p-2 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={17}/></button></div>)}</div>}
-            </section>
+            </section>}
           </>}
         </>}
       </div>
