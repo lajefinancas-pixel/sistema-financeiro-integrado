@@ -18,6 +18,7 @@ const numero = (valor) => valorPlanejamento(valor);
 const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-BR");
 const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
 const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
+const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 
 function idInteiro(valor, campo) {
   const id = Number(valor);
@@ -39,6 +40,18 @@ function registrarErroFase1(operacao, falha, contexto = {}) {
     hint: falha?.hint,
     status: falha?.status,
   });
+}
+
+function mensagemFalhaFase1(falha, mensagemPadrao) {
+  const texto = `${falha?.message ?? ""} ${falha?.details ?? ""} ${falha?.hint ?? ""}`;
+  const estruturaAusente = ["42703", "42883", "PGRST202", "PGRST204"].includes(String(falha?.code ?? ""))
+    || /\b(status|saldo_considerado|ativa|cadastrar_fornecedor_posteriormente|salvar_planejamento_programacao|marcar_programacao_em_analise)\b/i.test(texto);
+
+  if (estruturaAusente) {
+    return `A estrutura da Fase 1 não está disponível no banco conectado a esta tela. Execute ${MIGRATION_FASE_1} no mesmo projeto Supabase usado pela aplicação e recarregue a página.`;
+  }
+
+  return mensagemAmigavel(falha, mensagemPadrao);
 }
 
 function nomePagamento(pagamento) {
@@ -157,7 +170,7 @@ export default function PagamentosRedesenhado() {
       setProgramacaoId((itens ?? []).some((item) => String(item.id) === String(alvo)) ? alvo : itens?.[0]?.id || "");
     } catch (falha) {
       registrarErroFase1("Falha ao carregar programações", falha, { secretariaId, dataProgramacao: data });
-      setErro(mensagemAmigavel(falha, "Não foi possível carregar as programações."));
+      setErro(mensagemFalhaFase1(falha, "Não foi possível carregar as programações."));
     }
   }
 
@@ -187,7 +200,7 @@ export default function PagamentosRedesenhado() {
       setPagamentos((itens ?? []).map((item) => ({ ...item, valor_a_pagar: numero(item.valor_a_pagar) })));
     } catch (falha) {
       registrarErroFase1("Falha ao abrir programação", falha, { programacaoId: id });
-      setErro(mensagemAmigavel(falha, "Não foi possível abrir a programação. Rode a migration informada no resumo se necessário."));
+      setErro(mensagemFalhaFase1(falha, "Não foi possível abrir a programação."));
     }
   }
 
@@ -213,7 +226,7 @@ export default function PagamentosRedesenhado() {
       setMensagem("Programação criada em elaboração.");
     } catch (falha) {
       registrarErroFase1("Falha ao criar programação", falha, { secretariaId, dataProgramacao: data });
-      setErro(mensagemAmigavel(falha, "Não foi possível criar a programação."));
+      setErro(mensagemFalhaFase1(falha, "Não foi possível criar a programação."));
     } finally {
       setSalvando(false);
     }
@@ -307,7 +320,7 @@ export default function PagamentosRedesenhado() {
       return true;
     } catch (falha) {
       registrarErroFase1("Falha ao salvar programação", falha, { programacaoId: programacao?.id });
-      setErro(mensagemAmigavel(falha, "Não foi possível salvar a programação."));
+      setErro(mensagemFalhaFase1(falha, "Não foi possível salvar a programação."));
     } finally {
       setSalvando(false);
     }
@@ -321,7 +334,7 @@ export default function PagamentosRedesenhado() {
     const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: idInteiro(programacao.id, "Programação") });
     if (error) {
       registrarErroFase1("Falha ao marcar programação em análise", error, { programacaoId: programacao.id });
-      return setErro(mensagemAmigavel(error, "Não foi possível marcar como em análise."));
+      return setErro(mensagemFalhaFase1(error, "Não foi possível marcar como em análise."));
     }
     setProgramacao((atual) => ({ ...atual, status: "em_analise" }));
     setMensagem("Programação marcada como em análise. Nenhum saldo foi movimentado.");
