@@ -19,9 +19,9 @@ export default async (req: Request) => {
     }
 
     const { data, error } = await supabase.rpc("confirmar_transferencias_programacao", {
-      p_programacao_id: body.programId,
-      p_conta_destino_id: body.destinationAccountId,
-      p_transferencias: (body.transfers ?? []).map((item: any) => ({ conta_origem_id: item.sourceAccountId, valor: item.amount })),
+      p_programacao_id: Number(body.programId),
+      p_conta_destino_id: Number(body.destinationAccountId),
+      p_transferencias: (body.transfers ?? []).map((item: any) => ({ conta_origem_id: Number(item.sourceAccountId), valor: item.amount })),
       p_chave_idempotencia: body.idempotencyKey,
       p_observacao: body.note || null,
     });

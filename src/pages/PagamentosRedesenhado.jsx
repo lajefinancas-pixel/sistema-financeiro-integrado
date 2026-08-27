@@ -326,7 +326,7 @@ export default function PagamentosRedesenhado() {
   }
 
   async function definirContaPagamento(pagamentoId, contaId) {
-    const { error } = await supabase.rpc("definir_conta_origem_pagamento", { p_pagamento_id: String(pagamentoId), p_conta_id: Number(contaId) });
+    const { error } = await supabase.rpc("definir_conta_origem_pagamento", { p_pagamento_id: Number(pagamentoId), p_conta_id: Number(contaId) });
     if (error) return setErro(mensagemAmigavel(error, "Não foi possível definir a conta de origem."));
     setPagamentos((atuais) => atuais.map((item) => String(item.id) === String(pagamentoId) ? { ...item, conta_origem_id: Number(contaId) } : item));
   }
@@ -355,8 +355,8 @@ export default function PagamentosRedesenhado() {
     setSalvando(true);
     try {
       await confirmarTransferencias({
-        programId: programacaoId,
-        destinationAccountId: destinoConcentracao,
+        programId: Number(programacaoId),
+        destinationAccountId: Number(destinoConcentracao),
         transfers: itens,
         idempotencyKey: crypto.randomUUID(),
         note: `Concentração opcional da programação de ${data}`,
@@ -385,7 +385,7 @@ export default function PagamentosRedesenhado() {
   }
 
   async function registrarImpressao() {
-    await supabase.rpc("registrar_impressao_programacao", { p_programacao_id: programacaoId }).then(() => null);
+    await supabase.rpc("registrar_impressao_programacao", { p_programacao_id: Number(programacaoId) }).then(() => null);
   }
 
   // A impressão e o PDF saem de um documento próprio (src/lib/programacaoDocumento.js):

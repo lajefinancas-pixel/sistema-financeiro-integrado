@@ -1,6 +1,6 @@
 -- Migration consolidada para o fluxo real de pagamentos diários.
 -- Substitui as migrations pendentes de 2026-08-25 e 2026-08-26.
--- Todas as referências a public.contas_bancarias(id) usam integer.
+-- Todos os identificadores seguem os tipos reais levantados em produção.
 -- Não remove dados; backfills usam chaves idempotentes e não movimentam saldo novamente.
 
 begin;
@@ -16,11 +16,23 @@ begin
     select *
       from (values
         ('contas_bancarias', 'id', 'integer'),
-        ('programacoes_pagamento', 'id', 'uuid'),
+        ('fornecedores', 'id', 'integer'),
+        ('usuarios', 'id', 'uuid'),
+        ('programacoes_pagamento', 'id', 'integer'),
+        ('programacoes_pagamento', 'secretaria_id', 'integer'),
+        ('programacoes_pagamento', 'conta_pagamento_id', 'integer'),
+        ('programacao_contas', 'id', 'integer'),
+        ('programacao_contas', 'programacao_id', 'integer'),
         ('programacao_contas', 'conta_id', 'integer'),
-        ('saldos_historico', 'conta_id', 'integer'),
+        ('pagamentos', 'id', 'integer'),
+        ('pagamentos', 'programacao_id', 'integer'),
+        ('pagamentos', 'fornecedor_id', 'integer'),
+        ('pagamento_movimentacoes', 'id', 'uuid'),
+        ('pagamento_movimentacoes', 'pagamento_id', 'integer'),
+        ('pagamento_movimentacoes', 'programacao_id', 'integer'),
         ('pagamento_movimentacoes', 'conta_id', 'integer'),
-        ('usuarios', 'id', 'uuid')
+        ('saldos_historico', 'id', 'bigint'),
+        ('saldos_historico', 'conta_id', 'integer')
       ) as tipos(tabela, coluna, tipo)
   loop
     select format_type(a.atttypid, a.atttypmod)
@@ -142,7 +154,7 @@ grant select,insert,update,delete on public.permissoes_especiais to authenticate
 create table if not exists public.transferencia_lotes (
   id uuid primary key default gen_random_uuid(),
   chave_idempotencia text not null unique,
-  programacao_id uuid not null references public.programacoes_pagamento(id),
+  programacao_id integer not null references public.programacoes_pagamento(id),
   conta_destino_id integer not null references public.contas_bancarias(id),
   usuario_id uuid references public.usuarios(id) on delete set null,
   status text not null default 'processando' check (status in ('processando','confirmado','falhou')),
@@ -153,7 +165,7 @@ create table if not exists public.transferencia_lotes (
 create table if not exists public.transferencias_contas (
   id uuid primary key default gen_random_uuid(),
   lote_id uuid not null references public.transferencia_lotes(id),
-  programacao_id uuid not null references public.programacoes_pagamento(id),
+  programacao_id integer not null references public.programacoes_pagamento(id),
   conta_origem_id integer not null references public.contas_bancarias(id),
   conta_destino_id integer not null references public.contas_bancarias(id),
   valor numeric(14,2) not null check (valor > 0),
@@ -180,7 +192,7 @@ create policy "transferencias_itens_select_pagamentos" on public.transferencias_
 grant select on public.transferencia_lotes, public.transferencias_contas to authenticated;
 
 create or replace function public.confirmar_transferencias_programacao(
-  p_programacao_id uuid,
+  p_programacao_id integer,
   p_conta_destino_id integer,
   p_transferencias jsonb,
   p_chave_idempotencia text,
@@ -292,15 +304,17 @@ begin
   return jsonb_build_object('ok',true,'ja_estornada',false,'estorno_id',v_estorno);
 end $$;
 
-grant execute on function public.confirmar_transferencias_programacao(uuid,integer,jsonb,text,text) to authenticated;
+grant execute on function public.confirmar_transferencias_programacao(integer,integer,jsonb,text,text) to authenticated;
 grant execute on function public.estornar_transferencia(uuid,text) to authenticated;
 
-create or replace function public.marcar_pagamento_pago(p_pagamento_id text)
+drop function if exists public.marcar_pagamento_pago(text);
+
+create or replace function public.marcar_pagamento_pago(p_pagamento_id integer)
 returns jsonb language plpgsql security definer set search_path=public as $$
 declare
   p public.pagamentos%rowtype; pr public.programacoes_pagamento%rowtype; saldo numeric(14,2); ultima_data date; valor numeric(14,2); movimento_id uuid;
 begin
-  select * into p from public.pagamentos where id::text=p_pagamento_id for update;
+  select * into p from public.pagamentos where id=p_pagamento_id for update;
   if not found then return jsonb_build_object('ok',false,'motivo','pagamento_nao_encontrado'); end if;
   if p.situacao='pago' then return jsonb_build_object('ok',true,'ja_pago',true); end if;
   if p.situacao='cancelado' then return jsonb_build_object('ok',false,'motivo','pagamento_cancelado'); end if;
@@ -320,7 +334,7 @@ begin
   return jsonb_build_object('ok',true,'ja_pago',false,'valor_debitado',valor,'conta_id',pr.conta_pagamento_id);
 end $$;
 
-grant execute on function public.marcar_pagamento_pago(text) to authenticated;
+grant execute on function public.marcar_pagamento_pago(integer) to authenticated;
 
 -- -----------------------------------------------------------------------------
 -- Efeito consolidado de 20260825160000_corrigir_conta_pagamento_programacao.sql
@@ -334,7 +348,7 @@ alter table public.programacoes_pagamento
   add column if not exists conta_pagamento_id integer references public.contas_bancarias(id);
 
 create or replace function public.definir_conta_pagamento_programacao(
-  p_programacao_id uuid,
+  p_programacao_id integer,
   p_conta_id integer
 )
 returns jsonb
@@ -405,8 +419,8 @@ begin
 end;
 $$;
 
-revoke all on function public.definir_conta_pagamento_programacao(uuid, integer) from public;
-grant execute on function public.definir_conta_pagamento_programacao(uuid, integer) to authenticated;
+revoke all on function public.definir_conta_pagamento_programacao(integer, integer) from public;
+grant execute on function public.definir_conta_pagamento_programacao(integer, integer) to authenticated;
 
 -- -----------------------------------------------------------------------------
 -- Efeito consolidado de 20260825170000_baixas_pagamentos_fornecedores.sql
@@ -444,8 +458,8 @@ grant select,insert,update,delete on public.permissoes_especiais to authenticate
 create table if not exists public.pagamentos_baixas (
   id uuid primary key default gen_random_uuid(),
   chave_idempotencia text not null unique,
-  fornecedor_id text not null,
-  pagamento_id text,
+  fornecedor_id integer not null references public.fornecedores(id),
+  pagamento_id integer references public.pagamentos(id),
   valor_total_referencia numeric(14,2) not null,
   valor_pago numeric(14,2) not null check (valor_pago > 0),
   data_pagamento date not null,
@@ -487,7 +501,7 @@ insert into public.pagamentos_baixas(
   data_pagamento,conta_id,observacao,status,saldo_antes,saldo_depois,criado_em
 )
 select
-  'legado:'||pm.id::text,p.fornecedor_id::text,p.id::text,
+  'legado:'||pm.id::text,p.fornecedor_id,p.id,
   round(coalesce(p.valor_a_pagar,pm.valor)::numeric,2),round(pm.valor::numeric,2),
   pm.data_movimento,pm.conta_id,'Migrado do débito de pagamento anterior ao módulo de baixas.',
   'efetivada',pm.saldo_anterior,pm.saldo_posterior,pm.criado_em
@@ -570,7 +584,9 @@ returns boolean language sql stable security definer set search_path = public as
   select coalesce((select permitido from explicita), (select permitido from base), false)
 $$;
 
-create or replace function public.recalcular_situacao_pagamento_baixa(p_pagamento_id text)
+drop function if exists public.recalcular_situacao_pagamento_baixa(text);
+
+create or replace function public.recalcular_situacao_pagamento_baixa(p_pagamento_id integer)
 returns jsonb
 language plpgsql
 security definer
@@ -583,7 +599,7 @@ declare
   v_aberto numeric(14,2);
   v_situacao text;
 begin
-  select * into v_pagamento from public.pagamentos where id::text = p_pagamento_id for update;
+  select * into v_pagamento from public.pagamentos where id = p_pagamento_id for update;
   if not found then return jsonb_build_object('ok', false, 'motivo', 'pagamento_nao_encontrado'); end if;
 
   v_total := round(coalesce(v_pagamento.valor_a_pagar, 0)::numeric, 2);
@@ -594,7 +610,7 @@ begin
   v_aberto := greatest(0, v_total - v_baixado);
   v_situacao := case when v_baixado <= 0 then 'em_aberto' when v_aberto > 0 then 'parcialmente_pago' else 'pago' end;
 
-  update public.pagamentos set situacao = v_situacao where id::text = p_pagamento_id;
+  update public.pagamentos set situacao = v_situacao where id = p_pagamento_id;
   if v_pagamento.valor_em_aberto_id is not null then
     update public.valores_em_aberto
        set valor_pago = v_baixado,
@@ -606,13 +622,15 @@ begin
 end;
 $$;
 
+drop function if exists public.registrar_baixa_pagamento(text,text,numeric,date,integer,text,text,text);
+
 create or replace function public.registrar_baixa_pagamento(
   p_chave_idempotencia text,
-  p_fornecedor_id text,
+  p_fornecedor_id integer,
   p_valor numeric,
   p_data_pagamento date,
   p_conta_id integer,
-  p_pagamento_id text default null,
+  p_pagamento_id integer default null,
   p_documento text default null,
   p_observacao text default null
 )
@@ -639,12 +657,12 @@ begin
   if not public.tem_permissao_especial('registrar_baixa') then raise exception 'Sem permissão para registrar baixa.' using errcode='42501'; end if;
   if p_pagamento_id is null and not public.tem_permissao_especial('registrar_baixa_avulsa') then raise exception 'Sem permissão para registrar baixa avulsa.' using errcode='42501'; end if;
   if nullif(trim(p_chave_idempotencia), '') is null then raise exception 'Chave de idempotência obrigatória.'; end if;
-  if nullif(trim(p_fornecedor_id), '') is null then raise exception 'Fornecedor obrigatório.'; end if;
+  if p_fornecedor_id is null then raise exception 'Fornecedor obrigatório.'; end if;
   if coalesce(p_valor, 0) <= 0 then raise exception 'O valor da baixa deve ser maior que zero.'; end if;
   if p_data_pagamento is null then raise exception 'Data do pagamento obrigatória.'; end if;
   if p_data_pagamento > current_date then raise exception 'A data do pagamento não pode ser futura.'; end if;
   if p_conta_id is null then raise exception 'Conta bancária obrigatória.'; end if;
-  if not exists(select 1 from public.fornecedores where id::text=p_fornecedor_id and coalesce(ativo,true)=true) then raise exception 'Fornecedor não encontrado.'; end if;
+  if not exists(select 1 from public.fornecedores where id=p_fornecedor_id and coalesce(ativo,true)=true) then raise exception 'Fornecedor não encontrado.'; end if;
   if not exists(select 1 from public.contas_bancarias where id=p_conta_id and coalesce(ativo,true)=true) then raise exception 'Conta bancária não encontrada.'; end if;
 
   perform pg_advisory_xact_lock(hashtextextended(p_chave_idempotencia,0));
@@ -654,9 +672,9 @@ begin
   end if;
 
   if p_pagamento_id is not null then
-    select * into v_pagamento from public.pagamentos where id::text=p_pagamento_id for update;
+    select * into v_pagamento from public.pagamentos where id=p_pagamento_id for update;
     if not found then raise exception 'Pagamento programado não encontrado.' using errcode='P0002'; end if;
-    if v_pagamento.fornecedor_id::text is distinct from p_fornecedor_id then raise exception 'O fornecedor não corresponde ao pagamento programado.'; end if;
+    if v_pagamento.fornecedor_id is distinct from p_fornecedor_id then raise exception 'O fornecedor não corresponde ao pagamento programado.'; end if;
     v_total := round(coalesce(v_pagamento.valor_a_pagar,0)::numeric,2);
     select round(coalesce(sum(valor_pago),0)::numeric,2) into v_baixado from public.pagamentos_baixas where pagamento_id=p_pagamento_id and status='efetivada';
     v_aberto := greatest(0,v_total-v_baixado);
@@ -737,18 +755,18 @@ begin
 end;
 $$;
 
-revoke all on function public.recalcular_situacao_pagamento_baixa(text) from public;
-revoke all on function public.registrar_baixa_pagamento(text,text,numeric,date,integer,text,text,text) from public;
+revoke all on function public.recalcular_situacao_pagamento_baixa(integer) from public;
+revoke all on function public.registrar_baixa_pagamento(text,integer,numeric,date,integer,integer,text,text) from public;
 revoke all on function public.estornar_baixa_pagamento(uuid,text,text) from public;
 revoke all on function public.editar_baixa_pagamento(uuid,text,text) from public;
-grant execute on function public.registrar_baixa_pagamento(text,text,numeric,date,integer,text,text,text) to authenticated;
+grant execute on function public.registrar_baixa_pagamento(text,integer,numeric,date,integer,integer,text,text) to authenticated;
 grant execute on function public.estornar_baixa_pagamento(uuid,text,text) to authenticated;
 grant execute on function public.editar_baixa_pagamento(uuid,text,text) to authenticated;
 
 -- O fluxo antigo debitava integralmente sem registrar baixa parcial/rastreável.
 -- Ele deixa de ser público para que toda saída passe pela operação correta.
-revoke all on function public.marcar_pagamento_pago(text) from public;
-revoke execute on function public.marcar_pagamento_pago(text) from authenticated;
+revoke all on function public.marcar_pagamento_pago(integer) from public;
+revoke execute on function public.marcar_pagamento_pago(integer) from authenticated;
 
 -- -----------------------------------------------------------------------------
 -- Efeito consolidado de 20260825180000_corrigir_tipo_conta_pagamento_integer.sql
@@ -783,9 +801,10 @@ $$;
 
 drop function if exists public.definir_conta_pagamento_programacao(uuid, uuid);
 drop function if exists public.definir_conta_pagamento_programacao(uuid, integer);
+drop function if exists public.definir_conta_pagamento_programacao(integer, uuid);
 
 create or replace function public.definir_conta_pagamento_programacao(
-  p_programacao_id uuid,
+  p_programacao_id integer,
   p_conta_id integer
 )
 returns jsonb
@@ -857,8 +876,8 @@ begin
 end;
 $$;
 
-revoke all on function public.definir_conta_pagamento_programacao(uuid, integer) from public;
-grant execute on function public.definir_conta_pagamento_programacao(uuid, integer) to authenticated;
+revoke all on function public.definir_conta_pagamento_programacao(integer, integer) from public;
+grant execute on function public.definir_conta_pagamento_programacao(integer, integer) to authenticated;
 
 -- -----------------------------------------------------------------------------
 -- Efeito consolidado de 20260826120000_fluxo_real_pagamentos_diarios.sql
@@ -876,8 +895,10 @@ alter table public.programacoes_pagamento
 create index if not exists pagamentos_conta_origem_idx
   on public.pagamentos (conta_origem_id);
 
+drop function if exists public.definir_conta_origem_pagamento(text, integer);
+
 create or replace function public.definir_conta_origem_pagamento(
-  p_pagamento_id text,
+  p_pagamento_id integer,
   p_conta_id integer
 )
 returns jsonb
@@ -911,7 +932,7 @@ begin
   select *
     into v_pagamento
     from public.pagamentos
-   where id::text = p_pagamento_id
+   where id = p_pagamento_id
    for update;
 
   if not found then
@@ -957,14 +978,14 @@ begin
 
   update public.pagamentos
      set conta_origem_id = p_conta_id
-   where id::text = p_pagamento_id;
+   where id = p_pagamento_id;
 
   insert into public.auditoria_eventos(
     usuario_id, modulo, acao, registro_afetado,
     valor_anterior, valor_novo, nivel
   ) values (
     v_usuario, 'pagamentos', 'alterou',
-    'Conta de origem do pagamento ' || p_pagamento_id,
+    'Conta de origem do pagamento ' || p_pagamento_id::text,
     jsonb_build_object('conta_origem_id', v_pagamento.conta_origem_id),
     jsonb_build_object('conta_origem_id', p_conta_id),
     'informacao'
@@ -978,10 +999,12 @@ begin
 end;
 $$;
 
-revoke all on function public.definir_conta_origem_pagamento(text, integer) from public;
-grant execute on function public.definir_conta_origem_pagamento(text, integer) to authenticated;
+revoke all on function public.definir_conta_origem_pagamento(integer, integer) from public;
+grant execute on function public.definir_conta_origem_pagamento(integer, integer) to authenticated;
 
-create or replace function public.registrar_impressao_programacao(p_programacao_id uuid)
+drop function if exists public.registrar_impressao_programacao(uuid);
+
+create or replace function public.registrar_impressao_programacao(p_programacao_id integer)
 returns jsonb
 language plpgsql
 security definer
@@ -1010,7 +1033,7 @@ begin
     usuario_id, modulo, acao, registro_afetado, valor_novo, nivel
   ) values (
     v_usuario, 'pagamentos', 'imprimiu_relacao',
-    'Relação de pagamentos ' || p_programacao_id,
+    'Relação de pagamentos ' || p_programacao_id::text,
     jsonb_build_object('programacao_id', p_programacao_id, 'data_programacao', v_programacao.data_programacao),
     'informacao'
   );
@@ -1019,14 +1042,15 @@ begin
 end;
 $$;
 
-revoke all on function public.registrar_impressao_programacao(uuid) from public;
-grant execute on function public.registrar_impressao_programacao(uuid) to authenticated;
+revoke all on function public.registrar_impressao_programacao(integer) from public;
+grant execute on function public.registrar_impressao_programacao(integer) to authenticated;
 
 drop function if exists public.confirmar_transferencias_programacao(uuid, uuid, jsonb, text, text);
 drop function if exists public.confirmar_transferencias_programacao(uuid, integer, jsonb, text, text);
+drop function if exists public.confirmar_transferencias_programacao(integer, uuid, jsonb, text, text);
 
 create or replace function public.confirmar_transferencias_programacao(
-  p_programacao_id uuid,
+  p_programacao_id integer,
   p_conta_destino_id integer,
   p_transferencias jsonb,
   p_chave_idempotencia text,
@@ -1199,7 +1223,7 @@ exception when others then
 end;
 $$;
 
-revoke all on function public.confirmar_transferencias_programacao(uuid, integer, jsonb, text, text) from public;
-grant execute on function public.confirmar_transferencias_programacao(uuid, integer, jsonb, text, text) to authenticated;
+revoke all on function public.confirmar_transferencias_programacao(integer, integer, jsonb, text, text) from public;
+grant execute on function public.confirmar_transferencias_programacao(integer, integer, jsonb, text, text) to authenticated;
 
 commit;
