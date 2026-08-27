@@ -1,83 +1,58 @@
 import React from "react";
-import { AlertTriangle, ArrowRightLeft, Check, ChevronRight, FileText, Lock, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
+import { AlertTriangle, Check, FileDown, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
-import PainelFiltros from "../components/comuns/PainelFiltros";
 import CampoMoeda from "../components/CampoMoeda";
-import ModalBaixaPagamento from "../components/pagamentos/ModalBaixaPagamento";
-import { formatBRL, paraNumeroMoeda } from "../lib/moeda";
+import { formatBRL } from "../lib/moeda";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
-import { totalizarSaldos } from "../lib/saldosContas";
-import { confirmarTransferencias, estornarTransferencia } from "../lib/transferenciasContas";
-import { filtroVigentes, excluirRegistro } from "../lib/exclusaoRegistros";
 import { usePermissaoModulo } from "../lib/permissoes";
-import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
-import { resumoBaixas } from "../lib/regrasBaixas";
 import { gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
+import { alternarSelecao, calcularRestante, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
-const numero = (valor) => Math.round(paraNumeroMoeda(valor) * 100) / 100;
-const somar = (valores) => valores.reduce((total, valor) => total + numero(valor), 0);
-const textoConta = (conta) => `${conta.nome_conta ?? ""} ${conta.banco ?? ""} ${conta.numero_conta ?? ""}`.toLocaleLowerCase("pt-BR");
+const hojeISO = () => {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+};
+const numero = (valor) => valorPlanejamento(valor);
+const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-BR");
+const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
+const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
 
 function nomePagamento(pagamento) {
-  return pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Fornecedor não cadastrado";
+  return pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Fornecedor avulso";
 }
 
-function PainelConta({ conta, marcada, bloqueada, onChange }) {
-  return (
-    <label className={`grid cursor-pointer grid-cols-[auto_1fr_auto] gap-3 border-b border-black/5 px-4 py-3 last:border-0 ${marcada ? "bg-[#EDF4F1]" : "hover:bg-[#F8FAF9]"} ${bloqueada ? "cursor-not-allowed opacity-60" : ""}`}>
-      <input type="checkbox" checked={marcada} disabled={bloqueada} onChange={onChange} className="mt-1 h-4 w-4 accent-[#175C4C]" />
-      <span className="min-w-0">
-        <strong className="block truncate text-sm text-[#17352F]">{conta.nome_conta || "Conta sem nome"}</strong>
-        <span className="mt-1 block text-xs text-[#17352F]/55">{conta.banco || "Banco não informado"} · {conta.numero_conta || "Sem número"} · {conta.secretaria}</span>
-      </span>
-      <span className="text-right">
-        <small className="block uppercase tracking-[0.12em] text-[#17352F]/40">Saldo atual</small>
-        <strong className="tabular-nums text-[#17352F]">{formatBRL(conta.saldo)}</strong>
-      </span>
-    </label>
-  );
+function statusLabel(status, fechado = false) {
+  if (fechado) return "HISTÓRICO";
+  return status === "em_analise" ? "EM ANÁLISE" : "EM ELABORAÇÃO";
 }
 
 export default function PagamentosRedesenhado() {
   const { permissao, usuario } = usePermissaoModulo("pagamentos");
-  const { valores: permissoesEspeciais } = usePermissoesEspeciais();
   const podeEditar = permissao?.pode_editar !== false;
-  const podeExcluir = permissao?.pode_excluir === true;
   const [carregando, setCarregando] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState("");
+  const [mensagem, setMensagem] = React.useState("");
   const [secretarias, setSecretarias] = React.useState([]);
   const [secretariaId, setSecretariaId] = React.useState("");
   const [data, setData] = React.useState(hojeISO());
   const [programacoes, setProgramacoes] = React.useState([]);
   const [programacaoId, setProgramacaoId] = React.useState("");
-  const [nomeProgramacao, setNomeProgramacao] = React.useState("");
+  const [programacao, setProgramacao] = React.useState(null);
   const [contas, setContas] = React.useState([]);
-  const [contasDestinoTransferencia, setContasDestinoTransferencia] = React.useState([]);
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [buscaConta, setBuscaConta] = React.useState("");
-  const [filtroBanco, setFiltroBanco] = React.useState("");
   const [fornecedores, setFornecedores] = React.useState([]);
   const [buscaFornecedor, setBuscaFornecedor] = React.useState("");
   const [pagamentos, setPagamentos] = React.useState([]);
-  const [baixasPorPagamento, setBaixasPorPagamento] = React.useState({});
-  const [baixaPendente, setBaixaPendente] = React.useState(null);
-  const [avulso, setAvulso] = React.useState({ nome: "", valor: 0 });
   const [mostrarAvulso, setMostrarAvulso] = React.useState(false);
-  const [destinoConcentracao, setDestinoConcentracao] = React.useState("");
-  const [valoresTransferencia, setValoresTransferencia] = React.useState({});
-  const [transferencias, setTransferencias] = React.useState([]);
-  const [fechado, setFechado] = React.useState(false);
-  const timers = React.useRef({});
-  const transferindo = React.useRef(false);
-  const efetivando = React.useRef(false);
+  const [avulso, setAvulso] = React.useState({ nome: "", valor: 0, cadastrarDepois: false });
+  const podeEditarProgramacao = podeEditar && programacao?.fechado !== true;
 
   React.useEffect(() => {
     carregarSecretarias();
-    return () => Object.values(timers.current).forEach(clearTimeout);
   }, []);
 
   React.useEffect(() => {
@@ -87,8 +62,8 @@ export default function PagamentosRedesenhado() {
   }, [secretariaId, data]);
 
   React.useEffect(() => {
-    if (programacaoId) carregarProgramacao();
-    else limparProgramacao();
+    if (programacaoId) carregarProgramacao(programacaoId);
+    else limparEdicao();
   }, [programacaoId]);
 
   async function carregarSecretarias() {
@@ -96,7 +71,7 @@ export default function PagamentosRedesenhado() {
       const { data: itens, error } = await supabase.from("secretarias").select("id, nome").eq("ativo", true).order("nome");
       if (error) throw error;
       setSecretarias(itens ?? []);
-      setSecretariaId((atual) => atual || itens?.[0]?.id || "");
+      setSecretariaId(itens?.[0]?.id || "");
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível carregar as secretarias."));
     } finally {
@@ -105,13 +80,15 @@ export default function PagamentosRedesenhado() {
   }
 
   async function carregarBase() {
+    setErro("");
     try {
-      const { data: contasBrutas, error: erroContas } = await supabase
-        .from("contas_bancarias")
-        .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)")
-        .eq("secretaria_id", secretariaId)
-        .eq("ativo", true);
+      const [{ data: contasBrutas, error: erroContas }, { data: fornecedoresAtivos, error: erroFornecedores }] = await Promise.all([
+        supabase.from("contas_bancarias").select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)").eq("secretaria_id", secretariaId).eq("ativo", true),
+        supabase.from("fornecedores").select("id, razao_social").eq("secretaria_id", secretariaId).eq("ativo", true).order("razao_social"),
+      ]);
       if (erroContas) throw erroContas;
+      if (erroFornecedores) throw erroFornecedores;
+
       const nomeSecretaria = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "--";
       const { contas: contasComSaldo } = await carregarSaldosDasContas({
         contas: (contasBrutas ?? []).map((conta) => ({
@@ -126,110 +103,90 @@ export default function PagamentosRedesenhado() {
       });
       setContas(contasComSaldo);
 
-      const secretariaFinanceira = nomeSecretaria.toLocaleLowerCase("pt-BR").includes("finan");
-      if (secretariaFinanceira) {
-        const destinosPermitidos = secretarias.filter((item) => /saúde|saude|educa|social/i.test(item.nome)).map((item) => item.id);
-        const { data: destinos, error: erroDestinos } = destinosPermitidos.length
-          ? await supabase.from("contas_bancarias").select("id, nome_conta, numero_conta, secretaria_id, bancos(nome), secretarias(nome)").in("secretaria_id", destinosPermitidos).eq("ativo", true).order("nome_conta")
-          : { data: [], error: null };
-        if (erroDestinos) throw erroDestinos;
-        setContasDestinoTransferencia((destinos ?? []).map((conta) => ({ id: conta.id, nome_conta: conta.nome_conta, numero_conta: conta.numero_conta, banco: conta.bancos?.nome || "--", secretaria: conta.secretarias?.nome || "--", externa: true })));
-      } else {
-        setContasDestinoTransferencia([]);
-      }
-
-      const { data: fornecedoresAtivos, error: erroFornecedores } = await supabase
-        .from("fornecedores")
-        .select("id, razao_social")
-        .eq("secretaria_id", secretariaId)
-        .eq("ativo", true)
-        .order("razao_social");
-      if (erroFornecedores) throw erroFornecedores;
       const ids = (fornecedoresAtivos ?? []).map((item) => item.id);
       const { data: abertos, error: erroAbertos } = ids.length
-        ? await supabase.from("valores_em_aberto").select("id, fornecedor_id, numero_nota_fiscal, valor, valor_pago, situacao").in("fornecedor_id", ids).in("situacao", ["em_aberto", "programado", "parcialmente_pago"])
+        ? await supabase.from("valores_em_aberto").select("fornecedor_id, valor, valor_pago, situacao").in("fornecedor_id", ids).in("situacao", ["em_aberto", "programado", "parcialmente_pago"])
         : { data: [], error: null };
       if (erroAbertos) throw erroAbertos;
-      setFornecedores((fornecedoresAtivos ?? []).flatMap((fornecedor) =>
-        (abertos ?? []).filter((item) => String(item.fornecedor_id) === String(fornecedor.id)).map((item) => ({
-          ...fornecedor,
-          valor_em_aberto_id: item.id,
-          numero_nota_fiscal: item.numero_nota_fiscal,
-          valor_em_aberto: Math.max(0, numero(item.valor) - numero(item.valor_pago)),
-        }))
-      ));
+      const totais = (abertos ?? []).reduce((mapa, item) => {
+        const chave = String(item.fornecedor_id);
+        mapa[chave] = numero(mapa[chave]) + Math.max(0, numero(item.valor) - numero(item.valor_pago));
+        return mapa;
+      }, {});
+      setFornecedores((fornecedoresAtivos ?? []).map((fornecedor) => ({
+        ...fornecedor,
+        valor_em_aberto: numero(totais[String(fornecedor.id)]),
+      })).sort((a, b) => Number(b.valor_em_aberto > 0) - Number(a.valor_em_aberto > 0) || a.razao_social.localeCompare(b.razao_social, "pt-BR")));
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível carregar contas e fornecedores."));
     }
   }
 
-  async function carregarProgramacoes() {
+  async function carregarProgramacoes(preferidaId = "") {
     try {
       const { data: itens, error } = await supabase.from("programacoes_pagamento")
-        .select("id, nome_programacao, fechado, created_at")
-        .eq("secretaria_id", secretariaId).eq("data_programacao", data).order("created_at");
+        .select("id, nome_programacao, status, fechado, created_at")
+        .eq("secretaria_id", secretariaId)
+        .eq("data_programacao", data)
+        .order("created_at", { ascending: false });
       if (error) throw error;
       setProgramacoes(itens ?? []);
-      setProgramacaoId((atual) => itens?.some((item) => String(item.id) === String(atual)) ? atual : itens?.[0]?.id || "");
+      const alvo = preferidaId || programacaoId;
+      setProgramacaoId((itens ?? []).some((item) => String(item.id) === String(alvo)) ? alvo : itens?.[0]?.id || "");
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível carregar as programações."));
     }
   }
 
-  function limparProgramacao() {
+  function limparEdicao() {
+    setProgramacao(null);
     setContasSelecionadas(new Set());
     setPagamentos([]);
-    setTransferencias([]);
-    setDestinoConcentracao("");
-    setValoresTransferencia({});
-    setFechado(false);
   }
 
-  async function carregarProgramacao() {
+  async function carregarProgramacao(id) {
     setErro("");
     try {
-      const vigentes = await filtroVigentes("pagamentos");
-      const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroVinculadas }, resultadoPagamentos, { data: transferidas, error: erroTransferidas }] = await Promise.all([
-        supabase.from("programacoes_pagamento").select("id, fechado").eq("id", programacaoId).single(),
-        supabase.from("programacao_contas").select("conta_id, ordem").eq("programacao_id", programacaoId).order("ordem"),
-        vigentes(supabase.from("pagamentos").select("id, fornecedor_id, valor_em_aberto_id, valor_a_pagar, situacao, nome_avulso, descricao, conta_origem_id, fornecedores(razao_social), valores_em_aberto(numero_nota_fiscal, valor, valor_pago)").eq("programacao_id", programacaoId).order("created_at")),
-        supabase.from("transferencias_contas").select("id, conta_origem_id, conta_destino_id, valor, criada_em, estornada_em, transferencia_original_id").eq("programacao_id", programacaoId).order("criada_em", { ascending: false }),
+      const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, { data: itens, error: erroPagamentos }] = await Promise.all([
+        supabase.from("programacoes_pagamento").select("id, nome_programacao, data_programacao, status, fechado, responsavel_id, created_at, updated_at").eq("id", id).single(),
+        supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", id).eq("ativa", true).order("ordem"),
+        supabase.from("pagamentos").select("id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente, fornecedores(razao_social)").eq("programacao_id", id).is("excluido_em", null).order("created_at"),
       ]);
       if (erroPrograma) throw erroPrograma;
-      if (erroVinculadas) throw erroVinculadas;
-      if (resultadoPagamentos.error) throw resultadoPagamentos.error;
-      if (erroTransferidas) throw erroTransferidas;
-      const itens = resultadoPagamentos.data ?? [];
-      setFechado(programa?.fechado === true);
+      if (erroContas) throw erroContas;
+      if (erroPagamentos) throw erroPagamentos;
+      const { data: responsavel } = programa?.responsavel_id
+        ? await supabase.from("usuarios").select("nome_completo").eq("id", programa.responsavel_id).maybeSingle()
+        : { data: null };
+      setProgramacao({ ...programa, responsavel });
       setContasSelecionadas(new Set((vinculadas ?? []).map((item) => item.conta_id)));
-      setPagamentos(itens);
-      setTransferencias(transferidas ?? []);
-      setDestinoConcentracao((transferidas ?? []).find((item) => !item.transferencia_original_id)?.conta_destino_id || "");
-      const ids = itens.map((item) => item.id);
-      if (ids.length) {
-        const { data: baixas } = await supabase.from("pagamentos_baixas").select("*").in("pagamento_id", ids).order("data_pagamento", { ascending: false });
-        setBaixasPorPagamento((baixas ?? []).reduce((mapa, baixa) => ({ ...mapa, [String(baixa.pagamento_id)]: [...(mapa[String(baixa.pagamento_id)] ?? []), baixa] }), {}));
-      } else setBaixasPorPagamento({});
+      setPagamentos((itens ?? []).map((item) => ({ ...item, valor_a_pagar: numero(item.valor_a_pagar) })));
     } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível carregar a programação. Rode a migration informada no resumo se o banco ainda não recebeu o novo fluxo."));
+      setErro(mensagemAmigavel(falha, "Não foi possível abrir a programação. Rode a migration informada no resumo se necessário."));
     }
   }
 
   async function criarProgramacao() {
-    if (!nomeProgramacao.trim()) return setErro("Informe um nome para a programação.");
+    if (!secretariaId || !podeEditar) return;
     setSalvando(true);
+    setErro("");
     try {
       const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user?.id) throw new Error("Usuário não autenticado.");
       const { data: criada, error } = await supabase.from("programacoes_pagamento").insert({
-        secretaria_id: secretariaId,
-        data_programacao: data,
-        nome_programacao: nomeProgramacao.trim(),
+        secretaria_id: Number(secretariaId),
+        data_programacao: hojeISO(),
+        nome_programacao: nomeAutomatico(hojeISO()),
         responsavel_id: auth.user.id,
-      }).select("id").single();
+        status: "em_elaboracao",
+        saldo_considerado: 0,
+        total_programado: 0,
+        restante: 0,
+      }).select("id, data_programacao").single();
       if (error) throw error;
-      setNomeProgramacao("");
-      await carregarProgramacoes();
+      setData(criada.data_programacao);
       setProgramacaoId(criada.id);
+      setMensagem("Programação criada em elaboração.");
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível criar a programação."));
     } finally {
@@ -237,278 +194,198 @@ export default function PagamentosRedesenhado() {
     }
   }
 
-  async function alternarConta(contaId) {
-    if (!programacaoId || fechado) return;
-    const marcada = contasSelecionadas.has(contaId);
-    if (marcada && pagamentos.some((item) => String(item.conta_origem_id) === String(contaId) && item.situacao !== "pago")) {
-      return setErro("Esta conta está indicada em um pagamento. Altere a conta do pagamento antes de removê-la.");
+  function alternarConta(contaId) {
+    if (!programacao || !podeEditarProgramacao) return;
+    setContasSelecionadas((atual) => alternarSelecao(atual, contaId));
+  }
+
+  function selecionarTodas() {
+    if (!programacao || !podeEditarProgramacao) return;
+    const idsVisiveis = contasFiltradas.map((conta) => conta.id);
+    setContasSelecionadas((atual) => selecionarTodosVisiveis(atual, idsVisiveis));
+  }
+
+  function alternarFornecedor(fornecedor) {
+    if (!programacao || !podeEditar) return;
+    const existente = pagamentos.find((item) => String(item.fornecedor_id) === String(fornecedor.id));
+    if (existente) {
+      setPagamentos((itens) => itens.filter((item) => item !== existente));
+      return;
     }
+    setPagamentos((itens) => [...itens, {
+      id: null,
+      fornecedor_id: fornecedor.id,
+      fornecedores: { razao_social: fornecedor.razao_social },
+      valor_a_pagar: numero(fornecedor.valor_em_aberto),
+      nome_avulso: null,
+      cadastrar_fornecedor_posteriormente: false,
+    }]);
+  }
+
+  function editarValor(chave, valor) {
+    setPagamentos((itens) => definirValorProgramado(itens, chave, valor));
+  }
+
+  function adicionarAvulso() {
+    if (!avulso.nome.trim() || numero(avulso.valor) <= 0) {
+      setErro("Informe o nome e um valor maior que zero para o fornecedor avulso.");
+      return;
+    }
+    setPagamentos((itens) => [...itens, {
+      id: null,
+      fornecedor_id: null,
+      fornecedores: null,
+      nome_avulso: avulso.nome.trim(),
+      valor_a_pagar: numero(avulso.valor),
+      cadastrar_fornecedor_posteriormente: avulso.cadastrarDepois,
+    }]);
+    setAvulso({ nome: "", valor: 0, cadastrarDepois: false });
+    setMostrarAvulso(false);
     setErro("");
-    if (marcada) {
-      const { error } = await supabase.from("programacao_contas").delete().eq("programacao_id", programacaoId).eq("conta_id", contaId);
-      if (error) return setErro(mensagemAmigavel(error, "Não foi possível remover a conta."));
-    } else {
-      const { error } = await supabase.from("programacao_contas").insert({ programacao_id: programacaoId, conta_id: contaId, ordem: contasSelecionadas.size + 1, valor_rateado: 0, valor_transferir: 0 });
-      if (error) return setErro(mensagemAmigavel(error, "Não foi possível selecionar a conta."));
-    }
-    setContasSelecionadas((atual) => {
-      const proximo = new Set(atual);
-      marcada ? proximo.delete(contaId) : proximo.add(contaId);
-      return proximo;
-    });
   }
 
-  async function selecionarTodas() {
-    const faltantes = contasFiltradas.filter((conta) => !contasSelecionadas.has(conta.id));
-    if (!faltantes.length) return;
-    const { error } = await supabase.from("programacao_contas").insert(faltantes.map((conta, indice) => ({
-      programacao_id: programacaoId,
-      conta_id: conta.id,
-      ordem: contasSelecionadas.size + indice + 1,
-      valor_rateado: 0,
-      valor_transferir: 0,
-    })));
-    if (error) return setErro(mensagemAmigavel(error, "Não foi possível selecionar todas as contas."));
-    setContasSelecionadas((atual) => new Set([...atual, ...faltantes.map((conta) => conta.id)]));
-  }
-
-  async function adicionarFornecedor(item) {
-    if (fechado) return;
-    const jaExiste = pagamentos.some((pagamento) => String(pagamento.valor_em_aberto_id) === String(item.valor_em_aberto_id));
-    if (jaExiste) return setErro("Este valor em aberto já está na relação.");
+  async function salvarProgramacao() {
+    if (!programacao || !podeEditarProgramacao) return false;
     setSalvando(true);
+    setErro("");
+    setMensagem("");
     try {
-      const { error } = await supabase.from("pagamentos").insert({
-        programacao_id: programacaoId,
-        fornecedor_id: item.id,
-        valor_em_aberto_id: item.valor_em_aberto_id,
-        valor_a_pagar: item.valor_em_aberto,
-        situacao: "programado",
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user?.id) throw new Error("Usuário não autenticado.");
+      const selecionadas = contas.filter((conta) => contasSelecionadas.has(conta.id));
+      const payloadContas = selecionadas.map((conta, indice) => ({
+        conta_id: conta.id,
+        saldo_considerado: numero(conta.saldo),
+        ordem: indice + 1,
+      }));
+      const payloadPagamentos = pagamentos.map((item) => ({
+        id: item.id,
+        fornecedor_id: item.fornecedor_id,
+        nome_avulso: item.nome_avulso,
+        valor_a_pagar: numero(item.valor_a_pagar),
+        cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
+      }));
+      const { error } = await supabase.rpc("salvar_planejamento_programacao", {
+        p_programacao_id: Number(programacao.id),
+        p_contas: payloadContas,
+        p_pagamentos: payloadPagamentos,
+        p_saldo_considerado: totalDisponivel,
+        p_total_programado: totalProgramado,
+        p_restante: restante,
       });
       if (error) throw error;
-      await carregarProgramacao();
+      setMensagem("Programação salva com contas, fornecedores e valores preservados.");
+      await carregarProgramacao(programacao.id);
+      await carregarProgramacoes(programacao.id);
+      return true;
     } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível adicionar o fornecedor."));
+      setErro(mensagemAmigavel(falha, "Não foi possível salvar a programação."));
     } finally {
       setSalvando(false);
     }
+    return false;
   }
 
-  async function adicionarAvulso() {
-    if (!avulso.nome.trim() || numero(avulso.valor) <= 0) return setErro("Informe nome e valor do fornecedor não cadastrado.");
-    setSalvando(true);
-    try {
-      const { error } = await supabase.from("pagamentos").insert({
-        programacao_id: programacaoId,
-        nome_avulso: avulso.nome.trim(),
-        descricao: "Fornecedor não cadastrado",
-        valor_a_pagar: numero(avulso.valor),
-        situacao: "programado",
-      });
-      if (error) throw error;
-      setAvulso({ nome: "", valor: 0 });
-      setMostrarAvulso(false);
-      await carregarProgramacao();
-    } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível adicionar o fornecedor não cadastrado."));
-    } finally {
-      setSalvando(false);
-    }
+  async function marcarEmAnalise() {
+    if (!programacao || !podeEditarProgramacao) return;
+    const salvo = await salvarProgramacao();
+    if (!salvo) return;
+    const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: Number(programacao.id) });
+    if (error) return setErro(mensagemAmigavel(error, "Não foi possível marcar como em análise."));
+    setProgramacao((atual) => ({ ...atual, status: "em_analise" }));
+    setMensagem("Programação marcada como em análise. Nenhum saldo foi movimentado.");
+    await carregarProgramacoes(programacao.id);
   }
 
-  function editarValor(pagamentoId, valor) {
-    setPagamentos((atuais) => atuais.map((item) => String(item.id) === String(pagamentoId) ? { ...item, valor_a_pagar: valor } : item));
-    clearTimeout(timers.current[pagamentoId]);
-    timers.current[pagamentoId] = setTimeout(async () => {
-      const { error } = await supabase.from("pagamentos").update({ valor_a_pagar: numero(valor) }).eq("id", pagamentoId);
-      if (error) setErro(mensagemAmigavel(error, "Não foi possível salvar o valor a pagar."));
-    }, 450);
-  }
-
-  async function definirContaPagamento(pagamentoId, contaId) {
-    const { error } = await supabase.rpc("definir_conta_origem_pagamento", { p_pagamento_id: Number(pagamentoId), p_conta_id: Number(contaId) });
-    if (error) return setErro(mensagemAmigavel(error, "Não foi possível definir a conta de origem."));
-    setPagamentos((atuais) => atuais.map((item) => String(item.id) === String(pagamentoId) ? { ...item, conta_origem_id: Number(contaId) } : item));
-  }
-
-  async function removerPagamento(pagamento) {
-    if (!podeExcluir || pagamento.situacao === "pago") return;
-    if (!window.confirm(`Remover ${nomePagamento(pagamento)} da relação?`)) return;
-    try {
-      await excluirRegistro({ tabela: "pagamentos", id: pagamento.id });
-      await carregarProgramacao();
-    } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível remover o pagamento."));
-    }
-  }
-
-  async function confirmarConcentracao() {
-    if (transferindo.current || !destinoConcentracao) return;
-    const itens = contasSelecionadasComSaldo
-      .filter((conta) => String(conta.id) !== String(destinoConcentracao) && numero(valoresTransferencia[conta.id]) > 0)
-      .map((conta) => ({ sourceAccountId: conta.id, amount: numero(valoresTransferencia[conta.id]) }));
-    if (!itens.length) return setErro("Informe ao menos um valor para concentrar.");
-    const excedente = itens.find((item) => item.amount > numero(contas.find((conta) => String(conta.id) === String(item.sourceAccountId))?.saldo));
-    if (excedente) return setErro("O valor de transferência não pode superar o saldo da conta de origem.");
-    if (!window.confirm(`Confirmar a concentração de ${formatBRL(somar(itens.map((item) => item.amount)))}?`)) return;
-    transferindo.current = true;
-    setSalvando(true);
-    try {
-      await confirmarTransferencias({
-        programId: Number(programacaoId),
-        destinationAccountId: Number(destinoConcentracao),
-        transfers: itens,
-        idempotencyKey: crypto.randomUUID(),
-        note: `Concentração opcional da programação de ${data}`,
-      });
-      setValoresTransferencia({});
-      await carregarBase();
-      await carregarProgramacao();
-    } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível confirmar a concentração."));
-    } finally {
-      transferindo.current = false;
-      setSalvando(false);
-    }
-  }
-
-  async function estornar(item) {
-    const motivo = window.prompt("Informe o motivo do estorno:");
-    if (!motivo?.trim()) return;
-    try {
-      await estornarTransferencia(item.id, motivo.trim());
-      await carregarBase();
-      await carregarProgramacao();
-    } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível estornar a transferência."));
-    }
+  function dadosDocumento() {
+    return {
+      titulo: "PROGRAMAÇÃO DIÁRIA DE PAGAMENTOS",
+      data: dataBR(programacao.data_programacao),
+      nome: programacao.nome_programacao,
+      responsavel: programacao.responsavel?.nome_completo || usuario?.nome || usuario?.email || "--",
+      contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo, nome: conta.nome_conta })),
+      pagamentos: pagamentos.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
+      totalContas: totalDisponivel,
+      totalProgramado,
+      restante,
+    };
   }
 
   async function registrarImpressao() {
-    await supabase.rpc("registrar_impressao_programacao", { p_programacao_id: Number(programacaoId) }).then(() => null);
-  }
-
-  // A impressão e o PDF saem de um documento próprio (src/lib/programacaoDocumento.js):
-  // a tela nunca é capturada, então nenhum campo de busca, filtro, botão ou seleção
-  // vai ao papel. Aqui só juntamos os dados que o documento precisa.
-  function dadosDaImpressao() {
-    return {
-      secretaria: secretariaAtual,
-      nomeProgramacao: programacoes.find((item) => String(item.id) === String(programacaoId))?.nome_programacao || "",
-      dataProgramacao: data,
-      usuario: usuario?.nome_completo || "",
-      // Somente as contas marcadas para o dia -- nunca a lista completa de contas.
-      contas: contasSelecionadasComSaldo.map((conta) => ({
-        nome_conta: conta.nome_conta,
-        banco: conta.banco,
-        numero_conta: conta.numero_conta,
-        saldo: conta.saldo,
-      })),
-      fornecedores: pagamentos.map((pagamento) => ({
-        nome: nomePagamento(pagamento),
-        // Fornecedor não cadastrado não tem valor em aberto: a coluna sai com traço.
-        valorEmAberto: pagamento.valores_em_aberto
-          ? Math.max(0, numero(pagamento.valores_em_aberto.valor) - numero(pagamento.valores_em_aberto.valor_pago))
-          : null,
-        valorAPagar: pagamento.valor_a_pagar,
-      })),
-      totalDisponivel,
-      totalPagar,
-    };
+    if (!programacao) return;
+    await supabase.from("programacoes_pagamento").update({ ultima_impressao_em: new Date().toISOString() }).eq("id", programacao.id);
   }
 
   async function imprimir() {
     await registrarImpressao();
-    imprimirProgramacao(dadosDaImpressao());
+    imprimirProgramacao(dadosDocumento());
   }
 
   async function gerarPdf() {
     await registrarImpressao();
-    gerarPdfProgramacao(dadosDaImpressao());
+    gerarPdfProgramacao(dadosDocumento());
   }
 
-  async function alternarFechamento() {
-    const pendentes = pagamentos.some((item) => item.situacao !== "pago");
-    if (!fechado && pendentes) return setErro("A programação permanece editável até todos os pagamentos serem efetuados.");
-    const { error } = await supabase.from("programacoes_pagamento").update({ fechado: !fechado }).eq("id", programacaoId);
-    if (error) return setErro(mensagemAmigavel(error, "Não foi possível alterar o fechamento."));
-    setFechado(!fechado);
-    await carregarProgramacoes();
-  }
-
-  function abrirBaixa(pagamento) {
-    if (efetivando.current) return;
-    if (!pagamento.conta_origem_id) return setErro("Indique de qual conta este pagamento sai antes de efetivá-lo.");
-    efetivando.current = true;
-    setBaixaPendente(pagamento);
-    setTimeout(() => { efetivando.current = false; }, 400);
-  }
-
-  const contasFiltradas = React.useMemo(() => contas.filter((conta) => {
-    const termo = buscaConta.trim().toLocaleLowerCase("pt-BR");
-    return (!termo || textoConta(conta).includes(termo)) && (!filtroBanco || conta.banco === filtroBanco);
-  }), [contas, buscaConta, filtroBanco]);
-  const contasSelecionadasComSaldo = React.useMemo(() => contas.filter((conta) => contasSelecionadas.has(conta.id)), [contas, contasSelecionadas]);
-  const totalDisponivel = React.useMemo(() => totalizarSaldos(contasSelecionadasComSaldo).saldoReal, [contasSelecionadasComSaldo]);
-  const totalPagar = React.useMemo(() => somar(pagamentos.map((item) => item.valor_a_pagar)), [pagamentos]);
-  const diferenca = totalDisponivel - totalPagar;
-  const bancos = [...new Set(contas.map((conta) => conta.banco).filter(Boolean))].sort();
-  const fornecedoresFiltrados = fornecedores.filter((item) => `${item.razao_social} ${item.numero_nota_fiscal || ""}`.toLocaleLowerCase("pt-BR").includes(buscaFornecedor.trim().toLocaleLowerCase("pt-BR")));
-  const secretariaAtual = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "--";
-  const destinosConcentracao = [...contasSelecionadasComSaldo, ...contasDestinoTransferencia];
-  const chips = [{ chave: "secretaria", rotulo: `Secretaria: ${secretariaAtual}` }, { chave: "data", rotulo: `Data: ${new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR")}` }];
+  const contasFiltradas = contas.filter((conta) => textoConta(conta).includes(buscaConta.trim().toLocaleLowerCase("pt-BR")));
+  const contasSelecionadasComSaldo = contas.filter((conta) => contasSelecionadas.has(conta.id));
+  const totalDisponivel = somarContasSelecionadas(contas, contasSelecionadas);
+  const totalProgramado = somarPagamentos(pagamentos);
+  const restante = calcularRestante(totalDisponivel, totalProgramado);
+  const idsSelecionados = new Set(pagamentos.filter((item) => item.fornecedor_id).map((item) => String(item.fornecedor_id)));
+  const fornecedoresFiltrados = fornecedores.filter((item) => item.razao_social.toLocaleLowerCase("pt-BR").includes(buscaFornecedor.trim().toLocaleLowerCase("pt-BR")));
+  const todasVisiveisMarcadas = contasFiltradas.length > 0 && contasFiltradas.every((conta) => contasSelecionadas.has(conta.id));
 
   return (
-    <Layout>
-      <div className="min-h-screen bg-[#F3F1EA] px-4 py-6 text-[#17352F] sm:px-8 print:bg-white print:p-0">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-4 print:hidden">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#A35B35]">Saldo primeiro</p><h1 className="mt-1 font-serif text-3xl font-semibold">Pagamentos Diários</h1><p className="mt-1 text-sm text-[#17352F]/60">Monte uma proposta, imprima para aprovação e só depois efetive cada pagamento.</p></div>
-          <div className="flex gap-2"><button onClick={imprimir} disabled={!programacaoId} className="flex items-center gap-2 rounded-lg border border-[#17352F]/15 bg-white px-3 py-2 text-sm disabled:opacity-40"><Printer size={15}/> Imprimir</button><button onClick={gerarPdf} disabled={!programacaoId} className="flex items-center gap-2 rounded-lg bg-[#17352F] px-3 py-2 text-sm text-white disabled:opacity-40"><FileText size={15}/> PDF</button></div>
-        </header>
-
-        <PainelFiltros chips={chips} className="mb-5 print:hidden">
-          <div className="grid gap-3 pt-3 sm:grid-cols-2">
-            <label className="text-xs font-medium">Secretaria<select value={secretariaId} onChange={(evento) => { setSecretariaId(evento.target.value); setProgramacaoId(""); }} className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm">{secretarias.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
-            <label className="text-xs font-medium">Data da programação<input type="date" value={data} onChange={(evento) => { setData(evento.target.value); setProgramacaoId(""); }} className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"/></label>
+    <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
+      <div className="mx-auto max-w-[1500px] px-4 pb-16 sm:px-6">
+        <div className="sticky top-0 z-30 -mx-4 mb-5 border-b border-[#17352F]/10 bg-[#F5F3EC]/95 px-4 py-3 shadow-[0_10px_28px_rgba(23,53,47,0.08)] backdrop-blur sm:-mx-6 sm:px-6">
+          <div className="mx-auto grid max-w-[1500px] gap-2 sm:grid-cols-3">
+            <div className="rounded-xl bg-white px-4 py-3"><span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#17352F]/55">Saldo da programação</span><strong className="mt-1 block font-serif text-xl tabular-nums text-[#17352F]">{formatBRL(totalDisponivel)}</strong></div>
+            <div className="rounded-xl bg-white px-4 py-3"><span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#17352F]/55">Total programado</span><strong className="mt-1 block font-serif text-xl tabular-nums text-[#17352F]">{formatBRL(totalProgramado)}</strong></div>
+            <div className={`rounded-xl px-4 py-3 ${restante < 0 ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"}`}><span className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-65">Restante</span><strong className="mt-1 block font-serif text-xl tabular-nums">{formatBRL(restante)}</strong></div>
           </div>
-        </PainelFiltros>
+          {restante < 0 && <p className="mx-auto mt-2 max-w-[1500px] rounded-lg bg-[#8A321C] px-3 py-2 text-center text-xs font-semibold text-white"><AlertTriangle size={14} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
+        </div>
 
-        {erro && <div className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden"><AlertTriangle size={16} className="mt-0.5 shrink-0"/>{erro}<button onClick={() => setErro("")} className="ml-auto"><X size={15}/></button></div>}
-        {carregando ? <p>Carregando...</p> : <>
-          <section className="mb-5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm print:hidden">
-            <div className="flex flex-wrap items-center gap-2"><input value={nomeProgramacao} onChange={(evento) => setNomeProgramacao(evento.target.value)} placeholder="Nome da nova programação" className="min-w-56 flex-1 rounded-lg border border-black/10 px-3 py-2 text-sm"/><button onClick={criarProgramacao} disabled={salvando} className="rounded-lg bg-[#17352F] px-4 py-2 text-sm text-white"><Plus size={15} className="mr-1 inline"/> Nova programação</button></div>
-            <div className="mt-3 flex flex-wrap gap-2">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`flex items-center gap-1 rounded-lg border px-3 py-2 text-xs ${String(programacaoId) === String(item.id) ? "border-[#17352F] bg-[#17352F] text-white" : "border-black/10"}`}>{String(programacaoId) === String(item.id) && <ChevronRight size={12}/>} {item.fechado && <Lock size={11}/>} {item.nome_programacao || "Sem nome"}</button>)}</div>
-          </section>
+        <div className="mb-5 grid gap-3 rounded-2xl border border-[#17352F]/10 bg-white p-4 shadow-sm lg:grid-cols-[1fr_13rem_auto] lg:items-end">
+          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#17352F]/60">Secretaria<select value={secretariaId} onChange={(evento) => setSecretariaId(evento.target.value)} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm font-normal normal-case tracking-normal">{secretarias.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#17352F]/60">Data<input type="date" value={data} onChange={(evento) => setData(evento.target.value)} className="mt-1 block w-full rounded-lg border border-black/10 px-3 py-2 text-sm font-normal"/></label>
+          <button onClick={criarProgramacao} disabled={!podeEditar || salvando} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#17352F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus size={16}/> Nova programação</button>
+        </div>
 
-          {programacaoId && <>
-            <div className="sticky top-0 z-30 mb-5 grid gap-px overflow-hidden rounded-2xl border border-[#17352F]/15 bg-[#17352F]/10 shadow-lg sm:grid-cols-3 print:hidden">
-              <div className="bg-[#17352F] px-4 py-3 text-white"><small className="uppercase tracking-[0.14em] opacity-65">Contas selecionadas</small><strong className="block text-xl">{contasSelecionadas.size}</strong></div>
-              <div className="bg-[#17352F] px-4 py-3 text-white"><small className="uppercase tracking-[0.14em] opacity-65">Total disponível hoje</small><strong className="block text-xl tabular-nums">{formatBRL(totalDisponivel)}</strong></div>
-              <div className={`px-4 py-3 ${diferenca < 0 ? "bg-[#FFF0E7] text-[#9B3E20]" : "bg-white"}`}><small className="uppercase tracking-[0.14em] opacity-60">Total a pagar · diferença</small><strong className="block text-xl tabular-nums">{formatBRL(totalPagar)} · {formatBRL(diferenca)}</strong></div>
+        {(erro || mensagem) && <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={16}/></button></div>}
+
+        {carregando ? <p className="py-16 text-center text-sm text-[#17352F]/55">Carregando...</p> : <>
+          {programacoes.length > 0 && <div className="mb-5 flex gap-2 overflow-x-auto pb-1">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold ${String(programacaoId) === String(item.id) ? "border-[#17352F] bg-[#17352F] text-white" : "border-black/10 bg-white text-[#17352F]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
+
+          {!programacao ? <div className="rounded-2xl border border-dashed border-[#17352F]/20 bg-white/60 px-6 py-20 text-center"><h2 className="font-serif text-2xl text-[#17352F]">Comece uma programação diária</h2><p className="mx-auto mt-2 max-w-xl text-sm text-[#17352F]/60">A seleção de contas apenas calcula o valor disponível para planejamento. Nenhuma conta é debitada, reservada ou bloqueada.</p></div> : <>
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#17352F] px-5 py-4 text-white">
+              <div><p className="text-xs uppercase tracking-[0.16em] text-white/60">{statusLabel(programacao.status, programacao.fechado)}</p><h1 className="font-serif text-xl sm:text-2xl">{programacao.nome_programacao}</h1><p className="mt-1 text-xs text-white/60">ID {programacao.id} · criada em {new Date(programacao.created_at).toLocaleString("pt-BR")}</p></div>
+              <div className="flex flex-wrap gap-2"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button><button onClick={imprimir} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><Printer size={15}/> Imprimir para análise</button><button onClick={gerarPdf} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><FileDown size={15}/> PDF</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-2 rounded-lg bg-[#B98C55] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check size={15}/> Marcar em análise</button>}</div>
             </div>
 
-            <section className="mb-5 grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(22rem,.7fr)] print:hidden">
-              <div className="rounded-2xl border border-black/5 bg-white shadow-sm print:shadow-none">
-                <div className="border-b border-black/5 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A35B35]">Etapa 2</p><h2 className="font-serif text-xl font-semibold">Contas de trabalho</h2><p className="text-xs text-[#17352F]/55">Selecionar conta não movimenta saldo.</p></div><button onClick={selecionarTodas} disabled={fechado} className="rounded-lg border border-black/10 px-3 py-2 text-xs">Selecionar todas</button></div><div className="mt-3 grid gap-2 sm:grid-cols-[1fr_14rem]"><label className="relative"><Search size={14} className="absolute left-3 top-2.5 opacity-40"/><input value={buscaConta} onChange={(evento) => setBuscaConta(evento.target.value)} placeholder="Buscar conta, banco ou número" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></label><select value={filtroBanco} onChange={(evento) => setFiltroBanco(evento.target.value)} className="rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"><option value="">Todos os bancos</option>{bancos.map((banco) => <option key={banco}>{banco}</option>)}</select></div></div>
-                <div className="max-h-[30rem] overflow-y-auto">{contasFiltradas.map((conta) => <PainelConta key={conta.id} conta={conta} marcada={contasSelecionadas.has(conta.id)} bloqueada={fechado || !podeEditar} onChange={() => alternarConta(conta.id)}/>)}</div>
-              </div>
+            <div className="grid gap-5 xl:grid-cols-[1.05fr_.95fr]">
+              <section className="overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
+                <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">1. Contas de trabalho</p><h2 className="font-serif text-xl text-[#17352F]">Selecionar contas</h2><p className="mt-1 text-xs text-[#17352F]/55">Selecionar conta não movimenta saldo.</p><div className="relative mt-3"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaConta} onChange={(evento) => setBuscaConta(evento.target.value)} placeholder="Buscar banco, conta ou nome" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div></div>
+                <label className="grid cursor-pointer grid-cols-[2rem_1fr] border-b border-black/5 bg-[#F2F0E8] px-4 py-3 text-sm font-semibold text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-4 w-4 accent-[#17352F]"/> Selecionar todas</label>
+                <div className="max-h-[430px] overflow-y-auto"><div className="hidden grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] gap-3 border-b border-black/5 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#17352F]/45 md:grid"><span></span><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>{contasFiltradas.map((conta) => <label key={conta.id} className={`grid cursor-pointer gap-2 border-b border-black/5 px-4 py-3 text-sm last:border-0 md:grid-cols-[2rem_1.1fr_1fr_1fr_1.2fr] md:gap-3 ${contasSelecionadas.has(conta.id) ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={contasSelecionadas.has(conta.id)} onChange={() => alternarConta(conta.id)} className="h-4 w-4 accent-[#17352F]"/><span>{conta.banco}</span><span>{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span>{conta.nome_conta || "--"}</span></label>)}</div>
+                <div className="bg-[#17352F] px-4 py-3 text-sm font-semibold text-white">{contasSelecionadas.size} {contasSelecionadas.size === 1 ? "CONTA SELECIONADA" : "CONTAS SELECIONADAS"} — SALDO TOTAL DA PROGRAMAÇÃO: {formatBRL(totalDisponivel)}</div>
+              </section>
 
-              <div className="rounded-2xl border border-black/5 bg-[#FBFAF5] p-4 shadow-sm print:hidden"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A35B35]">Etapa 3 · opcional</p><h2 className="font-serif text-xl font-semibold">Concentrar saldos</h2><p className="mt-1 text-xs text-[#17352F]/55">Transfira para uma conta marcada. Em Finanças, também aparecem contas de Saúde, Educação e Social para o repasse legítimo entre secretarias.</p><select value={destinoConcentracao} onChange={(evento) => setDestinoConcentracao(evento.target.value)} className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"><option value="">Conta concentradora ou destinatária...</option>{destinosConcentracao.map((conta) => <option key={`${conta.externa ? "externa" : "interna"}-${conta.id}`} value={conta.id}>{conta.nome_conta} · {conta.banco}{conta.externa ? ` · ${conta.secretaria}` : ""}</option>)}</select><div className="mt-3 space-y-2">{contasSelecionadasComSaldo.filter((conta) => String(conta.id) !== String(destinoConcentracao)).map((conta) => <label key={conta.id} className="grid grid-cols-[1fr_9rem] items-center gap-2 text-xs"><span>{conta.nome_conta}<strong className="block tabular-nums">{formatBRL(conta.saldo)}</strong></span><CampoMoeda valor={valoresTransferencia[conta.id] ?? 0} onValorChange={(valor) => setValoresTransferencia((atual) => ({ ...atual, [conta.id]: valor }))} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-right"/></label>)}</div><button onClick={confirmarConcentracao} disabled={salvando || !destinoConcentracao || !permissoesEspeciais.executar_transferencia} className="mt-4 w-full rounded-lg bg-[#A35B35] px-3 py-2 text-sm text-white disabled:opacity-40"><ArrowRightLeft size={15} className="mr-1 inline"/> Confirmar transferência</button><p className="mt-2 text-[11px] text-[#17352F]/50">Somente a confirmação movimenta débito e crédito na mesma transação. Não é despesa.</p></div>
+              <section className="overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
+                <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">2. Proposta</p><h2 className="font-serif text-xl text-[#17352F]">Fornecedores em aberto</h2><div className="relative mt-3"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar fornecedor" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></div></div>
+                <div className="max-h-[330px] overflow-y-auto">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[2rem_1fr_auto] items-center gap-3 border-b border-black/5 px-4 py-3 text-sm last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-4 w-4 accent-[#17352F]"/><span className="font-medium text-[#17352F]">{fornecedor.razao_social}</span><span className={fornecedor.valor_em_aberto > 0 ? "font-semibold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)} em aberto</span></label>; })}</div>
+                <div className="border-t border-black/5 p-4"><button onClick={() => setMostrarAvulso((valor) => !valor)} className="inline-flex items-center gap-2 text-sm font-semibold text-[#A5542F]"><Plus size={15}/> Adicionar fornecedor avulso</button>{mostrarAvulso && <div className="mt-3 grid gap-3 rounded-xl bg-[#FBF3EA] p-3 sm:grid-cols-[1fr_10rem_auto]"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome" className="rounded-lg border border-black/10 px-3 py-2 text-sm"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="rounded-lg border border-black/10 px-3 py-2 text-right text-sm"/><button onClick={adicionarAvulso} className="rounded-lg bg-[#A5542F] px-3 py-2 text-sm font-semibold text-white">Adicionar</button><label className="flex items-center gap-2 text-xs text-[#17352F]/65 sm:col-span-3"><input type="checkbox" checked={avulso.cadastrarDepois} onChange={(evento) => setAvulso({ ...avulso, cadastrarDepois: evento.target.checked })}/> Cadastrar posteriormente como fornecedor</label></div>}</div>
+              </section>
+            </div>
+
+            <section className="mt-5 overflow-hidden rounded-2xl border border-[#17352F]/10 bg-white shadow-sm">
+              <div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B06A3C]">3. Valores</p><h2 className="font-serif text-xl text-[#17352F]">Pagamentos propostos</h2><p className="mt-1 text-xs text-[#17352F]/55">O valor é totalmente editável e pode ser menor que o total em aberto.</p></div>
+              {pagamentos.length === 0 ? <p className="px-4 py-10 text-center text-sm text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-3 border-b border-black/5 px-4 py-3 last:border-0 sm:grid-cols-[1fr_13rem_auto] sm:items-center"><div><span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#17352F]/45">Fornecedor</span><strong className="block text-sm text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[#A5542F]">Cadastrar posteriormente</small>}</div><label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#17352F]/45">Valor a programar<CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} className="mt-1 w-full rounded-lg border border-black/10 px-3 py-2 text-right text-sm font-semibold normal-case tracking-normal text-[#17352F]"/></label><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded-lg p-2 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={17}/></button></div>)}</div>}
             </section>
-
-            {transferencias.length > 0 && <section className="mb-5 rounded-2xl border border-black/5 bg-white p-4 print:hidden"><h2 className="font-serif text-lg font-semibold">Origens da concentração</h2><div className="mt-2 grid gap-2">{transferencias.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F4F6F2] px-3 py-2 text-xs"><span><strong>{contas.find((conta) => String(conta.id) === String(item.conta_origem_id))?.nome_conta || "Conta de origem"}</strong> → {[...contas, ...contasDestinoTransferencia].find((conta) => String(conta.id) === String(item.conta_destino_id))?.nome_conta || "Conta concentradora"}</span><span className="flex items-center gap-2"><strong>{formatBRL(item.valor)}</strong>{!item.estornada_em && !item.transferencia_original_id && permissoesEspeciais.estornar_transferencia && <button onClick={() => estornar(item)} className="text-red-600">Estornar</button>}{(item.estornada_em || item.transferencia_original_id) && <em>Estornada</em>}</span></div>)}</div></section>}
-
-            <section className="mb-5 grid gap-5 lg:grid-cols-[minmax(20rem,.7fr)_minmax(0,1.3fr)] print:hidden">
-              <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm print:hidden"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A35B35]">Etapa 4</p><h2 className="font-serif text-xl font-semibold">Fornecedores com valor em aberto</h2><label className="relative mt-3 block"><Search size={14} className="absolute left-3 top-2.5 opacity-40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar fornecedor ou nota" className="w-full rounded-lg border border-black/10 py-2 pl-9 pr-3 text-sm"/></label><div className="mt-3 max-h-[32rem] space-y-2 overflow-y-auto">{fornecedoresFiltrados.map((item) => { const marcado = pagamentos.some((pagamento) => String(pagamento.valor_em_aberto_id) === String(item.valor_em_aberto_id)); return <button key={item.valor_em_aberto_id} onClick={() => adicionarFornecedor(item)} disabled={marcado || fechado || salvando} className={`w-full rounded-xl border p-3 text-left ${marcado ? "border-[#175C4C]/20 bg-[#EDF4F1]" : "border-black/10 hover:border-[#175C4C]/40"}`}><span className="flex items-start gap-2"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${marcado ? "border-[#175C4C] bg-[#175C4C] text-white" : "border-black/20"}`}>{marcado && <Check size={11}/>}</span><span><strong className="block text-sm">{item.razao_social}</strong><small className="text-[#17352F]/50">NF {item.numero_nota_fiscal || "--"} · Valor em aberto <b>{formatBRL(item.valor_em_aberto)}</b></small></span></span></button>; })}</div><button onClick={() => setMostrarAvulso((atual) => !atual)} className="mt-3 w-full rounded-lg border border-dashed border-[#A35B35]/40 px-3 py-2 text-sm text-[#A35B35]"><Plus size={14} className="mr-1 inline"/> Fornecedor não cadastrado</button>{mostrarAvulso && <div className="mt-3 space-y-2 rounded-xl bg-[#FFF7EF] p-3"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome / razão social" className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="w-full rounded-lg border border-black/10 px-3 py-2 text-right text-sm"/><button onClick={adicionarAvulso} className="w-full rounded-lg bg-[#A35B35] px-3 py-2 text-sm text-white">Adicionar à relação</button></div>}</div>
-
-              <div className="rounded-2xl border border-black/5 bg-white shadow-sm print:shadow-none"><div className="border-b border-black/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A35B35]">Relação proposta</p><h2 className="font-serif text-xl font-semibold">Valores para aprovação</h2>{diferenca < 0 && <p className="mt-2 rounded-lg bg-[#FFF0E7] px-3 py-2 text-xs text-[#9B3E20]">A proposta excede o disponível em {formatBRL(Math.abs(diferenca))}. A edição e a impressão continuam liberadas.</p>}</div>{pagamentos.length === 0 ? <p className="p-8 text-center text-sm opacity-45">Nenhum fornecedor na relação.</p> : <div className="divide-y divide-black/5">{pagamentos.map((pagamento) => { const aberto = pagamento.valores_em_aberto ? Math.max(0, numero(pagamento.valores_em_aberto.valor) - numero(pagamento.valores_em_aberto.valor_pago)) : null; const resumo = resumoBaixas(pagamento.valor_a_pagar, baixasPorPagamento[String(pagamento.id)] ?? []); return <div key={pagamento.id} className="grid gap-3 p-4 md:grid-cols-[1fr_10rem_14rem_auto] md:items-center"><div><strong className="block text-sm">{nomePagamento(pagamento)}</strong><small className="text-[#17352F]/50">{aberto === null ? "Fornecedor não cadastrado" : `Valor em aberto: ${formatBRL(aberto)}`}</small><small className="block text-[#17352F]/50">Situação: {resumo.situacao === "pago" ? "Pago" : resumo.situacao === "parcialmente_pago" ? "Parcialmente pago" : "Em aberto"}</small></div><label className="text-xs">Valor a pagar<CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento.id, valor)} disabled={fechado || pagamento.situacao === "pago"} className="mt-1 w-full rounded-lg border border-black/10 px-2 py-2 text-right text-sm"/></label><label className="text-xs print:hidden">Conta de origem<select value={pagamento.conta_origem_id || ""} onChange={(evento) => definirContaPagamento(pagamento.id, evento.target.value)} disabled={fechado || pagamento.situacao === "pago"} className="mt-1 w-full rounded-lg border border-black/10 bg-white px-2 py-2 text-sm"><option value="">Indique a conta...</option>{contasSelecionadasComSaldo.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome_conta} · {formatBRL(conta.saldo)}</option>)}</select></label><div className="flex gap-1 print:hidden">{pagamento.situacao !== "pago" && <button onClick={() => abrirBaixa(pagamento)} className="rounded-lg bg-[#175C4C] px-3 py-2 text-xs text-white">Efetuar</button>}{podeExcluir && pagamento.situacao !== "pago" && <button onClick={() => removerPagamento(pagamento)} className="rounded-lg border border-red-100 p-2 text-red-600"><Trash2 size={14}/></button>}</div></div>; })}</div>}<div className="grid grid-cols-3 gap-px bg-black/5"><div className="bg-[#F8F7F2] p-3 text-xs">Total disponível<strong className="block text-base">{formatBRL(totalDisponivel)}</strong></div><div className="bg-[#F8F7F2] p-3 text-xs">Total a pagar<strong className="block text-base">{formatBRL(totalPagar)}</strong></div><div className={`p-3 text-xs ${diferenca < 0 ? "bg-[#FFF0E7] text-[#9B3E20]" : "bg-[#EDF4F1]"}`}>Diferença<strong className="block text-base">{formatBRL(diferenca)}</strong></div></div></div>
-            </section>
-
-            <div className="mb-8 flex justify-end print:hidden"><button onClick={alternarFechamento} className="flex items-center gap-2 rounded-lg border border-black/10 bg-white px-4 py-2 text-sm">{fechado ? <Unlock size={14}/> : <Lock size={14}/>} {fechado ? "Reabrir programação" : "Fechar após efetivação"}</button></div>
           </>}
         </>}
       </div>
-      {baixaPendente && <ModalBaixaPagamento pagamento={baixaPendente} fornecedores={fornecedores.map((item) => ({ id: item.id, razao_social: item.razao_social })).filter((item, indice, lista) => lista.findIndex((outro) => String(outro.id) === String(item.id)) === indice)} contas={contasSelecionadasComSaldo} contaSugeridaId={baixaPendente.conta_origem_id || destinoConcentracao} baixas={baixasPorPagamento[String(baixaPendente.id)] ?? []} onFechar={() => setBaixaPendente(null)} onConcluida={async () => { setBaixaPendente(null); await carregarBase(); await carregarProgramacao(); }}/>} 
     </Layout>
   );
 }
