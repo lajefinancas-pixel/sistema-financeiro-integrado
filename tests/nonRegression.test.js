@@ -59,6 +59,28 @@ test("salvar e reabrir preserva contas, valores e fornecedor avulso", async () =
   assert.match(sql, /excluido_em = null/);
 });
 
+test("fase 1 usa ids inteiros, data selecionada e payload mínimo na criação", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /secretaria_id: secretariaIdInteiro/);
+  assert.match(pagina, /data_programacao: data/);
+  assert.match(pagina, /responsavel_id: auth\.user\.id/);
+  assert.match(pagina, /nome_programacao: nomeAutomatico\(data\)/);
+  assert.match(pagina, /p_programacao_id: programacaoIdInteiro/);
+  assert.match(pagina, /conta_id: idInteiro\(conta\.id/);
+  assert.match(pagina, /fornecedor_id: item\.fornecedor_id == null \? null : idInteiro/);
+  assert.doesNotMatch(pagina, /data_programacao: hojeISO\(\)/);
+});
+
+test("falhas da fase 1 registram o erro real do Supabase com contexto", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /console\.error\(`\[Pagamentos Fase 1\] \$\{operacao\}`/);
+  assert.match(pagina, /Falha ao carregar programações/);
+  assert.match(pagina, /Falha ao criar programação/);
+  assert.match(pagina, /code: falha\?\.code/);
+  assert.match(pagina, /details: falha\?\.details/);
+  assert.match(pagina, /hint: falha\?\.hint/);
+});
+
 test("migration é única, idempotente e não movimenta dinheiro", async () => {
   const sql = await read(migrationPlanejamento);
   assert.match(sql, /^begin;/);
