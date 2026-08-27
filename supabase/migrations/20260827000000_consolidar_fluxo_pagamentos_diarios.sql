@@ -1094,13 +1094,16 @@ begin
     return coalesce(v_lote.resultado, jsonb_build_object('ok', true, 'ja_confirmado', true, 'lote_id', v_lote.id));
   end if;
 
-  select pp, s.nome
-    into v_programacao, v_secretaria_programacao
-    from public.programacoes_pagamento pp
-    join public.secretarias s on s.id = pp.secretaria_id
-   where pp.id = p_programacao_id
-   for update of pp;
+  select * into v_programacao
+    from public.programacoes_pagamento
+   where id = p_programacao_id
+   for update;
   if not found then raise exception 'Programação não encontrada.'; end if;
+
+  select s.nome into v_secretaria_programacao
+    from public.secretarias s
+   where s.id = v_programacao.secretaria_id;
+
   if jsonb_typeof(p_transferencias) <> 'array' or jsonb_array_length(p_transferencias) = 0 then
     raise exception 'Informe ao menos uma transferência.';
   end if;
