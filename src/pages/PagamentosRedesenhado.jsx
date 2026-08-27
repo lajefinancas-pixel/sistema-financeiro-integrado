@@ -19,6 +19,28 @@ const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-B
 const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
 const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
 
+function idInteiro(valor, campo) {
+  const id = Number(valor);
+  if (!Number.isInteger(id) || id <= 0) {
+    const erro = new Error(`${campo} inválido.`);
+    erro.amigavel = true;
+    throw erro;
+  }
+  return id;
+}
+
+function registrarErroFase1(operacao, falha, contexto = {}) {
+  if (typeof console === "undefined") return;
+  console.error(`[Pagamentos Fase 1] ${operacao}`, {
+    ...contexto,
+    code: falha?.code,
+    message: falha?.message,
+    details: falha?.details,
+    hint: falha?.hint,
+    status: falha?.status,
+  });
+}
+
 function nomePagamento(pagamento) {
   return pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Fornecedor avulso";
 }
@@ -125,15 +147,16 @@ export default function PagamentosRedesenhado() {
   async function carregarProgramacoes(preferidaId = "") {
     try {
       const { data: itens, error } = await supabase.from("programacoes_pagamento")
-        .select("id, nome_programacao, status, fechado, created_at")
-        .eq("secretaria_id", secretariaId)
+        .select("id, nome_programacao, status, fechado")
+        .eq("secretaria_id", idInteiro(secretariaId, "Secretaria"))
         .eq("data_programacao", data)
-        .order("created_at", { ascending: false });
+        .order("id", { ascending: false });
       if (error) throw error;
       setProgramacoes(itens ?? []);
       const alvo = preferidaId || programacaoId;
       setProgramacaoId((itens ?? []).some((item) => String(item.id) === String(alvo)) ? alvo : itens?.[0]?.id || "");
     } catch (falha) {
+      registrarErroFase1("Falha ao carregar programações", falha, { secretariaId, dataProgramacao: data });
       setErro(mensagemAmigavel(falha, "Não foi possível carregar as programações."));
     }
   }
@@ -147,10 +170,11 @@ export default function PagamentosRedesenhado() {
   async function carregarProgramacao(id) {
     setErro("");
     try {
+      const idProgramacao = idInteiro(id, "Programação");
       const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, { data: itens, error: erroPagamentos }] = await Promise.all([
-        supabase.from("programacoes_pagamento").select("id, nome_programacao, data_programacao, status, fechado, responsavel_id, created_at, updated_at").eq("id", id).single(),
-        supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", id).eq("ativa", true).order("ordem"),
-        supabase.from("pagamentos").select("id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente, fornecedores(razao_social)").eq("programacao_id", id).is("excluido_em", null).order("created_at"),
+        supabase.from("programacoes_pagamento").select("id, nome_programacao, data_programacao, status, fechado, responsavel_id").eq("id", idProgramacao).single(),
+        supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", idProgramacao).eq("ativa", true).order("ordem"),
+        supabase.from("pagamentos").select("id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente, fornecedores(razao_social)").eq("programacao_id", idProgramacao).is("excluido_em", null).order("id"),
       ]);
       if (erroPrograma) throw erroPrograma;
       if (erroContas) throw erroContas;
@@ -162,6 +186,7 @@ export default function PagamentosRedesenhado() {
       setContasSelecionadas(new Set((vinculadas ?? []).map((item) => item.conta_id)));
       setPagamentos((itens ?? []).map((item) => ({ ...item, valor_a_pagar: numero(item.valor_a_pagar) })));
     } catch (falha) {
+      registrarErroFase1("Falha ao abrir programação", falha, { programacaoId: id });
       setErro(mensagemAmigavel(falha, "Não foi possível abrir a programação. Rode a migration informada no resumo se necessário."));
     }
   }
@@ -171,23 +196,23 @@ export default function PagamentosRedesenhado() {
     setSalvando(true);
     setErro("");
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      const { data: auth, error: erroAuth } = await supabase.auth.getUser();
+      if (erroAuth) throw erroAuth;
       if (!auth.user?.id) throw new Error("Usuário não autenticado.");
+      const secretariaIdInteiro = idInteiro(secretariaId, "Secretaria");
       const { data: criada, error } = await supabase.from("programacoes_pagamento").insert({
-        secretaria_id: Number(secretariaId),
-        data_programacao: hojeISO(),
-        nome_programacao: nomeAutomatico(hojeISO()),
+        secretaria_id: secretariaIdInteiro,
+        data_programacao: data,
         responsavel_id: auth.user.id,
-        status: "em_elaboracao",
-        saldo_considerado: 0,
-        total_programado: 0,
-        restante: 0,
+        nome_programacao: nomeAutomatico(data),
       }).select("id, data_programacao").single();
       if (error) throw error;
       setData(criada.data_programacao);
       setProgramacaoId(criada.id);
+      await carregarProgramacoes(criada.id);
       setMensagem("Programação criada em elaboração.");
     } catch (falha) {
+      registrarErroFase1("Falha ao criar programação", falha, { secretariaId, dataProgramacao: data });
       setErro(mensagemAmigavel(falha, "Não foi possível criar a programação."));
     } finally {
       setSalvando(false);
@@ -250,23 +275,25 @@ export default function PagamentosRedesenhado() {
     setErro("");
     setMensagem("");
     try {
-      const { data: auth } = await supabase.auth.getUser();
+      const { data: auth, error: erroAuth } = await supabase.auth.getUser();
+      if (erroAuth) throw erroAuth;
       if (!auth.user?.id) throw new Error("Usuário não autenticado.");
       const selecionadas = contas.filter((conta) => contasSelecionadas.has(conta.id));
       const payloadContas = selecionadas.map((conta, indice) => ({
-        conta_id: conta.id,
+        conta_id: idInteiro(conta.id, "Conta"),
         saldo_considerado: numero(conta.saldo),
         ordem: indice + 1,
       }));
       const payloadPagamentos = pagamentos.map((item) => ({
-        id: item.id,
-        fornecedor_id: item.fornecedor_id,
+        id: item.id == null ? null : idInteiro(item.id, "Pagamento"),
+        fornecedor_id: item.fornecedor_id == null ? null : idInteiro(item.fornecedor_id, "Fornecedor"),
         nome_avulso: item.nome_avulso,
         valor_a_pagar: numero(item.valor_a_pagar),
         cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
       }));
+      const programacaoIdInteiro = idInteiro(programacao.id, "Programação");
       const { error } = await supabase.rpc("salvar_planejamento_programacao", {
-        p_programacao_id: Number(programacao.id),
+        p_programacao_id: programacaoIdInteiro,
         p_contas: payloadContas,
         p_pagamentos: payloadPagamentos,
         p_saldo_considerado: totalDisponivel,
@@ -279,6 +306,7 @@ export default function PagamentosRedesenhado() {
       await carregarProgramacoes(programacao.id);
       return true;
     } catch (falha) {
+      registrarErroFase1("Falha ao salvar programação", falha, { programacaoId: programacao?.id });
       setErro(mensagemAmigavel(falha, "Não foi possível salvar a programação."));
     } finally {
       setSalvando(false);
@@ -290,8 +318,11 @@ export default function PagamentosRedesenhado() {
     if (!programacao || !podeEditarProgramacao) return;
     const salvo = await salvarProgramacao();
     if (!salvo) return;
-    const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: Number(programacao.id) });
-    if (error) return setErro(mensagemAmigavel(error, "Não foi possível marcar como em análise."));
+    const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: idInteiro(programacao.id, "Programação") });
+    if (error) {
+      registrarErroFase1("Falha ao marcar programação em análise", error, { programacaoId: programacao.id });
+      return setErro(mensagemAmigavel(error, "Não foi possível marcar como em análise."));
+    }
     setProgramacao((atual) => ({ ...atual, status: "em_analise" }));
     setMensagem("Programação marcada como em análise. Nenhum saldo foi movimentado.");
     await carregarProgramacoes(programacao.id);
@@ -360,7 +391,7 @@ export default function PagamentosRedesenhado() {
 
           {!programacao ? <div className="rounded-2xl border border-dashed border-[#17352F]/20 bg-white/60 px-6 py-20 text-center"><h2 className="font-serif text-2xl text-[#17352F]">Comece uma programação diária</h2><p className="mx-auto mt-2 max-w-xl text-sm text-[#17352F]/60">A seleção de contas apenas calcula o valor disponível para planejamento. Nenhuma conta é debitada, reservada ou bloqueada.</p></div> : <>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#17352F] px-5 py-4 text-white">
-              <div><p className="text-xs uppercase tracking-[0.16em] text-white/60">{statusLabel(programacao.status, programacao.fechado)}</p><h1 className="font-serif text-xl sm:text-2xl">{programacao.nome_programacao}</h1><p className="mt-1 text-xs text-white/60">ID {programacao.id} · criada em {new Date(programacao.created_at).toLocaleString("pt-BR")}</p></div>
+              <div><p className="text-xs uppercase tracking-[0.16em] text-white/60">{statusLabel(programacao.status, programacao.fechado)}</p><h1 className="font-serif text-xl sm:text-2xl">{programacao.nome_programacao}</h1><p className="mt-1 text-xs text-white/60">ID {programacao.id} · programação de {dataBR(programacao.data_programacao)}</p></div>
               <div className="flex flex-wrap gap-2"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button><button onClick={imprimir} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><Printer size={15}/> Imprimir para análise</button><button onClick={gerarPdf} className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-4 py-2 text-sm"><FileDown size={15}/> PDF</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-2 rounded-lg bg-[#B98C55] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check size={15}/> Marcar em análise</button>}</div>
             </div>
 
