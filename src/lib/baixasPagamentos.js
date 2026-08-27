@@ -5,11 +5,11 @@ export { resumoBaixas, situacaoPagamento, validarValorBaixa } from "./regrasBaix
 export async function registrarBaixa(campos) {
   const { data, error } = await supabase.rpc("registrar_baixa_pagamento", {
     p_chave_idempotencia: campos.chaveIdempotencia,
-    p_fornecedor_id: String(campos.fornecedorId),
+    p_fornecedor_id: Number(campos.fornecedorId),
     p_valor: paraNumeroMoeda(campos.valor),
     p_data_pagamento: campos.dataPagamento,
     p_conta_id: campos.contaId,
-    p_pagamento_id: campos.pagamentoId ? String(campos.pagamentoId) : null,
+    p_pagamento_id: campos.pagamentoId ? Number(campos.pagamentoId) : null,
     p_documento: campos.documento || null,
     p_observacao: campos.observacao || null,
   });
