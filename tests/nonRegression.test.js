@@ -81,6 +81,16 @@ test("falhas da fase 1 registram o erro real do Supabase com contexto", async ()
   assert.match(pagina, /hint: falha\?\.hint/);
 });
 
+test("falhas de schema da fase 1 indicam a única migration e o banco correto", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  assert.match(pagina, /20260827000000_consolidar_fluxo_pagamentos_diarios\.sql/);
+  assert.match(pagina, /no mesmo projeto Supabase usado pela aplicação/);
+  for (const codigo of ["42703", "42883", "PGRST202", "PGRST204"]) {
+    assert.match(pagina, new RegExp(codigo));
+  }
+  assert.doesNotMatch(pagina, /Rode a migration informada no resumo se necessário/);
+});
+
 test("migration é única, idempotente e não movimenta dinheiro", async () => {
   const sql = await read(migrationPlanejamento);
   assert.match(sql, /^begin;/);
