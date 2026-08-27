@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const migrationConsolidada = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 
 test("backup manual e restauração permanecem disponíveis", async () => {
   const [categoria, biblioteca] = await Promise.all([
@@ -23,12 +24,12 @@ test("nenhuma função agendada foi criada", async () => {
 });
 
 test("migração mantém transferência separada de pagamento", async () => {
-  const sql = await read("supabase/migrations/20260825120000_conta_pagamento_transferencias_dados_fornecedor.sql");
+  const sql = await read(migrationConsolidada);
   assert.match(sql, /confirmar_transferencias_programacao/);
   assert.match(sql, /chave_idempotencia text not null unique/);
   assert.match(sql, /conta_pagamento_id/);
   assert.match(sql, /estornar_transferencia/);
-  assert.doesNotMatch(sql, /insert into public\.pagamentos[\s\S]*transferencias_contas/i);
+  assert.doesNotMatch(sql, /insert into public\.pagamentos\s*\(/i);
 });
 
 test("tela aplica saldo primeiro, seleção múltipla e concentração opcional", async () => {
@@ -61,7 +62,7 @@ test("relação aceita parcial, avulso e excesso sem bloqueio", async () => {
 test("conta de origem pertence ao pagamento e respeita a secretaria", async () => {
   const [pagina, migration] = await Promise.all([
     read("src/pages/PagamentosRedesenhado.jsx"),
-    read("supabase/migrations/20260826120000_fluxo_real_pagamentos_diarios.sql"),
+    read(migrationConsolidada),
   ]);
   assert.match(pagina, /definir_conta_origem_pagamento/);
   assert.match(pagina, /conta_origem_id/);
@@ -145,7 +146,7 @@ test("seleção não movimenta saldo e pagamento pode ocorrer sem concentração
 test("transferência entre secretarias fica restrita à exceção de Finanças", async () => {
   const [pagina, migration] = await Promise.all([
     read("src/pages/PagamentosRedesenhado.jsx"),
-    read("supabase/migrations/20260826120000_fluxo_real_pagamentos_diarios.sql"),
+    read(migrationConsolidada),
   ]);
   assert.match(pagina, /contas de Saúde, Educação e Social/);
   assert.match(migration, /Transferência entre secretarias permitida somente de Finanças para Saúde, Educação ou Social/);

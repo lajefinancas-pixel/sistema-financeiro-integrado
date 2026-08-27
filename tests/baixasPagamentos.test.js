@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resumoBaixas, situacaoPagamento, validarValorBaixa } from "../src/lib/regrasBaixas.js";
 
 const read = (arquivo) => readFile(new URL(`../${arquivo}`, import.meta.url), "utf8");
+const migrationConsolidada = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 
 test("baixa parcial evolui de em aberto até pago", () => {
   assert.equal(situacaoPagamento(50000, 0), "em_aberto");
@@ -23,7 +24,7 @@ test("bloqueia baixa superior ao saldo em aberto", () => {
 });
 
 test("migration registra baixa e débito atomicamente com idempotência", async () => {
-  const sql = await read("supabase/migrations/20260825170000_baixas_pagamentos_fornecedores.sql");
+  const sql = await read(migrationConsolidada);
   assert.match(sql, /create table if not exists public\.pagamentos_baixas/);
   assert.match(sql, /chave_idempotencia text not null unique/);
   assert.match(sql, /pg_advisory_xact_lock\(hashtextextended\(p_chave_idempotencia/);
@@ -33,7 +34,7 @@ test("migration registra baixa e débito atomicamente com idempotência", async 
 });
 
 test("estorno preserva original, devolve saldo e audita os dois eventos", async () => {
-  const sql = await read("supabase/migrations/20260825170000_baixas_pagamentos_fornecedores.sql");
+  const sql = await read(migrationConsolidada);
   assert.doesNotMatch(sql, /delete from public\.pagamentos_baixas/);
   assert.match(sql, /set status='estornada'/);
   assert.match(sql, /v_saldo\+v_baixa\.valor_pago/);
