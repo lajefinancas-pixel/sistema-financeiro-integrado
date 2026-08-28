@@ -82,7 +82,7 @@ begin
       into tipo_real
       from pg_attribute a
      where a.attrelid = to_regclass(format('public.%I', item.tabela))
-       and a.attname = item.coluna
+       and a.attname::text = item.coluna
        and not a.attisdropped;
 
     if tipo_real is distinct from item.esperado then
@@ -102,7 +102,7 @@ begin
     into tipo_real
     from pg_attribute a
    where a.attrelid = to_regclass('public.pagamentos')
-     and a.attname = 'conta_origem_id'
+     and a.attname::text = 'conta_origem_id'
      and not a.attisdropped;
 
   if tipo_real is not null and tipo_real <> 'integer' then
@@ -122,13 +122,20 @@ begin
       join pg_class ic on ic.oid = ix.indexrelid
      where ix.indrelid = to_regclass('public.saldos_historico')
        and ix.indisunique
+       -- Só um índice válido, total e sobre colunas simples serve de árbitro
+       -- para o `on conflict (conta_id, data_saldo)` que a transferência usa.
+       and ix.indisvalid
+       and ix.indpred is null
+       and ix.indexprs is null
+       -- attname é `name`; sem o ::text a comparação viraria name[] = text[],
+       -- para a qual o Postgres não tem operador (erro 42883).
        and (
-         select array_agg(a.attname order by a.attname)
+         select array_agg(a.attname::text order by a.attname::text)
            from pg_attribute a
           where a.attrelid = ix.indrelid
             and a.attnum = any (ix.indkey)
             and not a.attisdropped
-       ) = array['conta_id', 'data_saldo']
+       ) = array['conta_id', 'data_saldo']::text[]
   ) into tem_unico;
 
   if not tem_unico then
@@ -147,7 +154,8 @@ declare
     'estorno_de_lote_id', 'motivo_estorno', 'estornado_em', 'estornado_por',
     'lote_id', 'conta_origem_id', 'valor', 'saldo_origem_antes', 'saldo_origem_depois',
     'saldo_destino_antes', 'saldo_destino_depois', 'data_movimento',
-    'estorno_de_transferencia_id', 'secretaria_origem_id', 'secretaria_destino_id'
+    'estorno_de_transferencia_id', 'estornada_em', 'estornada_por',
+    'secretaria_origem_id', 'secretaria_destino_id'
   ];
   tabela text;
   obrigatoria text;
@@ -157,7 +165,7 @@ begin
       continue;
     end if;
 
-    select string_agg(a.attname, ', ')
+    select string_agg(a.attname::text, ', ' order by a.attname::text)
       into obrigatoria
       from pg_attribute a
      where a.attrelid = to_regclass(format('public.%I', tabela))
@@ -167,7 +175,7 @@ begin
        and not exists (
          select 1 from pg_attrdef d where d.adrelid = a.attrelid and d.adnum = a.attnum
        )
-       and not (a.attname = any (conhecidas));
+       and not (a.attname::text = any (conhecidas));
 
     if obrigatoria is not null then
       raise exception 'public.% tem coluna obrigatória que a Fase 2 não sabe preencher: %. Ajuste a coluna (default ou nulo permitido) e rode a migration de novo.', tabela, obrigatoria;
@@ -522,7 +530,7 @@ begin
     return jsonb_build_object('ok', true, 'ja_aprovada', true, 'programacao_id', p_programacao_id, 'status', 'aprovada');
   end if;
 
-  select count(*), round(coalesce(sum(p.valor_a_pagar), 0), 2)
+  select count(*), round(coalesce(sum(p.valor_a_pagar), 0)::numeric, 2)
     into v_fornecedores, v_total
     from public.pagamentos p
    where p.programacao_id = p_programacao_id
@@ -533,7 +541,7 @@ begin
     raise exception 'Não é possível aprovar uma programação sem fornecedores.';
   end if;
 
-  select count(*), round(coalesce(sum(pc.saldo_considerado), 0), 2)
+  select count(*), round(coalesce(sum(pc.saldo_considerado), 0)::numeric, 2)
     into v_contas, v_saldo
     from public.programacao_contas pc
    where pc.programacao_id = p_programacao_id
