@@ -40,6 +40,18 @@ const MENSAGENS_POR_CODIGO = {
   PGRST116: "O registro procurado não foi encontrado.",
   "401": "Sua sessão expirou. Entre novamente para continuar.",
   "403": "Você não tem permissão para fazer isso.",
+  // Recusas da portaria das funções Netlify (netlify/functions/_shared/auth.mts).
+  // Sem estas linhas o código chegava à tela e caía na genérica, porque
+  // `ehTecnico` trata todo erro com `code` como texto de backend -- era mais uma
+  // recusa que o usuário via como "não foi possível" e ninguém conseguia
+  // localizar.
+  AUTH_SEM_TOKEN: "Sua sessão expirou. Entre novamente para continuar.",
+  AUTH_SESSAO_INVALIDA: "Sua sessão expirou. Entre novamente para continuar.",
+  AUTH_CONFIG_AUSENTE:
+    "O servidor está sem a configuração de acesso ao banco de dados (código AUTH_CONFIG_AUSENTE). Avise o responsável pelo sistema: não é nada que você tenha feito.",
+  AUTH_SEM_CADASTRO:
+    "Seu acesso não está vinculado a um cadastro de usuário que o sistema consiga ler (código AUTH_SEM_CADASTRO). Peça ao administrador para conferir o seu cadastro.",
+  AUTH_SEM_PERMISSAO_ESPECIAL: "Você não tem permissão para fazer isso.",
 };
 
 // Mensagens conhecidas do Supabase Auth, em inglês, traduzidas.
