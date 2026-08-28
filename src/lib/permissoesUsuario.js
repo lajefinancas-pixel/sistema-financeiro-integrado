@@ -21,6 +21,7 @@ export const MODULOS = [
   { id: "saldos", label: "Saldos" },
   { id: "fornecedores", label: "Fornecedores" },
   { id: "pagamentos", label: "Pagamentos" },
+  { id: "baixas", label: "Baixas de Pagamentos" },
   { id: "tributario", label: "Tributário" },
   { id: "certidoes", label: "Certidões" },
   { id: "relatorios", label: "Relatórios" },
@@ -82,6 +83,24 @@ const ACOES_SALDOS = [
   { campo: CAMPO_VALORES, label: "Visualizar valores" },
 ];
 
+/**
+ * Baixas de Pagamentos usa as mesmas cinco colunas, com rótulos próprios: as
+ * ações da aba são visualizar, registrar a baixa, imprimir, exportar e estornar.
+ *
+ * O mesmo mapa está escrito na migration 20260829120000 e na função do banco
+ * `public.pode_em_baixas`. As cinco são independentes: dá para conceder
+ * "Registrar baixa" sem conceder "Estornar baixa".
+ */
+export const MODULO_BAIXAS = "baixas";
+
+const ACOES_BAIXAS = [
+  { campo: "pode_visualizar", label: "Visualizar baixas" },
+  { campo: "pode_cadastrar", label: "Registrar baixa" },
+  { campo: "pode_editar", label: "Imprimir" },
+  { campo: "pode_aprovar", label: "Exportar" },
+  { campo: "pode_excluir", label: "Estornar baixa" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
 /**
@@ -91,6 +110,7 @@ const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 export function acoesDoModulo(modulo) {
   if (modulo === MODULO_BACKUP) return ACOES_BACKUP;
   if (modulo === MODULO_COM_VALORES) return ACOES_SALDOS;
+  if (modulo === MODULO_BAIXAS) return ACOES_BAIXAS;
   return ACOES;
 }
 
