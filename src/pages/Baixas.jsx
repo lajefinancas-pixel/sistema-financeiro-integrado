@@ -56,7 +56,13 @@ import { mensagemAmigavel } from "../lib/erros";
  * Estorno devolve o valor para o em aberto e PRESERVA o registro original.
  */
 
-/** Situações em que a nota ainda pode receber baixa, com o rótulo da listagem. */
+/**
+ * Situações em que a nota ainda pode receber baixa, com o rótulo da listagem.
+ *
+ * A baixa em si só grava 'em_aberto' (parcial) e 'pago' (quitada). As outras
+ * entram porque a tela de Fornecedores permite marcá-las à mão: são lidas e
+ * rotuladas aqui, nunca escritas por esta aba.
+ */
 const SITUACOES_NOTA = [
   { value: "em_aberto", label: "Em aberto" },
   { value: "programado", label: "Programada" },

@@ -27,21 +27,36 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, "..");
 const MIGRATION = join(RAIZ, "supabase/migrations/20260829120000_baixas_pagamentos_por_nota.sql");
 const ANTERIOR = join(AQUI, "fixtures/baixasEstruturaAnterior.sql");
-const AJUDANTES = join(RAIZ, "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql");
+
+const PADRONIZACAO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
+const DIAGNOSTICO = "supabase/migrations/20260828230000_diagnosticar_transferencia_entre_contas.sql";
+
+/**
+ * As funções que a migration de baixas USA e NÃO CRIA, cada uma lida da
+ * migration que a criou -- e não de uma cópia escrita aqui, para o ensaio rodar
+ * contra a mesma função que está em produção.
+ *
+ * `tipo_da_coluna` está nesta lista de propósito: a versão de produção devolve
+ * o texto 'coluna ausente' quando a coluna não existe, e o tratador de erros de
+ * confirmar_transferencias_programacao depende disso. A migration de baixas não
+ * a recria para não quebrar esse tratador.
+ */
+const AJUDANTES = [
+  [PADRONIZACAO, "public.usuario_registro_id()"],
+  [PADRONIZACAO, "public.usuario_para_coluna(p_tabela text, p_coluna text)"],
+  [DIAGNOSTICO, "public.tipo_da_coluna(p_tabela text, p_coluna text)"],
+];
 
 const ADMIN = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const AUXILIAR = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 
-/** As duas funções de que a migration depende, lidas da migration que as criou. */
 function ajudantes() {
-  const src = readFileSync(AJUDANTES, "utf8");
-  return ["public.usuario_registro_id()", "public.usuario_para_coluna(p_tabela text, p_coluna text)"]
-    .map((nome) => {
-      const i = src.indexOf(`create or replace function ${nome}`);
-      assert.notEqual(i, -1, `${nome} deveria existir na migration que a criou`);
-      return src.slice(i, src.indexOf("$$;", src.indexOf("as $$", i)) + 3);
-    })
-    .join("\n\n");
+  return AJUDANTES.map(([arquivo, nome]) => {
+    const src = readFileSync(join(RAIZ, arquivo), "utf8");
+    const i = src.indexOf(`create or replace function ${nome}`);
+    assert.notEqual(i, -1, `${nome} deveria existir na migration que a criou`);
+    return src.slice(i, src.indexOf("$$;", src.indexOf("as $$", i)) + 3);
+  }).join("\n\n");
 }
 
 const DADOS = `
@@ -117,6 +132,17 @@ test("baixa parcial e integral de ponta a ponta em Postgres real, sem tocar o sa
     await db.exec(readFileSync(MIGRATION, "utf8"));
   });
 
+  await t.test("a migration preserva a public.tipo_da_coluna que já existia", async () => {
+    // A versão de produção responde 'coluna ausente' em vez de levantar
+    // exceção. É disso que o tratador de erros de
+    // confirmar_transferencias_programacao depende, e rodar a migration de
+    // baixas não pode trocar esse comportamento.
+    const { rows } = await db.query(
+      "select public.tipo_da_coluna('valores_em_aberto', 'coluna_que_nao_existe') as t",
+    );
+    assert.equal(rows[0].t, "coluna ausente");
+  });
+
   await t.test("o módulo 'baixas' nasce semeado na Matriz de Permissões", async () => {
     const { rows } = await db.query(
       "select modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_aprovar, pode_excluir from public.perfis_permissoes where modulo = 'baixas'",
@@ -135,7 +161,9 @@ test("baixa parcial e integral de ponta a ponta em Postgres real, sem tocar o sa
     assert.equal(rows[0].r.ok, true);
     assert.equal(rows[0].r.quitada, false);
     assert.equal(rows[0].r.movimentou_saldo, false);
-    assert.deepEqual(await nota(), { valor_pago: "400.00", situacao: "parcialmente_pago", aberto: "600.00" });
+    // Parcial NÃO muda a situação: o abatimento fica em valor_pago e o em
+    // aberto continua sendo valor - valor_pago.
+    assert.deepEqual(await nota(), { valor_pago: "400.00", situacao: "em_aberto", aberto: "600.00" });
     assert.equal(await fotoDoSaldo(), saldoInicial, "a baixa não pode mexer no saldo");
   });
 
@@ -188,7 +216,7 @@ test("baixa parcial e integral de ponta a ponta em Postgres real, sem tocar o sa
     const alvo = (await baixas()).find((b) => b.valor_pago === "600.00");
     const { rows } = await db.query("select public.estornar_baixa_nota($1,$2) as r", [alvo.id, "Banco devolveu o pagamento"]);
     assert.equal(rows[0].r.movimentou_saldo, false);
-    assert.deepEqual(await nota(), { valor_pago: "400.00", situacao: "parcialmente_pago", aberto: "600.00" });
+    assert.deepEqual(await nota(), { valor_pago: "400.00", situacao: "em_aberto", aberto: "600.00" });
 
     const depois = await baixas();
     assert.equal(depois.length, 2, "estorno nunca apaga a baixa");

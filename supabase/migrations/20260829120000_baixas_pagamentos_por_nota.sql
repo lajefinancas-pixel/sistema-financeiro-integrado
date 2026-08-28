@@ -21,6 +21,19 @@
 -- coluna de saldo de public.contas_bancarias — e essa ausência é proposital,
 -- não esquecimento.
 --
+-- AS DUAS SITUAÇÕES DA NOTA
+--
+-- O sistema usa apenas duas situações em public.valores_em_aberto: 'em_aberto'
+-- e 'pago'. A baixa respeita isso e não inventa uma terceira.
+--
+-- Baixa PARCIAL mantém a nota 'em_aberto': o abatimento fica registrado em
+-- valor_pago, e valor - valor_pago continua sendo o valor em aberto. Só a
+-- quitação grava 'pago'. O estorno segue a mesma regra: sobrando saldo em
+-- aberto, a nota volta para 'em_aberto'.
+--
+-- Nada aqui grava 'parcialmente_pago': nenhuma tela, filtro ou relatório do
+-- sistema espera essa situação, e a nota sumiria deles.
+--
 -- O QUE ESTA MIGRATION ENTREGA
 --
 --   1. public.valores_em_aberto.valor_pago -> garante a coluna que guarda
@@ -29,8 +42,8 @@
 --      ninguém a escrevia. A baixa passa a ser quem escreve, e os totais
 --      existentes passam a refletir as baixas sozinhos.
 --   2. public.pagamentos_baixas -> ganha valor_em_aberto_id (a nota baixada) e
---      situacao_anterior (a situação da nota antes da baixa, para o estorno
---      devolver exatamente o que havia). A tabela é REAPROVEITADA: a Vida do
+--      situacao_anterior (a situação da nota antes da baixa, guardada como
+--      registro do que havia). A tabela é REAPROVEITADA: a Vida do
 --      Fornecedor e os Relatórios continuam lendo os MESMOS registros, sem
 --      duplicar dado.
 --   3. Índice único em chave_idempotencia -> confirmar duas vezes não registra
@@ -175,7 +188,8 @@ alter table public.pagamentos_baixas
   add column if not exists estornada_em timestamptz,
   add column if not exists estornada_por uuid,
   add column if not exists motivo_estorno text,
-  -- Situação da nota ANTES desta baixa: é ela que o estorno devolve.
+  -- Situação da nota ANTES desta baixa, guardada como registro do que havia.
+  -- Quem decide a situação no estorno é o saldo que sobrar em aberto.
   add column if not exists situacao_anterior text;
 
 -- valor_em_aberto_id tem de ter EXATAMENTE o tipo de valores_em_aberto.id
@@ -257,39 +271,24 @@ create index if not exists valores_em_aberto_fornecedor_situacao_idx
   on public.valores_em_aberto (fornecedor_id, situacao);
 
 -- ---------------------------------------------------------------------------
--- 3.1. Auxiliar: o tipo real de uma coluna
+-- 3.1. Auxiliar REAPROVEITADO: public.tipo_da_coluna
 -- ---------------------------------------------------------------------------
 -- As funções da baixa recebem os identificadores como TEXTO, porque o id da
 -- nota pode ser integer, bigint ou uuid dependendo do banco. Na hora de gravar,
--- o texto tem de voltar ao tipo da coluna — e é esta função que diz qual é.
-create or replace function public.tipo_da_coluna(p_tabela text, p_coluna text)
-returns text
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
-declare
-  v_tipo text;
-begin
-  select format_type(a.atttypid, a.atttypmod)
-    into v_tipo
-    from pg_attribute a
-   where a.attrelid = to_regclass(format('public.%I', p_tabela))
-     and a.attname::text = p_coluna
-     and not a.attisdropped;
-
-  if v_tipo is null then
-    raise exception 'Estrutura incompatível: a coluna % da tabela % não existe.', p_coluna, p_tabela;
-  end if;
-
-  return v_tipo;
-end $$;
-
-grant execute on function public.tipo_da_coluna(text, text) to authenticated;
-
-comment on function public.tipo_da_coluna(text, text)
-is 'Tipo real de uma coluna de public, usado pelas funções de baixa para converter identificadores recebidos como texto de volta ao tipo da coluna.';
+-- o texto tem de voltar ao tipo da coluna — e quem diz qual é esse tipo é
+-- public.tipo_da_coluna, que JÁ EXISTE no banco.
+--
+-- ESTA MIGRATION NÃO A RECRIA, E ISSO É DE PROPÓSITO. A versão em produção
+-- devolve o texto 'coluna ausente' quando a coluna não existe, e é exatamente
+-- disso que o tratador de erros de confirmar_transferencias_programacao
+-- depende para montar a mensagem. Trocá-la por uma versão que levanta exceção
+-- quebraria esse tratador justamente no momento em que ele é acionado. Então a
+-- função existente fica intacta.
+--
+-- A baixa só a chama para colunas de public.pagamentos_baixas que a seção 2
+-- acima garante existirem, portanto o retorno 'coluna ausente' não tem como
+-- aparecer por aqui. Mesmo caso de public.usuario_para_coluna, também
+-- reaproveitada e não recriada.
 
 -- ---------------------------------------------------------------------------
 -- 4. Permissões próprias do módulo de Baixas
@@ -660,8 +659,11 @@ begin
     v_aberto_depois := 0;
   end if;
 
-  -- Quitou: sai da lista de notas em aberto. Sobrou: continua recebendo baixas.
-  v_situacao_nova := case when v_aberto_depois <= 0.004 then 'pago' else 'parcialmente_pago' end;
+  -- Quitou: grava 'pago' e a nota sai da lista de notas em aberto. Sobrou
+  -- saldo: a nota CONTINUA 'em_aberto' e recebe quantas baixas precisar. O
+  -- abatimento parcial não muda a situação — ele fica em valor_pago, e o que
+  -- resta em aberto continua sendo valor - valor_pago.
+  v_situacao_nova := case when v_aberto_depois <= 0.004 then 'pago' else 'em_aberto' end;
 
   v_documento := nullif(trim(coalesce(v_nota.numero_nota_fiscal, '')), '');
   v_observacao := nullif(trim(coalesce(p_observacao, '')), '');
@@ -855,16 +857,11 @@ begin
   end if;
   v_aberto_depois := round(v_valor_nota - v_pago_depois, 2);
 
-  -- Zerou o que estava baixado: a nota volta a ser o que era antes desta baixa
-  -- (em aberto, programada, suspensa...). Sobrou baixa: fica parcialmente paga.
-  if v_pago_depois <= 0.004 then
-    v_situacao_nova := coalesce(v_baixa.situacao_anterior, 'em_aberto');
-    if v_situacao_nova in ('pago', 'parcialmente_pago') then
-      v_situacao_nova := 'em_aberto';
-    end if;
-  else
-    v_situacao_nova := 'parcialmente_pago';
-  end if;
+  -- A MESMA regra do registro, pelo avesso: sobrou saldo em aberto, a nota
+  -- volta para 'em_aberto' (tenha o estorno zerado o valor baixado ou apenas
+  -- devolvido parte dele). Só continua 'pago' se, depois do estorno, não
+  -- sobrar nada em aberto.
+  v_situacao_nova := case when v_aberto_depois <= 0.004 then 'pago' else 'em_aberto' end;
 
   v_usuario := public.usuario_para_coluna('pagamentos_baixas', 'estornada_por');
 
