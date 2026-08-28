@@ -272,12 +272,99 @@ test("impressão da página não leva listas completas nem controles de interfac
     /Adicionar fornecedor avulso/,
   ]) assert.match(pagina, trecho);
   assert.match(pagina, /className="relative mt-3 print:hidden"/);
-  assert.match(pagina, /className="border-t border-black\/5 p-4 print:hidden"/);
+  assert.match(pagina, /className="border-t border-black\/5 p-2\.5 print:hidden"/);
   assert.match(pagina, /className="flex flex-wrap gap-2 print:hidden"/);
   assert.match(pagina, /overflow-x-auto pb-1 print:hidden/);
   // O resumo confirmado é o que sobra impresso, com o valor como texto.
   assert.match(pagina, /className="hidden text-right tabular-nums print:block"/);
   assert.match(pagina, /contasConfirmadas \? "" : "hidden print:block"/);
+});
+
+test("documento tem cabeçalho, colunas, totais, observações e assinaturas do papel entregue ao gestor", async () => {
+  const documento = await read("src/lib/programacaoDocumento.js");
+  // Cabeçalho: secretaria, data da programação e data e hora da emissão.
+  for (const trecho of ["Secretaria:", "Data da programação:", "Emitido em:"]) assert.match(documento, new RegExp(trecho));
+  // Colunas exatas dos dois blocos, com APROVADO em branco para marcação à mão.
+  assert.match(documento, /export const COLUNAS_CONTAS = \["BANCO", "Nº DA CONTA", "SALDO", "NOME DA CONTA"\]/);
+  assert.match(documento, /export const COLUNAS_PAGAMENTOS = \["FORNECEDOR", "VALOR EM ABERTO", "VALOR A PAGAR", "APROVADO"\]/);
+  assert.match(documento, /class="aprovado"><\/td>/);
+  // Totais em destaque, assinaturas e numeração de páginas.
+  for (const trecho of ["TOTAL DAS CONTAS", "TOTAL PROGRAMADO", "SALDO RESTANTE", "Responsável pela elaboração", "Aprovação", "Página \\$\\{indice \\+ 1\\} de", "Página \\$\\{pagina\\} de \\$\\{paginas\\}"]) {
+    assert.match(documento, new RegExp(trecho));
+  }
+  // Excesso é informado como diferença, sem alarme.
+  assert.match(documento, /Diferença de \$\{escapar\(formatBRL\(Math\.abs\(dados\.restante\)\)\)\} acima do saldo/);
+  assert.doesNotMatch(documento, /ACIMA DO SALDO DISPONÍVEL|ATENÇÃO|ALERTA/);
+});
+
+test("documento pagina em A4 retrato repetindo o cabeçalho da tabela em cada folha", async () => {
+  const { montarPaginas } = await import("../src/lib/programacaoPaginacao.js");
+  const contas = Array.from({ length: 12 }, (_, indice) => ({ banco: "BANCO", conta: String(indice), saldo: 1000, nome: "CONTA" }));
+  const pagamentos = Array.from({ length: 60 }, (_, indice) => ({ fornecedor: "FORNECEDOR " + indice, aberto: 2000, valor: 1500 }));
+  const paginas = montarPaginas({ contas, pagamentos, totalContas: 12000, totalProgramado: 90000, restante: -78000 });
+
+  assert.ok(paginas.length > 1, "60 fornecedores não cabem em uma folha");
+  // Toda folha que continua a relação repete o título e as colunas do bloco.
+  const fatias = paginas.flatMap((pagina) => pagina.blocos).filter((bloco) => bloco.tipo === "pagamentos");
+  assert.ok(fatias.length > 1);
+  assert.equal(fatias.reduce((total, fatia) => total + fatia.linhas.length, 0), 60);
+  // Observações e assinaturas fecham o documento, na última folha e nesta ordem.
+  const ultima = paginas[paginas.length - 1].blocos.map((bloco) => bloco.tipo);
+  assert.deepEqual(ultima.slice(-2), ["observacoes", "assinaturas"]);
+  const observacoes = paginas[paginas.length - 1].blocos.find((bloco) => bloco.tipo === "observacoes");
+  assert.ok(observacoes.quantidade >= 3, "sempre sobram linhas em branco para anotação");
+});
+
+test("botão de impressão fica na faixa fixa e o papel recebe valor em aberto e secretaria", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  // O botão vive na faixa fixa do topo: é o documento levado ao gestor, não pode depender de rolagem.
+  const faixa = pagina.slice(pagina.indexOf("sticky top-0"), pagina.indexOf("mb-3 grid gap-2 rounded-xl"));
+  assert.match(faixa, /onClick=\{imprimir\}/);
+  assert.match(faixa, /Imprimir programação para análise/);
+  assert.match(faixa, /onClick=\{gerarPdf\}/);
+  // Cabeçalho e coluna de valor em aberto saem da própria tela.
+  assert.match(pagina, /secretaria: nomeSecretariaSelecionada/);
+  assert.match(pagina, /emissao: agoraBR\(\)/);
+  assert.match(pagina, /aberto: abertoDoPagamento\(item\)/);
+});
+
+test("as chaves enviadas pela tela são as que o documento imprime", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  // A tela renomeia os campos do banco para os nomes que o documento espera. Se
+  // um lado mudar sozinho, o papel sai com "--" no lugar do dado e ninguém erra
+  // em voz alta: o número da conta simplesmente desaparece do que vai ao gestor.
+  assert.match(pagina, /banco: conta\.banco, conta: conta\.numero_conta, saldo: conta\.saldo, nome: conta\.nome_conta/);
+
+  const { htmlProgramacao } = await import("../src/lib/programacaoDocumento.js");
+  const documento = htmlProgramacao({
+    secretaria: "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
+    data: "28/08/2026",
+    contas: [{ banco: "BANCO DO BRASIL", conta: "1234-5 / 98.765-4", saldo: 184320.55, nome: "FPM - RECURSOS LIVRES" }],
+    pagamentos: [{ fornecedor: "COMERCIAL SANTA CLARA LTDA", aberto: 38420.9, valor: 20000 }],
+    totalContas: 184320.55,
+    totalProgramado: 20000,
+    restante: 164320.55,
+  });
+  for (const dado of ["BANCO DO BRASIL", "1234-5 / 98.765-4", "FPM - RECURSOS LIVRES", "COMERCIAL SANTA CLARA LTDA"]) {
+    assert.ok(documento.includes(dado), "dado ausente no documento: " + dado);
+  }
+  // Nenhum campo preenchido pode ter virado o marcador de vazio.
+  assert.doesNotMatch(documento, /<td>--<\/td>/);
+});
+
+test("tela do módulo é densa: linhas baixas, blocos discretos e sem textos longos", async () => {
+  const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
+  // Títulos de seção discretos, não chamadas grandes.
+  for (const rotulo of ["1.<\\/span> Contas de trabalho", "2.<\\/span> Proposta", "3.<\\/span> Valores"]) {
+    assert.match(pagina, new RegExp(rotulo));
+  }
+  assert.doesNotMatch(pagina, /font-serif text-xl text-\[#17352F\]/);
+  // Os textos explicativos longos saíram da tela.
+  assert.doesNotMatch(pagina, /Nenhuma conta é debitada, reservada ou bloqueada/);
+  assert.doesNotMatch(pagina, /O valor é totalmente editável e pode ser menor que o total em aberto/);
+  // Linhas de tabela compactas e valores monetários ainda em negrito.
+  assert.doesNotMatch(pagina, /border-b border-black\/5 px-4 py-3/);
+  assert.match(pagina, /<strong className="tabular-nums">\{formatBRL\(conta\.saldo\)\}<\/strong>/);
 });
 
 test("backup manual e impressões dos outros módulos permanecem intactos", async () => {
