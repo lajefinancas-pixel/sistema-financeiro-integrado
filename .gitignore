@@ -5,3 +5,6 @@ dist
 
 # Local Netlify folder
 .netlify
+
+# PDFs gerados pela programação (saída do usuário, nunca do repositório)
+programacao-diaria-*.pdf
