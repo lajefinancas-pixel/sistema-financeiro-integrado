@@ -114,7 +114,9 @@ test("baixa parcial e baixa integral abatem o valor em aberto sem alterar o sald
   });
   assert.equal(parcial.erro, undefined);
   assert.equal(banco.nota.valor_pago, 400);
-  assert.equal(banco.nota.situacao, "parcialmente_pago");
+  // A parcial não muda a situação da nota: o abatimento fica em valor_pago e o
+  // em aberto continua sendo valor - valor_pago.
+  assert.equal(banco.nota.situacao, "em_aberto");
   assert.equal(valorEmAbertoDaNota(banco.nota), 600);
   assert.equal(notaQuitada(banco.nota), false);
   assert.equal(banco.baixas.length, 1);
@@ -187,7 +189,8 @@ test("baixa parcial e baixa integral abatem o valor em aberto sem alterar o sald
   banco.nota = estorno.nota;
   banco.baixas = banco.baixas.map((item) => (item.id === estorno.baixa.id ? estorno.baixa : item));
   assert.equal(banco.nota.valor_pago, 400);
-  assert.equal(banco.nota.situacao, "parcialmente_pago");
+  // Sobrou saldo em aberto, então a nota volta para 'em_aberto'.
+  assert.equal(banco.nota.situacao, "em_aberto");
   assert.equal(valorEmAbertoDaNota(banco.nota), 600);
   assert.equal(banco.baixas.length, 2);
   assert.equal(banco.baixas[1].status, "estornada");
@@ -303,6 +306,40 @@ test("a baixa não movimenta saldo em nenhuma linha do código que a executa", a
   // A gravação passa pelas duas funções do banco, e só por elas.
   assert.match(dados, /rpc\("registrar_baixa_nota"/);
   assert.match(dados, /rpc\("estornar_baixa_nota"/);
+});
+
+test("a migration não grava situação que o sistema não conhece", async () => {
+  const migration = await read("supabase/migrations/20260829120000_baixas_pagamentos_por_nota.sql");
+  const sql = migration
+    .split("\n")
+    .filter((linha) => !linha.trim().startsWith("--"))
+    .join("\n");
+
+  // O sistema usa duas situações em valores_em_aberto: 'em_aberto' e 'pago'.
+  // 'parcialmente_pago' só pode aparecer nos comentários que explicam por que
+  // ela NÃO é gravada -- nenhuma tela, filtro ou relatório a espera.
+  assert.equal(sql.includes("parcialmente_pago"), false);
+  assert.match(sql, /then 'pago' else 'em_aberto' end/);
+
+  // As duas funções decidem a situação pela mesma regra: sobrou saldo em
+  // aberto -> 'em_aberto'; zerou -> 'pago'.
+  assert.equal((sql.match(/then 'pago' else 'em_aberto' end/g) ?? []).length, 2);
+});
+
+test("a migration reaproveita public.tipo_da_coluna em vez de recriá-la", async () => {
+  const migration = await read("supabase/migrations/20260829120000_baixas_pagamentos_por_nota.sql");
+
+  // A função já existe em produção e o tratador de erros de
+  // confirmar_transferencias_programacao depende de ela devolver
+  // 'coluna ausente' em vez de levantar exceção. Recriá-la aqui quebraria esse
+  // tratador justamente quando ele é acionado.
+  assert.equal(/create (or replace )?function public\.tipo_da_coluna/.test(migration), false);
+  assert.equal(/grant execute on function public\.tipo_da_coluna/.test(migration), false);
+  assert.equal(/comment on function public\.tipo_da_coluna/.test(migration), false);
+
+  // Mas continua CHAMANDO a função existente para descobrir o tipo real das
+  // colunas de vínculo.
+  assert.match(migration, /public\.tipo_da_coluna\('pagamentos_baixas', 'valor_em_aberto_id'\)/);
 });
 
 test("a trilha de auditoria tem rótulo para a baixa e para o estorno", async () => {

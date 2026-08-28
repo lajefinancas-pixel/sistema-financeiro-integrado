@@ -25,7 +25,14 @@ export {
  * ainda as usam.
  */
 
-/** Situações em que a nota ainda pode receber baixa. */
+/**
+ * Situações em que a nota ainda pode receber baixa.
+ *
+ * A baixa grava apenas 'em_aberto' (parcial) e 'pago' (quitada), nunca
+ * 'parcialmente_pago'. A lista continua aceitando as demais situações porque a
+ * tela de Fornecedores permite marcá-las à mão, e uma nota marcada assim
+ * precisa continuar aparecendo aqui enquanto tiver valor em aberto.
+ */
 export const SITUACOES_COM_SALDO = ["em_aberto", "programado", "parcialmente_pago", "suspenso"];
 
 const COLUNAS_NOTA =

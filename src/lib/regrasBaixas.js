@@ -117,10 +117,17 @@ export function descricaoDaNota(nota) {
   return partes.join(" · ");
 }
 
-/** Situação que a nota assume depois de uma baixa de `valor`. */
+/**
+ * Situação que a nota assume depois de uma baixa de `valor`.
+ *
+ * O sistema usa duas situações e só duas: 'em_aberto' e 'pago'. Baixa PARCIAL
+ * mantém a nota 'em_aberto' -- o abatimento fica em `valor_pago` e o que resta
+ * em aberto continua sendo `valor - valor_pago`. Só a quitação grava 'pago'.
+ * É a mesma regra de `public.registrar_baixa_nota`.
+ */
 export function situacaoAposBaixa(nota, valor) {
   const aberto = centavos(valorEmAbertoDaNota(nota) - centavos(valor));
-  return aberto <= TOLERANCIA ? "pago" : "parcialmente_pago";
+  return aberto <= TOLERANCIA ? "pago" : "em_aberto";
 }
 
 /**
@@ -281,13 +288,11 @@ export function aplicarEstorno(nota, baixaAlvo, motivo) {
   }
 
   const valorPago = Math.max(0, centavos(valorBaixadoDaNota(nota) - centavos(baixaAlvo.valor_pago)));
-  let situacao;
-  if (valorPago <= TOLERANCIA) {
-    const anterior = String(baixaAlvo.situacao_anterior ?? "em_aberto");
-    situacao = anterior === "pago" || anterior === "parcialmente_pago" ? "em_aberto" : anterior;
-  } else {
-    situacao = "parcialmente_pago";
-  }
+  // A mesma regra do registro, pelo avesso: sobrando saldo em aberto a nota
+  // volta para 'em_aberto', tenha o estorno zerado o valor baixado ou apenas
+  // devolvido parte dele. Só continua 'pago' se nada sobrar em aberto.
+  const abertoDepois = centavos(valorDaNota(nota) - valorPago);
+  const situacao = abertoDepois <= TOLERANCIA ? "pago" : "em_aberto";
 
   return {
     jaEstornada: false,
