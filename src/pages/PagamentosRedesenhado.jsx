@@ -31,6 +31,7 @@ const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_es
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
 const MIGRATION_CORRECAO_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
 const MIGRATION_CORRECAO_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
+const MIGRATION_PADRONIZACAO_USUARIO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
 
 // Ausência de id: nulo, indefinido, texto vazio ou zero. Nenhum deles é um id
 // de registro, e nenhum deles pode chegar ao banco como se fosse -- em coluna
@@ -115,7 +116,7 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
   if (String(falha?.code ?? "") === "23503") {
     const banco = detalheDoBanco(falha);
     const vinculo = banco.constraint || banco.coluna ? " O vínculo exato está no console (F12)." : "";
-    return `O banco recusou um vínculo entre registros: algum item escolhido aponta para um cadastro que não existe mais. Recarregue a página, refaça a escolha dos fornecedores e das contas e salve. Se continuar, execute ${MIGRATION_CORRECAO_FORNECEDORES} no SQL Editor do mesmo projeto Supabase usado pela aplicação.${vinculo}`;
+    return `O banco recusou um vínculo entre registros: algum item escolhido aponta para um cadastro que não existe mais. Recarregue a página, refaça a escolha dos fornecedores e das contas e salve. Se continuar, execute ${MIGRATION_CORRECAO_FORNECEDORES} e ${MIGRATION_PADRONIZACAO_USUARIO} no SQL Editor do mesmo projeto Supabase usado pela aplicação.${vinculo}`;
   }
 
   return mensagemAmigavel(falha, mensagemPadrao);
