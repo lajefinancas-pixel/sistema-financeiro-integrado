@@ -1,8 +1,14 @@
 import type { Config } from "@netlify/functions";
-import { db } from "../../db/index.js";
-import { transferOperationMirrors } from "../../db/schema.js";
 import { authenticatedSupabase, errorResponse } from "./_shared/auth.mjs";
 
+/**
+ * Transferência entre contas próprias e estorno.
+ *
+ * A operação inteira acontece dentro de uma função do banco: a saída e a entrada
+ * ficam na mesma transação (atômica) e a chave de idempotência tem índice único
+ * (a mesma transferência nunca acontece duas vezes). Aqui só há autenticação,
+ * tradução do corpo da requisição e a cópia de conferência.
+ */
 export default async (req: Request) => {
   try {
     if (req.method !== "POST") return new Response("Método não permitido.", { status: 405 });
@@ -10,41 +16,77 @@ export default async (req: Request) => {
     const body = await req.json();
 
     if (body.action === "reverse") {
+      const motivo = String(body.note ?? "").trim();
+      if (!motivo) return Response.json({ error: "Informe o motivo do estorno." }, { status: 400 });
+
       const { data, error } = await supabase.rpc("estornar_transferencia", {
         p_transferencia_id: body.transferId,
-        p_observacao: body.note || null,
+        p_observacao: motivo,
       });
       if (error) throw error;
       return Response.json(data);
     }
 
+    const pernas = (body.transfers ?? []).map((item: any) => ({
+      conta_origem_id: Number(item.sourceAccountId),
+      valor: Number(item.amount),
+    }));
+    if (!pernas.length) return Response.json({ error: "Informe ao menos uma conta de origem com valor." }, { status: 400 });
+    if (!String(body.idempotencyKey ?? "").trim()) {
+      return Response.json({ error: "A transferência precisa de um identificador único." }, { status: 400 });
+    }
+
     const { data, error } = await supabase.rpc("confirmar_transferencias_programacao", {
       p_programacao_id: Number(body.programId),
       p_conta_destino_id: Number(body.destinationAccountId),
-      p_transferencias: (body.transfers ?? []).map((item: any) => ({ conta_origem_id: Number(item.sourceAccountId), valor: item.amount })),
-      p_chave_idempotencia: body.idempotencyKey,
+      p_transferencias: pernas,
+      p_chave_idempotencia: String(body.idempotencyKey).trim(),
       p_observacao: body.note || null,
     });
     if (error) throw error;
 
-    const ids = Array.isArray(data?.transferencias) ? data.transferencias : [];
-    if (ids.length) {
-      await db.insert(transferOperationMirrors).values(ids.map((id: string, index: number) => ({
-        externalTransferId: id,
-        idempotencyKey: body.idempotencyKey,
-        programId: String(body.programId),
-        sourceAccountId: String(body.transfers[index]?.sourceAccountId),
-        destinationAccountId: String(body.destinationAccountId),
-        amount: String(body.transfers[index]?.amount ?? 0),
-        userId: String(user.id),
-        note: body.note || null,
-        payload: data,
-      }))).onConflictDoNothing();
-    }
+    await espelharParaConferencia({ data, body, userId: user.id });
     return Response.json(data);
   } catch (error) {
     return errorResponse(error);
   }
 };
+
+/**
+ * Cópia de conferência das transferências efetivadas.
+ *
+ * É deliberadamente à prova de falha: quando esta função é chamada, o dinheiro
+ * JÁ se moveu e a transação do banco já fechou. Se a cópia falhasse para cima,
+ * o usuário veria erro numa transferência que deu certo e tentaria de novo. A
+ * razão oficial da transferência é a do Supabase; esta é um espelho.
+ */
+async function espelharParaConferencia({ data, body, userId }: { data: any; body: any; userId: string }) {
+  try {
+    const pernas = Array.isArray(data?.transferencias) ? data.transferencias : [];
+    if (!pernas.length || data?.ja_confirmada) return;
+
+    const { db } = await import("../../db/index.js");
+    const { transferOperationMirrors } = await import("../../db/schema.js");
+
+    await db
+      .insert(transferOperationMirrors)
+      .values(
+        pernas.map((perna: any) => ({
+          externalTransferId: String(perna?.id ?? perna),
+          idempotencyKey: String(body.idempotencyKey ?? ""),
+          programId: String(body.programId ?? ""),
+          sourceAccountId: String(perna?.conta_origem_id ?? ""),
+          destinationAccountId: String(body.destinationAccountId ?? ""),
+          amount: String(perna?.valor ?? 0),
+          userId: String(userId),
+          note: body.note || null,
+          payload: data,
+        }))
+      )
+      .onConflictDoNothing();
+  } catch (falha) {
+    console.error("[account-transfers] cópia de conferência não gravada", falha);
+  }
+}
 
 export const config: Config = { path: "/api/account-transfers" };
