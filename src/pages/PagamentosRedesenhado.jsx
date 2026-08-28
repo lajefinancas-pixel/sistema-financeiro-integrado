@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, FileDown, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, FileDown, FileSpreadsheet, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
@@ -7,7 +7,7 @@ import { formatBRL } from "../lib/moeda";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
-import { agoraBR, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
+import { agoraBR, exportarExcelProgramacao, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
 import { FUNCOES_FASE_1, classificarFalhaFase1, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 
@@ -421,7 +421,8 @@ export default function PagamentosRedesenhado() {
   }
 
   // O documento leva só o que foi escolhido: contas selecionadas e fornecedores
-  // propostos. A coluna APROVADO sai em branco no papel -- é o gestor que marca.
+  // propostos. Os pagamentos vão em duas colunas -- fornecedor e valor -- e é a
+  // mesma carga usada na impressão, no PDF e na planilha.
   function dadosDocumento() {
     return {
       titulo: "PROGRAMAÇÃO DIÁRIA DE PAGAMENTOS",
@@ -431,7 +432,7 @@ export default function PagamentosRedesenhado() {
       nome: programacao.nome_programacao,
       responsavel: programacao.responsavel?.nome_completo || usuario?.nome || usuario?.email || "--",
       contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo, nome: conta.nome_conta })),
-      pagamentos: pagamentos.map((item) => ({ fornecedor: nomePagamento(item), aberto: abertoDoPagamento(item), valor: numero(item.valor_a_pagar) })),
+      pagamentos: pagamentos.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
       totalContas: totalDisponivel,
       totalProgramado,
       restante,
@@ -453,6 +454,10 @@ export default function PagamentosRedesenhado() {
     gerarPdfProgramacao(dadosDocumento());
   }
 
+  function exportarExcel() {
+    exportarExcelProgramacao(dadosDocumento());
+  }
+
   const contasFiltradas = contas.filter((conta) => textoConta(conta).includes(buscaConta.trim().toLocaleLowerCase("pt-BR")));
   const contasSelecionadasComSaldo = contas.filter((conta) => contasSelecionadas.has(conta.id));
   const totalDisponivel = somarContasSelecionadas(contas, contasSelecionadas);
@@ -462,11 +467,6 @@ export default function PagamentosRedesenhado() {
   const fornecedoresFiltrados = fornecedores.filter((item) => item.razao_social.toLocaleLowerCase("pt-BR").includes(buscaFornecedor.trim().toLocaleLowerCase("pt-BR")));
   const todasVisiveisMarcadas = contasFiltradas.length > 0 && contasFiltradas.every((conta) => contasSelecionadas.has(conta.id));
   const nomeSecretariaSelecionada = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "--";
-  // Valor em aberto por fornecedor: a tela já carregou esse total para ordenar a
-  // lista, e é ele que vai ao papel ao lado do valor a pagar. Fornecedor avulso
-  // não tem valor em aberto, então vai como nulo (sai "--" no documento).
-  const abertoPorFornecedor = new Map(fornecedores.map((item) => [String(item.id), numero(item.valor_em_aberto)]));
-  const abertoDoPagamento = (item) => (item.fornecedor_id == null ? null : abertoPorFornecedor.get(String(item.fornecedor_id)) ?? null);
 
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
@@ -484,6 +484,7 @@ export default function PagamentosRedesenhado() {
             {programacao && <div className="flex gap-1.5 print:hidden">
               <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[#0F2823]"><Printer size={14}/> Imprimir programação para análise</button>
               <button onClick={gerarPdf} className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F] hover:bg-[#F2F0E8]"><FileDown size={14}/> PDF</button>
+              <button onClick={exportarExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F] hover:bg-[#F2F0E8]"><FileSpreadsheet size={14}/> Excel</button>
             </div>}
           </div>
           {restante < 0 && <p className="mx-auto mt-1.5 max-w-[1500px] rounded-md bg-[#8A321C] px-2.5 py-1 text-center text-[11px] font-semibold text-white"><AlertTriangle size={12} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
