@@ -68,7 +68,10 @@ test("fase 1 usa ids inteiros, data selecionada e payload mínimo na criação",
   assert.match(pagina, /nome_programacao: nomeAutomatico\(data\)/);
   assert.match(pagina, /p_programacao_id: programacaoIdInteiro/);
   assert.match(pagina, /conta_id: idInteiro\(conta\.id/);
-  assert.match(pagina, /fornecedor_id: item\.fornecedor_id == null \? null : idInteiro/);
+  // Fornecedor avulso continua indo com fornecedor_id nulo. A conferência passou
+  // a cobrir também "" e 0, que não são id e faziam o banco recusar o vínculo.
+  assert.match(pagina, /fornecedor_id: vazio\(item\.fornecedor_id\) \? null : idInteiro/);
+  assert.match(pagina, /function vazio\(valor\) \{\n\s*return valor == null \|\| valor === "" \|\| Number\(valor\) === 0;/);
   assert.doesNotMatch(pagina, /data_programacao: hojeISO\(\)/);
 });
 
