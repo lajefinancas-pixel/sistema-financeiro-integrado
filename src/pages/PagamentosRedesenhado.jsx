@@ -29,6 +29,7 @@ const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
+const MIGRATION_CORRECAO_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
 
 function idInteiro(valor, campo) {
   const id = Number(valor);
@@ -84,6 +85,15 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
 
   if (classificacao.tipo === "permissao") {
     return "Seu usuário não tem permissão para esta operação nos Pagamentos Diários (ou a sessão expirou). Isto não é falta de estrutura no banco: o erro completo está no console (F12).";
+  }
+
+  // 22P02 vindo daqui não é valor mal digitado: a tela só envia número, e o
+  // aviso antigo ("formato inválido") mandava conferir valores que estavam
+  // certos. O que existe por trás é comparação entre tipos incompatíveis dentro
+  // da função do banco -- texto contra enum, texto contra boolean -- e a
+  // correção é rodar a migration que refaz essas funções.
+  if (String(falha?.code ?? "") === "22P02") {
+    return `O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente. Não é o valor digitado na tela. Execute ${MIGRATION_CORRECAO_APROVACAO} no SQL Editor do mesmo projeto Supabase usado pela aplicação e tente novamente. O erro completo do banco está no console (F12).`;
   }
 
   return mensagemAmigavel(falha, mensagemPadrao);
@@ -457,14 +467,21 @@ export default function PagamentosRedesenhado() {
         cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
       }));
       const programacaoIdInteiro = idInteiro(programacao.id, "Programação");
-      const { error } = await supabase.rpc("salvar_planejamento_programacao", {
+      const argumentos = {
         p_programacao_id: programacaoIdInteiro,
         p_contas: payloadContas,
         p_pagamentos: payloadPagamentos,
         p_saldo_considerado: totalDisponivel,
         p_total_programado: totalProgramado,
         p_restante: restante,
-      });
+      };
+      // A tela salva antes de aprovar, então uma recusa aqui aparece como falha
+      // de aprovação. Registrar os argumentos exatos separa os dois casos na
+      // investigação, sem depender da mensagem exibida.
+      if (typeof console !== "undefined") {
+        console.info("[Pagamentos Fase 1] rpc salvar_planejamento_programacao", argumentos);
+      }
+      const { error } = await supabase.rpc("salvar_planejamento_programacao", argumentos);
       if (error) throw error;
       setMensagem("Programação salva com contas, fornecedores e valores preservados.");
       await carregarProgramacao(programacao.id, { manterRecolhimento: true });

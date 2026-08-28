@@ -88,10 +88,37 @@ function separarPartes(texto) {
   };
 }
 
+// Número escrito pela máquina, não por uma pessoa: o que o banco devolve em
+// coluna numeric, o que vem de JSON ou de uma soma feita em código. Chega sem
+// "R$" e com ponto decimal.
+const MAQUINA_DECIMAL = /^-?\d+\.\d+$/;
+// Agrupamento brasileiro de milhar com um único ponto: "1.234", "999.000".
+const MILHAR_BR = /^-?\d{1,3}\.\d{3}$/;
+
+/**
+ * Lê um número de máquina, quando ele não pode ser confundido com milhar.
+ *
+ * "1.234" continua valendo mil duzentos e trinta e quatro: é agrupamento
+ * brasileiro válido e é o que quem digita quer dizer. Já "12345.678" não é
+ * agrupamento nenhum (grupo de cinco dígitos antes do ponto), então tratar o
+ * ponto como milhar multiplicava o valor por mil -- 12.345,678 virava
+ * R$ 12.345.678,00. O texto vindo do campo com máscara sempre traz "R$" e por
+ * isso nunca entra por aqui: a digitação segue exatamente como antes.
+ */
+function numeroDeMaquina(valor) {
+  const texto = String(valor).trim();
+  if (!MAQUINA_DECIMAL.test(texto) || MILHAR_BR.test(texto)) return null;
+  const numero = Number(texto);
+  return Number.isFinite(numero) ? numero : null;
+}
+
 /** Número decimal a partir de qualquer entrada (número, "1.000,50", "R$ 20"). */
 export function paraNumeroMoeda(valor) {
   if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
   if (valor === null || valor === undefined || valor === "") return 0;
+
+  const deMaquina = numeroDeMaquina(valor);
+  if (deMaquina !== null) return deMaquina;
 
   const { negativo, inteiro, decimal, temDigito } = separarPartes(valor);
   if (!temDigito) return 0;
