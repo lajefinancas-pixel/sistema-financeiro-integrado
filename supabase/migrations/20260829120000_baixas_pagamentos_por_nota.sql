@@ -34,6 +34,16 @@
 -- Nada aqui grava 'parcialmente_pago': nenhuma tela, filtro ou relatório do
 -- sistema espera essa situação, e a nota sumiria deles.
 --
+-- A COLUNA DA SITUAÇÃO É UM ENUM
+--
+-- public.valores_em_aberto.situacao não é texto: é o enum public.situacao_valor
+-- (em_aberto, programado, parcialmente_pago, pago, suspenso, cancelado). Por
+-- isso a validação da seção 0 aceita as duas formas, confere que o enum tem os
+-- dois rótulos que a baixa grava ('em_aberto' e 'pago'), e as funções leem a
+-- situação como texto e a gravam de volta convertida para o tipo REAL da coluna.
+-- Nada disso muda a regra: só quem decide a situação continua sendo o valor que
+-- resta em aberto.
+--
 -- O QUE ESTA MIGRATION ENTREGA
 --
 --   1. public.valores_em_aberto.valor_pago -> garante a coluna que guarda
@@ -71,6 +81,9 @@ do $$
 declare
   item record;
   tipo_real text;
+  tipo_oid oid;
+  eh_enum boolean;
+  faltando text[];
 begin
   for item in
     select * from (values
@@ -87,21 +100,27 @@ begin
   -- Colunas de que a baixa depende, com a FAMÍLIA de tipo aceita. A checagem é
   -- por família (numérico, textual, inteiro) para não abortar em bancos que
   -- usem decimal em vez de numeric ou varchar em vez de text.
+  --
+  -- 'texto_ou_enum' existe por causa de public.valores_em_aberto.situacao: no
+  -- banco em uso ela NÃO é texto, é o enum public.situacao_valor (em_aberto,
+  -- programado, parcialmente_pago, pago, suspenso, cancelado). As duas formas
+  -- servem para a baixa, e a família reflete isso em vez de abortar no enum.
   for item in
     select * from (values
       ('valores_em_aberto', 'id', 'chave'),
       ('valores_em_aberto', 'fornecedor_id', 'inteiro'),
       ('valores_em_aberto', 'valor', 'numerico'),
-      ('valores_em_aberto', 'situacao', 'texto'),
+      ('valores_em_aberto', 'situacao', 'texto_ou_enum'),
       ('valores_em_aberto', 'numero_nota_fiscal', 'texto'),
       ('fornecedores', 'id', 'inteiro'),
       ('contas_bancarias', 'id', 'inteiro'),
       ('usuarios', 'id', 'chave')
     ) as tipos(tabela, coluna, familia)
   loop
-    select format_type(a.atttypid, null)
-      into tipo_real
+    select format_type(a.atttypid, null), a.atttypid, t.typtype = 'e'
+      into tipo_real, tipo_oid, eh_enum
       from pg_attribute a
+      join pg_type t on t.oid = a.atttypid
      where a.attrelid = to_regclass(format('public.%I', item.tabela))
        and a.attname::text = item.coluna
        and not a.attisdropped;
@@ -115,10 +134,56 @@ begin
       (item.familia = 'inteiro'  and tipo_real in ('integer', 'bigint', 'smallint'))
       or (item.familia = 'numerico' and tipo_real in ('numeric', 'double precision', 'real', 'integer', 'bigint'))
       or (item.familia = 'texto'    and tipo_real in ('text', 'character varying', 'character'))
+      or (item.familia = 'texto_ou_enum' and (eh_enum or tipo_real in ('text', 'character varying', 'character')))
       or (item.familia = 'chave'    and tipo_real in ('integer', 'bigint', 'uuid', 'text', 'character varying'))
     ) then
       raise exception 'Tipo incompatível em public.%.%: a aba de Baixas espera % e encontrou %.',
         item.tabela, item.coluna, item.familia, tipo_real;
+    end if;
+  end loop;
+
+  -- Rótulos que a baixa GRAVA. Onde a coluna é texto, qualquer valor entra e
+  -- não há o que conferir. Onde é enum, o rótulo tem de existir no tipo: sem
+  -- ele a gravação falharia no meio de uma baixa de verdade, e é melhor abortar
+  -- aqui dizendo exatamente qual valor falta.
+  for item in
+    select * from (values
+      -- As DUAS únicas situações que a baixa escreve na nota. 'parcialmente_pago'
+      -- existe no enum do banco em uso, mas a baixa NÃO o grava: a baixa parcial
+      -- mantém a nota 'em_aberto' e só a quitação grava 'pago'.
+      ('valores_em_aberto', 'situacao', array['em_aberto', 'pago']),
+      ('usuarios',          'status',   array['ativo']),
+      ('auditoria_eventos', 'modulo',   array['pagamentos']),
+      ('auditoria_eventos', 'acao',     array['registrou_baixa', 'estornou_baixa']),
+      ('auditoria_eventos', 'nivel',    array['atencao', 'critico']),
+      ('perfis_permissoes', 'modulo',   array['baixas', 'pagamentos'])
+    ) as alvos(tabela, coluna, rotulos)
+  loop
+    select format_type(a.atttypid, null), a.atttypid, t.typtype = 'e'
+      into tipo_real, tipo_oid, eh_enum
+      from pg_attribute a
+      join pg_type t on t.oid = a.atttypid
+     where a.attrelid = to_regclass(format('public.%I', item.tabela))
+       and a.attname::text = item.coluna
+       and not a.attisdropped;
+
+    -- Coluna ausente ou textual: nada a conferir aqui.
+    if tipo_real is null or not coalesce(eh_enum, false) then
+      continue;
+    end if;
+
+    select array_agg(rotulo order by rotulo)
+      into faltando
+      from unnest(item.rotulos) as rotulo
+     where not exists (
+       select 1 from pg_enum e
+        where e.enumtypid = tipo_oid
+          and e.enumlabel::text = rotulo
+     );
+
+    if faltando is not null then
+      raise exception 'Enum incompatível em public.%.%: o tipo % não tem o(s) valor(es) %, e a aba de Baixas precisa gravá-lo(s). Acrescente-o(s) ao enum (alter type % add value ...) numa execução separada e rode esta migration depois.',
+        item.tabela, item.coluna, tipo_real, array_to_string(faltando, ', '), tipo_real;
     end if;
   end loop;
 end $$;
@@ -191,6 +256,67 @@ alter table public.pagamentos_baixas
   -- Situação da nota ANTES desta baixa, guardada como registro do que havia.
   -- Quem decide a situação no estorno é o saldo que sobrar em aberto.
   add column if not exists situacao_anterior text;
+
+-- As colunas de public.pagamentos_baixas em que a baixa grava valor FIXO ou
+-- copiado. Elas nascem como texto acima, mas no banco em uso a tabela JÁ
+-- EXISTE, e nada garante que sejam texto lá: se alguma for enum, o rótulo tem
+-- de existir no tipo. situacao_anterior é o caso delicado — ela recebe a
+-- situação que a nota tinha, e a situação da nota é o enum situacao_valor, com
+-- seis rótulos. A gravação converte para texto explicitamente; onde a coluna
+-- for enum, ela precisa aceitar todos os rótulos que a nota pode ter, senão a
+-- baixa quebraria só nas notas com o rótulo que falta.
+do $$
+declare
+  item record;
+  rotulos_da_nota text[];
+  tipo_real text;
+  tipo_oid oid;
+  eh_enum boolean;
+  faltando text[];
+begin
+  -- Rótulos possíveis da situação da nota. Coluna de texto: array vazio, nada a
+  -- exigir de situacao_anterior.
+  select coalesce(array_agg(e.enumlabel::text order by e.enumsortorder), array[]::text[])
+    into rotulos_da_nota
+    from pg_attribute a
+    join pg_enum e on e.enumtypid = a.atttypid
+   where a.attrelid = to_regclass('public.valores_em_aberto')
+     and a.attname::text = 'situacao'
+     and not a.attisdropped;
+
+  for item in
+    select * from (values
+      ('status', array['efetivada', 'estornada']),
+      ('situacao_anterior', rotulos_da_nota)
+    ) as alvos(coluna, rotulos)
+  loop
+    select format_type(a.atttypid, null), a.atttypid, t.typtype = 'e'
+      into tipo_real, tipo_oid, eh_enum
+      from pg_attribute a
+      join pg_type t on t.oid = a.atttypid
+     where a.attrelid = to_regclass('public.pagamentos_baixas')
+       and a.attname::text = item.coluna
+       and not a.attisdropped;
+
+    if tipo_real is null or not coalesce(eh_enum, false) then
+      continue;
+    end if;
+
+    select array_agg(rotulo order by rotulo)
+      into faltando
+      from unnest(item.rotulos) as rotulo
+     where not exists (
+       select 1 from pg_enum e
+        where e.enumtypid = tipo_oid
+          and e.enumlabel::text = rotulo
+     );
+
+    if faltando is not null then
+      raise exception 'Enum incompatível em public.pagamentos_baixas.%: o tipo % não tem o(s) valor(es) %, e a aba de Baixas precisa gravá-lo(s). Acrescente-o(s) ao enum (alter type % add value ...) numa execução separada e rode esta migration depois.',
+        item.coluna, tipo_real, array_to_string(faltando, ', '), tipo_real;
+    end if;
+  end loop;
+end $$;
 
 -- valor_em_aberto_id tem de ter EXATAMENTE o tipo de valores_em_aberto.id
 -- (integer, bigint ou uuid, conforme o banco). Por isso o DDL é dinâmico.
@@ -559,6 +685,11 @@ declare
   v_tipo_nota text;
   v_tipo_fornecedor text;
   v_tipo_conta text;
+  -- Os tipos reais das colunas de situação: no banco em uso a situação da nota
+  -- é o enum situacao_valor e situacao_anterior é texto, e a gravação precisa
+  -- converter para o tipo de cada uma.
+  v_tipo_situacao text;
+  v_tipo_situacao_anterior text;
   v_documento text;
   v_observacao text;
 begin
@@ -612,8 +743,11 @@ begin
 
   -- A nota, travada até o fim da transação: duas baixas simultâneas na mesma
   -- nota entram em fila e o valor em aberto nunca é lido desatualizado.
+  -- A situação vem ::text de propósito: a coluna é o enum situacao_valor no
+  -- banco em uso, e lida como texto ela compara, entra no evento de auditoria e
+  -- é guardada em situacao_anterior sem depender do tipo.
   select v.id::text as id, v.fornecedor_id, v.valor, coalesce(v.valor_pago, 0) as valor_pago,
-         v.situacao, v.numero_nota_fiscal, v.data_vencimento
+         v.situacao::text as situacao, v.numero_nota_fiscal, v.data_vencimento
     into v_nota
     from public.valores_em_aberto v
    where v.id::text = p_valor_em_aberto_id
@@ -623,6 +757,8 @@ begin
     raise exception 'A nota informada não foi encontrada. Atualize a tela e tente novamente.';
   end if;
 
+  -- Comparação de texto com texto: um rótulo de enum lido como texto é o
+  -- próprio rótulo, então 'cancelado' continua sendo 'cancelado'.
   if v_nota.situacao = 'cancelado' then
     raise exception 'Esta nota está cancelada e não recebe baixas.';
   end if;
@@ -674,6 +810,8 @@ begin
   v_tipo_nota := public.tipo_da_coluna('pagamentos_baixas', 'valor_em_aberto_id');
   v_tipo_fornecedor := public.tipo_da_coluna('pagamentos_baixas', 'fornecedor_id');
   v_tipo_conta := public.tipo_da_coluna('pagamentos_baixas', 'conta_id');
+  v_tipo_situacao := public.tipo_da_coluna('valores_em_aberto', 'situacao');
+  v_tipo_situacao_anterior := public.tipo_da_coluna('pagamentos_baixas', 'situacao_anterior');
 
   -- O insert é a tranca da idempotência: o índice único da chave garante uma
   -- baixa só. `on conflict do nothing` sem id devolvido = alguém chegou antes,
@@ -684,11 +822,11 @@ begin
       valor_pago, data_pagamento, conta_id, documento, observacao,
       status, situacao_anterior, usuario_id
     ) values (
-      $1, $2::%s, $3::%s, $4, $5, $6, $7::%s, $8, $9, 'efetivada', $10, $11
+      $1, $2::%s, $3::%s, $4, $5, $6, $7::%s, $8, $9, 'efetivada', $10::%s, $11
     )
     on conflict (chave_idempotencia) where chave_idempotencia is not null do nothing
     returning id::text
-  $sql$, v_tipo_fornecedor, v_tipo_nota, v_tipo_conta)
+  $sql$, v_tipo_fornecedor, v_tipo_nota, v_tipo_conta, v_tipo_situacao_anterior)
     into v_baixa_id
    using v_chave, v_nota.fornecedor_id::text, v_nota.id, v_valor_nota, v_valor,
          p_data_pagamento, p_conta_id::text, v_documento, v_observacao,
@@ -711,10 +849,16 @@ begin
   end if;
 
   -- O ÚNICO efeito da baixa fora da própria razão: o valor em aberto da nota.
-  update public.valores_em_aberto
-     set valor_pago = v_pago_depois,
-         situacao = v_situacao_nova
-   where id::text = p_valor_em_aberto_id;
+  -- A situação nova é calculada como texto e convertida para o tipo REAL da
+  -- coluna (o enum situacao_valor no banco em uso, text em bancos novos). Sem a
+  -- conversão, gravar texto numa coluna de enum não é aceito.
+  execute format($sql$
+    update public.valores_em_aberto
+       set valor_pago = $1,
+           situacao = $2::%s
+     where id::text = $3
+  $sql$, v_tipo_situacao)
+   using v_pago_depois, v_situacao_nova, p_valor_em_aberto_id;
 
   insert into public.auditoria_eventos (
     usuario_id, modulo, acao, registro_afetado, valor_anterior, valor_novo, nivel
@@ -793,6 +937,8 @@ declare
   v_pago_depois numeric(14,2);
   v_aberto_depois numeric(14,2);
   v_situacao_nova text;
+  -- O tipo real da situação da nota: enum situacao_valor no banco em uso.
+  v_tipo_situacao text;
 begin
   if auth.uid() is null then
     raise exception 'Usuário não autenticado.' using errcode = '42501';
@@ -814,8 +960,12 @@ begin
     raise exception 'A justificativa do estorno precisa explicar o motivo (use ao menos 5 caracteres).';
   end if;
 
+  -- status e situacao_anterior vêm ::text: no banco em uso a tabela já existia,
+  -- e lidas como texto elas comparam e entram no evento de auditoria seja a
+  -- coluna texto ou enum.
   select b.id::text as id, b.valor_em_aberto_id::text as nota_id, b.fornecedor_id,
-         b.valor_pago, b.conta_id, b.data_pagamento, b.status, b.situacao_anterior, b.documento
+         b.valor_pago, b.conta_id, b.data_pagamento, b.status::text as status,
+         b.situacao_anterior::text as situacao_anterior, b.documento
     into v_baixa
     from public.pagamentos_baixas b
    where b.id::text = p_baixa_id
@@ -839,7 +989,8 @@ begin
     raise exception 'Esta baixa não está ligada a uma nota do fornecedor e não pode ser estornada por esta tela.';
   end if;
 
-  select v.id::text as id, v.valor, coalesce(v.valor_pago, 0) as valor_pago, v.situacao
+  select v.id::text as id, v.valor, coalesce(v.valor_pago, 0) as valor_pago,
+         v.situacao::text as situacao
     into v_nota
     from public.valores_em_aberto v
    where v.id::text = v_baixa.nota_id
@@ -873,11 +1024,17 @@ begin
          motivo_estorno = v_motivo
    where id::text = p_baixa_id;
 
-  -- O valor volta para "em aberto".
-  update public.valores_em_aberto
-     set valor_pago = v_pago_depois,
-         situacao = v_situacao_nova
-   where id::text = v_baixa.nota_id;
+  -- O valor volta para "em aberto". Mesma conversão do registro: a situação
+  -- nova é texto e vai para a coluna no tipo que ela tem de fato.
+  v_tipo_situacao := public.tipo_da_coluna('valores_em_aberto', 'situacao');
+
+  execute format($sql$
+    update public.valores_em_aberto
+       set valor_pago = $1,
+           situacao = $2::%s
+     where id::text = $3
+  $sql$, v_tipo_situacao)
+   using v_pago_depois, v_situacao_nova, v_baixa.nota_id;
 
   insert into public.auditoria_eventos (
     usuario_id, modulo, acao, registro_afetado, valor_anterior, valor_novo, nivel
