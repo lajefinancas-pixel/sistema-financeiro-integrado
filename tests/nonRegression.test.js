@@ -206,7 +206,7 @@ test("impressão e PDF usam documento próprio sem controles de interface", asyn
   ]);
   assert.match(pagina, /imprimirProgramacao/);
   assert.match(pagina, /gerarPdfProgramacao/);
-  for (const texto of ["PROGRAMAÇÃO DIÁRIA DE PAGAMENTOS", "Contas utilizadas", "Pagamentos propostos", "Observações / alterações", "TOTAL DAS CONTAS", "TOTAL PROGRAMADO", "SALDO RESTANTE"]) assert.match(documento, new RegExp(texto, "i"));
+  for (const texto of ["PROGRAMAÇÃO DIÁRIA DE PAGAMENTOS", "Contas utilizadas", "Pagamentos propostos", "TOTAL DAS CONTAS", "TOTAL PROGRAMADO", "SALDO RESTANTE"]) assert.match(documento, new RegExp(texto, "i"));
   assert.match(documento, /size: A4 portrait/);
   assert.match(documento, /display: table-header-group/);
   for (const controle of [/<input/, /<select/, /<button/, /checkbox/, /Buscar fornecedor/, /menu lateral/i]) assert.doesNotMatch(documento, controle);
@@ -280,16 +280,17 @@ test("impressão da página não leva listas completas nem controles de interfac
   assert.match(pagina, /contasConfirmadas \? "" : "hidden print:block"/);
 });
 
-test("documento tem cabeçalho, colunas, totais, observações e assinaturas do papel entregue ao gestor", async () => {
+test("documento tem cabeçalho, colunas e totais do papel entregue ao gestor", async () => {
   const documento = await read("src/lib/programacaoDocumento.js");
   // Cabeçalho: secretaria, data da programação e data e hora da emissão.
   for (const trecho of ["Secretaria:", "Data da programação:", "Emitido em:"]) assert.match(documento, new RegExp(trecho));
-  // Colunas exatas dos dois blocos, com APROVADO em branco para marcação à mão.
+  // Colunas exatas dos dois blocos: os pagamentos ficaram em fornecedor e valor.
   assert.match(documento, /export const COLUNAS_CONTAS = \["BANCO", "Nº DA CONTA", "SALDO", "NOME DA CONTA"\]/);
-  assert.match(documento, /export const COLUNAS_PAGAMENTOS = \["FORNECEDOR", "VALOR EM ABERTO", "VALOR A PAGAR", "APROVADO"\]/);
-  assert.match(documento, /class="aprovado"><\/td>/);
-  // Totais em destaque, assinaturas e numeração de páginas.
-  for (const trecho of ["TOTAL DAS CONTAS", "TOTAL PROGRAMADO", "SALDO RESTANTE", "Responsável pela elaboração", "Aprovação", "Página \\$\\{indice \\+ 1\\} de", "Página \\$\\{pagina\\} de \\$\\{paginas\\}"]) {
+  assert.match(documento, /export const COLUNAS_PAGAMENTOS = \["FORNECEDOR", "VALOR"\]/);
+  // Nada de coluna para marcação à mão, nem de linhas de assinatura ou anotação.
+  assert.doesNotMatch(documento, /aprovado|APROVADO|VALOR EM ABERTO|Responsável pela elaboração|Aprovação|OBSERVAÇÕES|linha-manuscrita/);
+  // Totais em destaque e numeração de páginas.
+  for (const trecho of ["TOTAL DAS CONTAS", "TOTAL PROGRAMADO", "SALDO RESTANTE", "Página \\$\\{indice \\+ 1\\} de", "Página \\$\\{pagina\\} de \\$\\{paginas\\}"]) {
     assert.match(documento, new RegExp(trecho));
   }
   // Excesso é informado como diferença, sem alarme.
@@ -300,7 +301,7 @@ test("documento tem cabeçalho, colunas, totais, observações e assinaturas do 
 test("documento pagina em A4 retrato repetindo o cabeçalho da tabela em cada folha", async () => {
   const { montarPaginas } = await import("../src/lib/programacaoPaginacao.js");
   const contas = Array.from({ length: 12 }, (_, indice) => ({ banco: "BANCO", conta: String(indice), saldo: 1000, nome: "CONTA" }));
-  const pagamentos = Array.from({ length: 60 }, (_, indice) => ({ fornecedor: "FORNECEDOR " + indice, aberto: 2000, valor: 1500 }));
+  const pagamentos = Array.from({ length: 60 }, (_, indice) => ({ fornecedor: "FORNECEDOR " + indice, valor: 1500 }));
   const paginas = montarPaginas({ contas, pagamentos, totalContas: 12000, totalProgramado: 90000, restante: -78000 });
 
   assert.ok(paginas.length > 1, "60 fornecedores não cabem em uma folha");
@@ -308,24 +309,28 @@ test("documento pagina em A4 retrato repetindo o cabeçalho da tabela em cada fo
   const fatias = paginas.flatMap((pagina) => pagina.blocos).filter((bloco) => bloco.tipo === "pagamentos");
   assert.ok(fatias.length > 1);
   assert.equal(fatias.reduce((total, fatia) => total + fatia.linhas.length, 0), 60);
-  // Observações e assinaturas fecham o documento, na última folha e nesta ordem.
+  // O somatório e o saldo restante fecham o documento, na última folha e nesta ordem.
   const ultima = paginas[paginas.length - 1].blocos.map((bloco) => bloco.tipo);
-  assert.deepEqual(ultima.slice(-2), ["observacoes", "assinaturas"]);
-  const observacoes = paginas[paginas.length - 1].blocos.find((bloco) => bloco.tipo === "observacoes");
-  assert.ok(observacoes.quantidade >= 3, "sempre sobram linhas em branco para anotação");
+  assert.deepEqual(ultima.slice(-2), ["totalProgramado", "saldoRestante"]);
+  // Linhas em branco para anotação e linhas de assinatura saíram do documento.
+  const tipos = new Set(paginas.flatMap((pagina) => pagina.blocos).map((bloco) => bloco.tipo));
+  assert.ok(!tipos.has("observacoes") && !tipos.has("assinaturas"));
 });
 
-test("botão de impressão fica na faixa fixa e o papel recebe valor em aberto e secretaria", async () => {
+test("botões de impressão, PDF e Excel ficam na faixa fixa e o papel recebe a secretaria", async () => {
   const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
   // O botão vive na faixa fixa do topo: é o documento levado ao gestor, não pode depender de rolagem.
   const faixa = pagina.slice(pagina.indexOf("sticky top-0"), pagina.indexOf("mb-3 grid gap-2 rounded-xl"));
   assert.match(faixa, /onClick=\{imprimir\}/);
   assert.match(faixa, /Imprimir programação para análise/);
   assert.match(faixa, /onClick=\{gerarPdf\}/);
-  // Cabeçalho e coluna de valor em aberto saem da própria tela.
+  assert.match(faixa, /onClick=\{exportarExcel\}/);
+  assert.match(faixa, /Excel/);
+  // Cabeçalho sai da própria tela.
   assert.match(pagina, /secretaria: nomeSecretariaSelecionada/);
   assert.match(pagina, /emissao: agoraBR\(\)/);
-  assert.match(pagina, /aberto: abertoDoPagamento\(item\)/);
+  // Os pagamentos vão ao papel em duas colunas: fornecedor e valor.
+  assert.match(pagina, /pagamentos: pagamentos\.map\(\(item\) => \(\{ fornecedor: nomePagamento\(item\), valor: numero\(item\.valor_a_pagar\) \}\)\)/);
 });
 
 test("as chaves enviadas pela tela são as que o documento imprime", async () => {
@@ -340,7 +345,7 @@ test("as chaves enviadas pela tela são as que o documento imprime", async () =>
     secretaria: "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
     data: "28/08/2026",
     contas: [{ banco: "BANCO DO BRASIL", conta: "1234-5 / 98.765-4", saldo: 184320.55, nome: "FPM - RECURSOS LIVRES" }],
-    pagamentos: [{ fornecedor: "COMERCIAL SANTA CLARA LTDA", aberto: 38420.9, valor: 20000 }],
+    pagamentos: [{ fornecedor: "COMERCIAL SANTA CLARA LTDA", valor: 20000 }],
     totalContas: 184320.55,
     totalProgramado: 20000,
     restante: 164320.55,
@@ -365,6 +370,134 @@ test("tela do módulo é densa: linhas baixas, blocos discretos e sem textos lon
   // Linhas de tabela compactas e valores monetários ainda em negrito.
   assert.doesNotMatch(pagina, /border-b border-black\/5 px-4 py-3/);
   assert.match(pagina, /<strong className="tabular-nums">\{formatBRL\(conta\.saldo\)\}<\/strong>/);
+});
+
+test("saldo das contas sai centralizado e em negrito, na impressão e no PDF", async () => {
+  const documento = await read("src/lib/programacaoDocumento.js");
+  // CSS da impressão: a coluna SALDO é centralizada e continua em negrito.
+  assert.match(documento, /\.saldo \{ text-align: center;/);
+  assert.match(documento, /td\.saldo \{ font-weight: bold; \}/);
+  assert.match(documento, /<td class="saldo">\$\{escapar\(formatBRL\(conta\.saldo\)\)\}/);
+  assert.match(documento, /<th class="saldo">\$\{COLUNAS_CONTAS\[2\]\}/);
+  // PDF: mesma coluna, mesmo alinhamento.
+  assert.match(documento, /cellWidth: util \* 0\.22, halign: "center", fontStyle: "bold"/);
+});
+
+test("pagamentos propostos têm duas colunas e o somatório cai sob a coluna dos valores", async () => {
+  const { htmlProgramacao } = await import("../src/lib/programacaoDocumento.js");
+  const documento = htmlProgramacao({
+    secretaria: "SECRETARIA DE FINANÇAS",
+    data: "28/08/2026",
+    contas: [{ banco: "BANCO DO BRASIL", conta: "1234-5", saldo: 629746.73, nome: "FPM" }],
+    pagamentos: [{ fornecedor: "FORNECEDOR A", valor: 10000 }, { fornecedor: "FORNECEDOR B", valor: 5000 }],
+    totalContas: 629746.73,
+    totalProgramado: 15000,
+    restante: 614746.73,
+  });
+
+  // Duas colunas e nada mais no cabeçalho dos pagamentos.
+  assert.match(documento, /<table class="propostos">.*?<thead><tr><th>FORNECEDOR<\/th><th class="valor">VALOR<\/th><\/tr><\/thead>/s);
+  // Somatório e destaque usam o mesmo colgroup da tabela: os valores alinham.
+  const colgroup = documento.match(/<colgroup><col style="width:62%"><col style="width:38%"><\/colgroup>/g);
+  assert.equal(colgroup.length, 3, "tabela, somatório e saldo restante compartilham as duas colunas");
+  // O somatório vem imediatamente depois da tabela de fornecedores, e o saldo restante depois dele.
+  const ordem = ["</table><table class=\"somatorio\"", "TOTAL PROGRAMADO:", "<table class=\"destaque\"", "SALDO RESTANTE:"];
+  let posicao = -1;
+  for (const marca of ordem) {
+    const encontrado = documento.indexOf(marca, posicao + 1);
+    assert.ok(encontrado > posicao, "fora de ordem no documento: " + marca);
+    posicao = encontrado;
+  }
+  // Saldo restante em corpo maior que os demais valores do documento.
+  assert.match(documento, /\.destaque \.valor \{ height: \d+(?:\.\d+)?mm; font-size: 15pt;/);
+  assert.match(documento, /\.somatorio \.valor \{ font-size: 10\.5pt;/);
+});
+
+test("documento sai com a identidade visual do sistema: brasão, órgão, lema e cor institucional", async () => {
+  const { htmlProgramacao, IDENTIDADE } = await import("../src/lib/programacaoDocumento.js");
+  const documento = htmlProgramacao({ secretaria: "SECRETARIA DE FINANÇAS", data: "28/08/2026", contas: [], pagamentos: [] });
+
+  assert.equal(IDENTIDADE.orgao, "SECRETARIA DE FINANÇAS");
+  assert.equal(IDENTIDADE.lema, "GESTÃO QUE TRANSFORMA");
+  // O brasão vai embutido, com o mesmo desenho de public/brasao.svg.
+  const brasao = await read("public/brasao.svg");
+  const escudo = brasao.match(/M60 22 L92 32 V70 [^"]+/)[0];
+  assert.ok(documento.includes(escudo), "o escudo do brasão do sistema não está no documento");
+  assert.match(documento, /aria-label="Brasão da Secretaria de Finanças"/);
+  assert.match(documento, /GESTÃO QUE TRANSFORMA/);
+  // Cabeçalho de tabela na cor institucional, com texto claro, e faixas alternadas.
+  assert.match(documento, /th \{[^}]*background: #17352F; color: #fff;/);
+  assert.match(documento, /tbody tr:nth-child\(even\) td \{ background: #E5EFEA; \}/);
+  // Quadro do saldo restante na cor institucional.
+  assert.match(documento, /\.destaque td \{ border: 0; background: #17352F; color: #fff; \}/);
+  // As cores são as que o sistema já usa: nada de paleta nova.
+  const cores = new Set((documento.match(/#[0-9A-Fa-f]{6}/g) ?? []).map((cor) => cor.toUpperCase()));
+  for (const cor of cores) {
+    assert.ok(["#17352F", "#E5EFEA", "#D5DBDA", "#607671", "#0F2A44", "#C9A227", "#FBFAF7"].includes(cor), "cor fora da paleta do sistema: " + cor);
+  }
+});
+
+test("programação de um dia comum cabe em uma folha, sem espaços em branco sobrando", async () => {
+  const { montarPaginas } = await import("../src/lib/programacaoPaginacao.js");
+  const paginas = montarPaginas({
+    contas: Array.from({ length: 6 }, () => ({ banco: "BANCO", conta: "1", saldo: 1000, nome: "CONTA" })),
+    pagamentos: Array.from({ length: 20 }, (_, indice) => ({ fornecedor: "FORNECEDOR " + indice, valor: 1000 })),
+    totalContas: 6000,
+    totalProgramado: 20000,
+    restante: -14000,
+  });
+  assert.equal(paginas.length, 1, "6 contas e 20 fornecedores têm de caber em uma folha");
+});
+
+test("exportação em Excel traz cabeçalho, as duas tabelas, totais somáveis e datas como data", async () => {
+  const { montarPlanilhaProgramacao } = await import("../src/lib/programacaoDocumento.js");
+
+  const { planilha, arquivo } = montarPlanilhaProgramacao({
+    secretaria: "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
+    data: "28/08/2026",
+    emissao: "28/08/2026 14:32",
+    contas: [
+      { banco: "BANCO DO BRASIL", conta: "1234-5", saldo: 184320.55, nome: "FPM" },
+      { banco: "CAIXA", conta: "9-9", saldo: 430426.18, nome: "FUNDEB" },
+    ],
+    pagamentos: [{ fornecedor: "FORNECEDOR A", valor: 10000 }, { fornecedor: "FORNECEDOR B", valor: 5000 }],
+    totalContas: 614746.73,
+    totalProgramado: 15000,
+    restante: 599746.73,
+  });
+
+  assert.equal(arquivo, "programacao-diaria-28-08-2026.xlsx");
+
+  // Cabeçalho: secretaria, data da programação e data de emissão.
+  assert.match(planilha.A1.v, /SECRETARIA DE FINANÇAS — GESTÃO QUE TRANSFORMA/);
+  assert.equal(planilha.A2.v, "PROGRAMAÇÃO DIÁRIA DE PAGAMENTOS");
+  assert.equal(planilha.B4.v, "SECRETARIA MUNICIPAL DE EDUCAÇÃO");
+  // Datas em formato de data, não como texto.
+  for (const referencia of ["B5", "B6"]) {
+    assert.equal(planilha[referencia].t, "d");
+    assert.ok(planilha[referencia].v instanceof Date);
+  }
+  assert.match(planilha.B5.z, /dd\/mm\/yyyy/);
+
+  // Contas utilizadas: Banco | Nº da Conta | Saldo | Nome da Conta, com o total.
+  assert.deepEqual([planilha.A9.v, planilha.B9.v, planilha.C9.v, planilha.D9.v], ["Banco", "Nº da Conta", "Saldo", "Nome da Conta"]);
+  assert.equal(planilha.A12.v, "TOTAL DAS CONTAS");
+  assert.equal(planilha.C12.f, "SUM(C10:C11)");
+
+  // Pagamentos propostos: Fornecedor | Valor, com o total programado como somatório.
+  assert.deepEqual([planilha.A15.v, planilha.B15.v], ["Fornecedor", "Valor"]);
+  assert.equal(planilha.A18.v, "TOTAL PROGRAMADO");
+  assert.equal(planilha.B18.f, "SUM(B16:B17)");
+
+  // Saldo restante, conferido pela própria planilha.
+  assert.equal(planilha.A20.v, "SALDO RESTANTE");
+  assert.equal(planilha.B20.f, "C12-B18");
+
+  // Todo valor monetário é número com formato de moeda -- dá para somar na planilha.
+  for (const referencia of ["C10", "C11", "C12", "B16", "B17", "B18", "B20"]) {
+    assert.equal(planilha[referencia].t, "n", referencia + " deveria ser numérico");
+    assert.equal(planilha[referencia].z, "R$ #,##0.00");
+  }
 });
 
 test("backup manual e impressões dos outros módulos permanecem intactos", async () => {
