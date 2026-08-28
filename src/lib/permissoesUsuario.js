@@ -64,16 +64,34 @@ const ACOES_BACKUP = [
   { campo: "pode_editar", label: "Administrar configurações de backup" },
 ];
 
+/**
+ * Saldos das Contas usa as mesmas cinco colunas, e os rótulos dizem sobre o que
+ * cada uma manda: as três do meio governam o CADASTRO das contas bancárias.
+ * Lançar o saldo do dia continua liberado para quem visualiza o módulo — é a
+ * rotina diária da tela e não foi restringida.
+ *
+ * "Excluir" em conta bancária é desativar/reativar: não existe exclusão
+ * definitiva de conta com histórico financeiro.
+ */
+const ACOES_SALDOS = [
+  { campo: "pode_visualizar", label: "Visualizar saldos" },
+  { campo: "pode_cadastrar", label: "Cadastrar conta bancária" },
+  { campo: "pode_editar", label: "Editar conta bancária" },
+  { campo: "pode_excluir", label: "Desativar / reativar conta bancária" },
+  { campo: "pode_aprovar", label: "Aprovar" },
+  { campo: CAMPO_VALORES, label: "Visualizar valores" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
 /**
- * Ações exibidas na seção do módulo: as cinco padrão, mais "Visualizar valores"
- * em Saldos, ou os rótulos próprios do Backup.
+ * Ações exibidas na seção do módulo: as cinco padrão, ou os rótulos próprios de
+ * Saldos (que incluem "Visualizar valores") e de Backup.
  */
 export function acoesDoModulo(modulo) {
   if (modulo === MODULO_BACKUP) return ACOES_BACKUP;
-  if (modulo !== MODULO_COM_VALORES) return ACOES;
-  return [...ACOES, { campo: CAMPO_VALORES, label: "Visualizar valores" }];
+  if (modulo === MODULO_COM_VALORES) return ACOES_SALDOS;
+  return ACOES;
 }
 
 function linhaVazia() {

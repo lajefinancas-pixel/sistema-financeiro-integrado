@@ -69,6 +69,11 @@ const ACOES = {
   // concluí-la apagando a linha do banco. A segunda é sempre nível crítico.
   restaurou: "Restaurou da Lixeira",
   excluiu_definitivamente: "Excluiu definitivamente",
+  // Conta bancária nunca é apagada: a "exclusão" dela é a desativação, e ela
+  // pode voltar. As duas ações ficam separadas na trilha para deixar claro que
+  // o histórico de saldos continuou intacto nos dois casos.
+  desativou_conta: "Desativou conta bancária",
+  reativou_conta: "Reativou conta bancária",
   login: "Entrou no sistema",
   logout: "Saiu do sistema",
   exportou_auditoria: "Exportou relatório de auditoria",
@@ -460,6 +465,8 @@ const CAMPOS = {
   nome_completo: "Nome",
   nome_conta: "Nome da conta",
   numero_conta: "Número da conta",
+  tipo_conta: "Tipo de conta",
+  fonte_recurso: "Fonte de recurso",
   cargo: "Cargo",
   telefone: "Telefone",
   email: "E-mail",
@@ -511,6 +518,10 @@ const CAMPOS = {
   // Campos comuns a todas as exclusões (lógicas ou físicas).
   motivo_exclusao: "Motivo da exclusão",
   vinculos: "Registros ligados",
+  // Campos da desativação e da reativação de conta bancária.
+  motivo_desativacao: "Motivo da desativação",
+  historico_saldos: "Histórico de saldos",
+  programacoes_em_elaboracao: "Programações em elaboração",
   // Campos do evento de solicitação de restauração de backup.
   justificativa: "Justificativa",
   solicitado_em: "Solicitado em",

@@ -1,7 +1,7 @@
 import React from "react";
 import {
   Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet, Upload,
-  ChevronLeft, ChevronRight, GripVertical,
+  ChevronLeft, ChevronRight, GripVertical, Archive, Eraser, Settings2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
@@ -18,6 +18,17 @@ import { usePermissaoModulo } from "../lib/permissoes";
 import { auditarExclusao } from "../lib/exclusaoRegistros";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
 import PainelFiltros from "../components/comuns/PainelFiltros";
+import { campoPreenchido, lancarSaldoDaConta, lancarSaldos, linhasParaLancamento } from "../lib/lancamentoSaldos";
+import {
+  alteracoesDoCadastro, atualizarContaBancaria, carregarContasDoCadastro, carregarFontesRecurso,
+  contaDuplicada, criarContaBancaria, criarFonteRecurso, definirSituacaoConta, mensagemDuplicidade,
+  programacoesEmElaboracaoComConta, retratoDasAlteracoes, retratoDoCadastro, saldoInicialInformado,
+  tipoContaLabel,
+} from "../lib/contasBancarias";
+import ModalContaBancaria from "../components/saldos/ModalContaBancaria";
+import ModalSituacaoConta from "../components/saldos/ModalSituacaoConta";
+import ModalLimparCampos from "../components/saldos/ModalLimparCampos";
+import ContasDesativadas from "../components/saldos/ContasDesativadas";
 
 const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -45,6 +56,10 @@ function hojeISO() {
 }
 function hojeBR() {
   return new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+}
+function dataBR(iso) {
+  if (!iso) return "--";
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR");
 }
 function gerarDiasDoMes(ano, mes) {
   const primeiroDia = new Date(ano, mes, 1);
@@ -105,10 +120,20 @@ export default function Saldos() {
   const [bancos, setBancos] = React.useState([]);
   const [contasPorSecretaria, setContasPorSecretaria] = React.useState([]);
 
-  const [mostrarForm, setMostrarForm] = React.useState(false);
   const [salvando, setSalvando] = React.useState(false);
-  const [novoBanco, setNovoBanco] = React.useState(false);
-  const [novaSecretaria, setNovaSecretaria] = React.useState(false);
+  const [aviso, setAviso] = React.useState(null);
+
+  // Cadastro de contas: um só formulário para criar e editar, e a situação
+  // (ativa/desativada) sempre passando por confirmação.
+  const [modalConta, setModalConta] = React.useState(null);
+  const [situacaoPendente, setSituacaoPendente] = React.useState(null);
+  const [limparPendente, setLimparPendente] = React.useState(null);
+  const [contasInativas, setContasInativas] = React.useState([]);
+  const [todasAsContas, setTodasAsContas] = React.useState([]);
+  // `null` = a estrutura de fonte de recurso ainda não existe neste banco: a
+  // tela esconde o campo em vez de mostrar erro.
+  const [fontes, setFontes] = React.useState(null);
+  const [comFonteRecurso, setComFonteRecurso] = React.useState(false);
 
   const [mostrarImportar, setMostrarImportar] = React.useState(false);
   const [textoImportar, setTextoImportar] = React.useState("");
@@ -118,18 +143,6 @@ export default function Saldos() {
   const [editandoSecretariaId, setEditandoSecretariaId] = React.useState(null);
   const [saldosLote, setSaldosLote] = React.useState({});
   const [dataLote, setDataLote] = React.useState(hojeISO());
-
-  const [form, setForm] = React.useState({
-    secretaria_id: "",
-    secretaria_novo_nome: "",
-    banco_id: "",
-    banco_novo_nome: "",
-    nome_conta: "",
-    numero_conta: "",
-    tipo_conta: "",
-    saldo_inicial: "",
-    data_saldo: hojeISO(),
-  });
 
   const [editando, setEditando] = React.useState(null);
   const [novoSaldo, setNovoSaldo] = React.useState({ valor: "", data: hojeISO() });
@@ -146,6 +159,11 @@ export default function Saldos() {
   // Exclusão sempre passa pela confirmação padrão: nada é excluído no clique.
   const [exclusaoPendente, setExclusaoPendente] = React.useState(null);
   const { permissao: permissaoSaldos } = usePermissaoModulo("saldos");
+  // Matriz de permissões do módulo Saldos: cadastrar / editar conta bancária e
+  // desativar-reativar conta bancária. Lançar o saldo do dia segue liberado
+  // para quem já usa a tela.
+  const podeCadastrar = permissaoSaldos?.pode_cadastrar === true;
+  const podeEditarCadastro = permissaoSaldos?.pode_editar === true;
   const podeExcluir = permissaoSaldos?.pode_excluir === true;
   const [ordemSecretarias, setOrdemSecretarias] = React.useState([]);
   const [arrastandoId, setArrastandoId] = React.useState(null);
@@ -183,28 +201,42 @@ export default function Saldos() {
         .from("bancos").select("id, nome").order("nome");
       if (e2) throw e2;
 
-      const { data: contas, error: e3 } = await supabase
-        .from("contas_bancarias")
-        .select("id, nome_conta, numero_conta, tipo_conta, secretaria_id, banco_id, bancos(nome)")
-        .eq("ativo", true);
-      if (e3) throw e3;
+      // Cadastro inteiro, ativas e desativadas: as ativas montam o painel do
+      // dia; as desativadas alimentam a seção "Contas desativadas", que existe
+      // justamente para mostrar que o histórico delas continua no banco.
+      const { contas, comFonteRecurso: temColunaFonte } = await carregarContasDoCadastro({
+        situacao: "todas",
+      });
+      const fontesRecurso = await carregarFontesRecurso();
+
+      const nomeDaSecretaria = new Map((secs ?? []).map((sec) => [String(sec.id), sec.nome]));
+      const nomeDoBanco = new Map((bcs ?? []).map((banco) => [String(banco.id), banco.nome]));
+      const nomeDaFonte = new Map((fontesRecurso ?? []).map((fonte) => [String(fonte.id), fonte.nome]));
+
+      const cadastro = (contas ?? []).map((c) => ({
+        id: c.id,
+        secretaria_id: c.secretaria_id,
+        banco_id: c.banco_id,
+        secretaria: nomeDaSecretaria.get(String(c.secretaria_id)) ?? null,
+        banco: c.bancos?.nome ?? nomeDoBanco.get(String(c.banco_id)) ?? "--",
+        nome_conta: c.nome_conta,
+        numero_conta: c.numero_conta,
+        tipo_conta: c.tipo_conta ?? "",
+        fonte_recurso_id: c.fonte_recurso_id ?? null,
+        fonte_recurso: nomeDaFonte.get(String(c.fonte_recurso_id)) ?? null,
+        ativo: c.ativo !== false,
+      }));
 
       // O Saldo Real de cada conta vem da fonte única (consulta paginada, um
       // registro por conta) -- a mesma usada pelo Painel Principal e por
       // Pagamentos Diários.
       const { contas: contasComSaldo } = await carregarSaldosDasContas({
-        contas: (contas ?? []).map((c) => ({
-          id: c.id,
-          secretaria_id: c.secretaria_id,
-          banco: c.bancos?.nome ?? "--",
-          nome_conta: c.nome_conta,
-          numero_conta: c.numero_conta,
-        })),
+        contas: cadastro,
         comReservas: false,
       });
 
       const agrupado = (secs ?? []).map((sec, i) => {
-        const contasDaSec = contasComSaldo.filter((c) => c.secretaria_id === sec.id);
+        const contasDaSec = contasComSaldo.filter((c) => c.ativo && c.secretaria_id === sec.id);
         // Cada conta entra no total UMA ÚNICA VEZ, pelo id da conta.
         const total = totalizarSaldos(contasDaSec).saldoReal;
         return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
@@ -212,6 +244,14 @@ export default function Saldos() {
 
       setSecretarias(secs ?? []);
       setBancos(bcs ?? []);
+      setFontes(fontesRecurso);
+      setComFonteRecurso(temColunaFonte);
+      setTodasAsContas(contasComSaldo);
+      setContasInativas(
+        contasComSaldo
+          .filter((c) => !c.ativo)
+          .sort((a, b) => `${a.secretaria ?? ""}${a.nome_conta ?? ""}`.localeCompare(`${b.secretaria ?? ""}${b.nome_conta ?? ""}`, "pt-BR")),
+      );
       setContasPorSecretaria(agrupado);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Erro ao carregar dados."));
@@ -359,10 +399,12 @@ export default function Saldos() {
         .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
       if (e1) throw e1;
 
+      // Sem filtro de ativo: esta visão é consulta de período anterior, e conta
+      // desativada continua tendo histórico. Só aparece a conta que realmente
+      // tinha saldo lançado até a data (filtro por dataSaldo, mais abaixo).
       const { data: contas, error: e2 } = await supabase
         .from("contas_bancarias")
-        .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)")
-        .eq("ativo", true);
+        .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)");
       if (e2) throw e2;
 
       // Mesma fonte única, agora com o saldo limitado à data escolhida.
@@ -403,14 +445,62 @@ export default function Saldos() {
     setMesExibido(novoMes);
     setAnoExibido(novoAno);
   }
-  function iniciarEdicaoLote(sec) {
+  /**
+   * Abre o lançamento do dia com os campos EM BRANCO.
+   *
+   * Só vem preenchido o que já foi lançado na própria data escolhida — aí o
+   * valor na tela é o registro daquele dia, e conferir/corrigir faz sentido.
+   * Nos demais casos o campo fica vazio, pronto para digitar: repetir o valor
+   * do último lançamento obrigava a apagar dezenas de campos todas as manhãs.
+   *
+   * O último saldo conhecido não se perde de vista: ele aparece como referência
+   * discreta embaixo do campo.
+   */
+  function camposDoLote(sec, data) {
     const inicial = {};
     sec.contas.forEach((c) => {
-      inicial[c.id] = c.saldo ?? 0;
+      const dataDoSaldo = c.dataSaldo ?? c.dataDoSaldo ?? null;
+      inicial[c.id] = dataDoSaldo === data ? (c.saldo ?? "") : "";
     });
-    setSaldosLote(inicial);
-    setDataLote(hojeISO());
+    return inicial;
+  }
+
+  function iniciarEdicaoLote(sec) {
+    const data = hojeISO();
+    setSaldosLote(camposDoLote(sec, data));
+    setDataLote(data);
     setEditandoSecretariaId(sec.id);
+  }
+
+  /** Trocar a data do lançamento refaz a referência: cada dia tem o seu registro. */
+  function mudarDataLote(sec, data) {
+    setDataLote(data);
+    setSaldosLote(camposDoLote(sec, data));
+  }
+
+  /**
+   * LIMPAR CAMPOS — ação exclusivamente visual.
+   *
+   * Esvazia os campos de saldo na tela e nada mais: nenhum delete, nenhum
+   * update, nenhum insert em saldos_historico. Saindo daqui sem salvar, os
+   * saldos anteriores continuam exatamente como estavam. Só o que for digitado
+   * e salvo depois chega ao banco, pela rotina normal de lançamento.
+   */
+  function limparCamposLote() {
+    setSaldosLote((atual) => {
+      const vazios = {};
+      Object.keys(atual).forEach((contaId) => {
+        vazios[contaId] = "";
+      });
+      return vazios;
+    });
+    setLimparPendente(null);
+    setAviso("Campos limpos na tela. Nenhum saldo foi apagado do banco.");
+  }
+
+  /** Quantos campos têm valor digitado agora (texto do modal de confirmação). */
+  function camposPreenchidosNoLote() {
+    return Object.values(saldosLote).filter((valor) => campoPreenchido(valor)).length;
   }
 
   /**
@@ -451,21 +541,22 @@ export default function Saldos() {
     setSalvando(true);
     setErro(null);
     try {
-      const linhas = sec.contas.map((c) => ({
-        conta_id: c.id,
-        valor_saldo: paraNumeroMoeda(saldosLote[c.id]),
-        data_saldo: dataLote,
-      }));
-      const { error } = await supabase
-        .from("saldos_historico")
-        .upsert(linhas, { onConflict: "conta_id,data_saldo" });
-      if (error) throw error;
+      // Campo em branco não é zero: entra no lançamento só a conta que teve
+      // valor digitado. As demais ficam intocadas no banco.
+      const linhas = linhasParaLancamento({ contas: sec.contas, valores: saldosLote, data: dataLote });
+      if (linhas.length === 0) {
+        throw erroAmigavel("Digite o saldo de pelo menos uma conta para salvar o lançamento do dia.");
+      }
+      await lancarSaldos(linhas);
 
-      // Auditoria: um evento por conta que realmente mudou de valor ou de data.
+      // Auditoria: um evento por conta lançada que realmente mudou de valor ou
+      // de data.
+      const lancadas = new Set(linhas.map((linha) => String(linha.conta_id)));
       const alteradas = sec.contas.filter(
         (c) =>
-          centavos(saldosLote[c.id]) !== centavos(c.saldo) ||
-          (c.dataSaldo ?? c.dataDoSaldo ?? null) !== dataLote,
+          lancadas.has(String(c.id)) &&
+          (centavos(saldosLote[c.id]) !== centavos(c.saldo) ||
+            (c.dataSaldo ?? c.dataDoSaldo ?? null) !== dataLote),
       );
       for (const conta of alteradas) {
         await auditarSaldo({
@@ -478,6 +569,9 @@ export default function Saldos() {
 
       setEditandoSecretariaId(null);
       setSaldosLote({});
+      setAviso(
+        `${linhas.length} ${linhas.length === 1 ? "saldo lançado" : "saldos lançados"} em ${sec.nome}.`,
+      );
       await carregarDados();
     } catch (e) {
       setErro(mensagemAmigavel(e, "Erro ao salvar saldos em lote."));
@@ -486,44 +580,285 @@ export default function Saldos() {
     }
   }
 
-  /**
-   * Abre a confirmação de exclusão da conta bancária.
-   *
-   * Conta bancária é registro sensível: o motivo é obrigatório. A mecânica da
-   * exclusão continua exatamente a mesma de sempre (a conta é desativada e sai
-   * do painel) — Saldos das Contas segue fora da exclusão lógica.
-   */
-  function excluirConta(contaId) {
-    const { conta, secretaria } = localizarConta(contaId);
+  // -------------------------------------------------------------------------
+  // Cadastro da conta bancária
+  //
+  // Criar, editar e mudar a situação (ativa / desativada). O saldo NUNCA é
+  // gravado por aqui: quando há saldo inicial, quem grava é `lancarSaldoDaConta`
+  // — a mesma rotina do lançamento diário.
+  // -------------------------------------------------------------------------
+
+  function abrirNovaConta() {
+    setErro(null);
+    setAviso(null);
+    setModalConta({ modo: "novo", conta: null });
+  }
+
+  function abrirEdicaoConta(contaId) {
+    const conta = todasAsContas.find((c) => String(c.id) === String(contaId));
     if (!conta) return;
-    const rotulo = rotuloDaConta(conta, secretaria);
-    setExclusaoPendente({
-      tipo: "conta",
-      id: contaId,
-      rotulo,
-      registro: `a conta bancária ${rotulo}`,
-      aviso: "Os saldos desta conta deixam de aparecer no painel e ela sai da lista da secretaria.",
-      exigirMotivo: true,
+    setErro(null);
+    setAviso(null);
+    setModalConta({ modo: "editar", conta });
+  }
+
+  /** Secretaria escolhida no formulário, criando-a quando for nova. */
+  async function resolverSecretaria(dados) {
+    if (!dados.nova_secretaria) return { id: dados.secretaria_id, nome: nomeDaSecretariaSalva(dados.secretaria_id) };
+    const nome = String(dados.secretaria_novo_nome).trim();
+    const { data, error } = await supabase.from("secretarias").insert({ nome }).select("id, nome").single();
+    if (error) throw error;
+    return { id: data.id, nome: data.nome };
+  }
+
+  async function resolverBanco(dados) {
+    if (!dados.novo_banco) return { id: dados.banco_id, nome: nomeDoBancoSalvo(dados.banco_id) };
+    const nome = String(dados.banco_novo_nome).trim();
+    const { data, error } = await supabase.from("bancos").insert({ nome }).select("id, nome").single();
+    if (error) throw error;
+    return { id: data.id, nome: data.nome };
+  }
+
+  /** Fonte de recurso: opcional, e inexistente enquanto a migration não roda. */
+  async function resolverFonte(dados) {
+    if (!comFonteRecurso || fontes === null) return { id: null, nome: null };
+    if (!dados.nova_fonte) {
+      const escolhida = (fontes ?? []).find((f) => String(f.id) === String(dados.fonte_recurso_id));
+      return { id: dados.fonte_recurso_id || null, nome: escolhida?.nome ?? null };
+    }
+    const nome = String(dados.fonte_novo_nome).trim();
+    if (!nome) return { id: null, nome: null };
+    const criada = await criarFonteRecurso(nome);
+    return { id: criada.id, nome: criada.nome };
+  }
+
+  function nomeDaSecretariaSalva(id) {
+    return secretarias.find((sec) => String(sec.id) === String(id))?.nome ?? null;
+  }
+
+  function nomeDoBancoSalvo(id) {
+    return bancos.find((banco) => String(banco.id) === String(id))?.nome ?? null;
+  }
+
+  /**
+   * Salva o cadastro — criação e edição no mesmo caminho.
+   *
+   * Na edição nada de saldo é tocado: só as colunas de cadastro de
+   * contas_bancarias mudam, e a auditoria recebe campo a campo o valor anterior
+   * e o novo.
+   */
+  async function salvarConta(dados) {
+    const edicao = modalConta?.modo === "editar";
+    const contaAtual = modalConta?.conta ?? null;
+
+    const secretaria = await resolverSecretaria(dados);
+    const banco = await resolverBanco(dados);
+
+    // Duas contas não podem ter o mesmo número no mesmo banco e na mesma
+    // secretaria — inclusive contra as desativadas, que nesse caso a mensagem
+    // manda reativar em vez de duplicar.
+    const conflito = contaDuplicada({
+      contas: todasAsContas,
+      secretariaId: secretaria.id,
+      bancoId: banco.id,
+      numeroConta: dados.numero_conta,
+      ignorarId: edicao ? contaAtual?.id : null,
+    });
+    if (conflito) throw erroAmigavel(mensagemDuplicidade(conflito));
+
+    const fonte = await resolverFonte(dados);
+    const payload = {
+      secretariaId: secretaria.id,
+      bancoId: banco.id,
+      nomeConta: dados.nome_conta,
+      numeroConta: dados.numero_conta,
+      tipoConta: dados.tipo_conta,
+      fonteRecursoId: fonte.id,
+    };
+
+    const depois = {
+      secretaria: secretaria.nome,
+      banco: banco.nome,
+      numero_conta: String(dados.numero_conta).trim(),
+      nome_conta: String(dados.nome_conta).trim(),
+      tipo_conta: dados.tipo_conta,
+      fonte_recurso: fonte.nome,
+    };
+
+    if (edicao) {
+      const antes = {
+        secretaria: contaAtual.secretaria,
+        banco: contaAtual.banco,
+        numero_conta: contaAtual.numero_conta,
+        nome_conta: contaAtual.nome_conta,
+        tipo_conta: contaAtual.tipo_conta,
+        fonte_recurso: contaAtual.fonte_recurso,
+      };
+      const { alterados, houveMudanca, resumo } = alteracoesDoCadastro(antes, depois);
+      if (!houveMudanca) {
+        setModalConta(null);
+        setAviso("Nenhum campo do cadastro foi alterado.");
+        return;
+      }
+
+      await atualizarContaBancaria(contaAtual.id, payload, { comFonteRecurso });
+
+      const { anterior, novo } = retratoDasAlteracoes(alterados);
+      await registrarEvento({
+        modulo: "saldos",
+        acao: "alterou",
+        registroAfetado: rotuloDaConta(contaAtual, contaAtual.secretaria),
+        valorAnterior: anterior,
+        valorNovo: novo,
+        // Edição de cadastro não move dinheiro: nenhum saldo e nenhum histórico
+        // é alterado por aqui.
+        nivel: "atencao",
+      });
+
+      setModalConta(null);
+      setAviso(`Cadastro atualizado (${resumo}). Nenhum saldo lançado foi alterado.`);
+      await carregarDados();
+      return;
+    }
+
+    const criada = await criarContaBancaria(payload, { comFonteRecurso });
+
+    // Saldo inicial é opcional. Informado, vai para saldos_historico na data do
+    // cadastro pela MESMA rotina do lançamento diário. Em branco, a conta nasce
+    // sem saldo e recebe o primeiro lançamento normalmente.
+    const comSaldoInicial = saldoInicialInformado(dados.saldo_inicial);
+    if (comSaldoInicial) {
+      await lancarSaldoDaConta({
+        contaId: criada.id,
+        valor: dados.saldo_inicial,
+        data: dados.data_saldo,
+      });
+    }
+
+    await registrarEvento({
+      modulo: "saldos",
+      acao: "criou",
+      registroAfetado: rotuloDaConta(
+        { banco: banco.nome, nome_conta: depois.nome_conta, numero_conta: depois.numero_conta },
+        secretaria.nome,
+      ),
+      valorNovo: {
+        ...retratoDoCadastro(depois),
+        ...(comSaldoInicial
+          ? {
+              saldo_inicial: formatBRL(paraNumeroMoeda(dados.saldo_inicial)),
+              data_saldo: dados.data_saldo,
+            }
+          : { saldo_inicial: "Não informado" }),
+      },
+      // Conta que já nasce com saldo mexe com dinheiro: evento crítico.
+      nivel: comSaldoInicial ? "critico" : "atencao",
+    });
+
+    setModalConta(null);
+    setAviso(
+      comSaldoInicial
+        ? `Conta ${depois.nome_conta} cadastrada com saldo inicial lançado em ${dataBR(dados.data_saldo)}.`
+        : `Conta ${depois.nome_conta} cadastrada. Lance o saldo dela no próximo lançamento do dia.`,
+    );
+    await carregarDados();
+  }
+
+  /**
+   * Abre a confirmação de desativação ou reativação da conta.
+   *
+   * Desativar não é excluir: a conta sai das telas de uso corrente (entre elas
+   * a seleção de contas da Programação Diária) e todo o histórico de saldos e
+   * as movimentações passadas continuam no banco. Não existe exclusão
+   * definitiva de conta bancária.
+   */
+  async function abrirSituacaoConta(contaId, destino) {
+    const conta = todasAsContas.find((c) => String(c.id) === String(contaId));
+    if (!conta) return;
+    setErro(null);
+    setAviso(null);
+
+    const rotulo = rotuloDaConta(conta, conta.secretaria);
+    const dataDoSaldo = conta.dataSaldo ?? conta.dataDoSaldo ?? null;
+    setSituacaoPendente({
+      conta: { ...conta, rotulo },
+      destino,
+      verificando: destino === "desativar",
+      programacoes: [],
       detalhes: [
-        { rotulo: "Secretaria", valor: secretaria ?? "--" },
+        { rotulo: "Secretaria", valor: conta.secretaria ?? "--" },
         { rotulo: "Banco", valor: conta.banco ?? "--" },
         { rotulo: "Número da conta", valor: conta.numero_conta || "--" },
-        { rotulo: "Saldo atual", valor: formatBRL(paraNumeroMoeda(conta.saldo ?? 0)) },
+        { rotulo: "Tipo de conta", valor: tipoContaLabel(conta.tipo_conta) },
+        {
+          rotulo: "Último saldo lançado",
+          valor: dataDoSaldo
+            ? `${formatBRL(paraNumeroMoeda(conta.saldo ?? 0))} em ${dataBR(dataDoSaldo)}`
+            : "Sem lançamento",
+        },
       ],
-      anterior: {
-        conta: rotulo,
-        secretaria: secretaria ?? null,
-        saldo: formatBRL(paraNumeroMoeda(conta.saldo ?? 0)),
-        data_saldo: conta.dataSaldo ?? conta.dataDoSaldo ?? null,
-      },
     });
+
+    if (destino !== "desativar") return;
+
+    // Aviso antes de confirmar: a conta pode estar escolhida em alguma
+    // programação ainda em elaboração.
+    try {
+      const programacoes = await programacoesEmElaboracaoComConta(conta.id);
+      setSituacaoPendente((atual) =>
+        atual && String(atual.conta.id) === String(conta.id)
+          ? { ...atual, programacoes, verificando: false }
+          : atual,
+      );
+    } catch {
+      // Não conseguir conferir não impede a desativação: o aviso é um extra.
+      setSituacaoPendente((atual) =>
+        atual && String(atual.conta.id) === String(conta.id) ? { ...atual, verificando: false } : atual,
+      );
+    }
+  }
+
+  async function confirmarSituacao(motivo) {
+    const pendente = situacaoPendente;
+    if (!pendente) return;
+    const desativando = pendente.destino === "desativar";
+    const conta = pendente.conta;
+    const dataDoSaldo = conta.dataSaldo ?? conta.dataDoSaldo ?? null;
+
+    await definirSituacaoConta(conta.id, !desativando);
+
+    await registrarEvento({
+      modulo: "saldos",
+      acao: desativando ? "desativou_conta" : "reativou_conta",
+      registroAfetado: conta.rotulo,
+      valorAnterior: { situacao: desativando ? "Ativa" : "Desativada" },
+      valorNovo: {
+        situacao: desativando ? "Desativada" : "Ativa",
+        saldo: formatBRL(paraNumeroMoeda(conta.saldo ?? 0)),
+        data_saldo: dataDoSaldo,
+        // Deixa registrado na trilha que nada foi apagado.
+        historico_saldos: "Preservado integralmente",
+        ...(desativando && pendente.programacoes.length > 0
+          ? { programacoes_em_elaboracao: pendente.programacoes.length }
+          : {}),
+        ...(motivo ? { motivo_desativacao: motivo } : {}),
+      },
+      nivel: "critico",
+    });
+
+    setSituacaoPendente(null);
+    setAviso(
+      desativando
+        ? "Conta desativada. O histórico de saldos dela continua disponível em Histórico, Relatórios e Auditoria."
+        : "Conta reativada com todo o histórico que já tinha.",
+    );
+    await carregarDados();
   }
 
   function excluirSecretaria(secretariaId, nome) {
     const secretaria = contasPorSecretaria.find((s) => String(s.id) === String(secretariaId));
     const quantidade = secretaria?.contas?.length ?? 0;
     setExclusaoPendente({
-      tipo: "secretaria",
       id: secretariaId,
       rotulo: nome,
       registro: `a secretaria ${nome}`,
@@ -540,17 +875,16 @@ export default function Saldos() {
 
   /**
    * Executa a exclusão confirmada no modal e registra o evento na auditoria.
-   * Em Saldos a exclusão continua sendo a inativação de sempre (ativo = false):
-   * a exclusão lógica com excluido_em vale para fornecedores, certidões e
-   * pagamentos, não para a lógica financeira das contas.
+   * Vale apenas para secretaria: em Saldos a exclusão continua sendo a
+   * inativação de sempre (ativo = false). Conta bancária não passa por aqui —
+   * ela tem o próprio fluxo de desativar/reativar, sem exclusão definitiva.
    */
   async function confirmarExclusao(motivo) {
     const pendente = exclusaoPendente;
     if (!pendente) return;
     setErro(null);
 
-    const tabela = pendente.tipo === "conta" ? "contas_bancarias" : "secretarias";
-    const { error } = await supabase.from(tabela).update({ ativo: false }).eq("id", pendente.id);
+    const { error } = await supabase.from("secretarias").update({ ativo: false }).eq("id", pendente.id);
     if (error) throw error;
 
     await auditarExclusao({
@@ -559,105 +893,24 @@ export default function Saldos() {
       motivo,
       valorAnterior: pendente.anterior,
       logica: false,
-      // Conta bancária mexe com dinheiro: excluí-la é evento crítico.
-      nivel: pendente.tipo === "conta" ? "critico" : "atencao",
+      nivel: "atencao",
     });
 
     setExclusaoPendente(null);
     await carregarDados();
   }
 
-  async function criarConta(e) {
-    e.preventDefault();
-    setSalvando(true);
-    setErro(null);
-    try {
-      let secretariaId = form.secretaria_id;
-      let bancoId = form.banco_id;
-
-      if (novaSecretaria && form.secretaria_novo_nome.trim()) {
-        const { data: secData, error: eSec } = await supabase
-          .from("secretarias").insert({ nome: form.secretaria_novo_nome.trim() }).select().single();
-        if (eSec) throw eSec;
-        secretariaId = secData.id;
-      }
-
-      if (novoBanco && form.banco_novo_nome.trim()) {
-        const { data: bancoData, error: eBanco } = await supabase
-          .from("bancos").insert({ nome: form.banco_novo_nome.trim() }).select().single();
-        if (eBanco) throw eBanco;
-        bancoId = bancoData.id;
-      }
-
-      if (!secretariaId || !bancoId || !form.nome_conta) {
-        throw erroAmigavel("Preencha secretaria, banco e nome da conta.");
-      }
-
-      const { data: contaData, error: eConta } = await supabase
-        .from("contas_bancarias")
-        .insert({
-          secretaria_id: secretariaId, banco_id: bancoId, nome_conta: form.nome_conta,
-          numero_conta: form.numero_conta || null, tipo_conta: form.tipo_conta || null,
-        }).select().single();
-      if (eConta) throw eConta;
-
-      const valorInicial = paraNumeroMoeda(form.saldo_inicial);
-      const { error: eSaldo } = await supabase.from("saldos_historico").insert({
-        conta_id: contaData.id, valor_saldo: valorInicial, data_saldo: form.data_saldo,
-      });
-      if (eSaldo) throw eSaldo;
-
-      // Auditoria: a conta nova já entra no painel com saldo, por isso o evento
-      // de criação também é crítico.
-      const nomeSecretaria =
-        secretarias.find((s) => String(s.id) === String(secretariaId))?.nome ||
-        form.secretaria_novo_nome.trim() ||
-        null;
-      const nomeBanco =
-        bancos.find((b) => String(b.id) === String(bancoId))?.nome || form.banco_novo_nome.trim() || null;
-      await registrarEvento({
-        modulo: "saldos",
-        acao: "criou",
-        registroAfetado: rotuloDaConta(
-          { banco: nomeBanco, nome_conta: form.nome_conta, numero_conta: form.numero_conta },
-          nomeSecretaria,
-        ),
-        valorNovo: {
-          secretaria: nomeSecretaria,
-          banco: nomeBanco,
-          nome_conta: form.nome_conta,
-          numero_conta: form.numero_conta || null,
-          saldo_inicial: formatBRL(valorInicial),
-          data_saldo: form.data_saldo,
-        },
-        nivel: "critico",
-      });
-
-      setForm({
-        secretaria_id: "", secretaria_novo_nome: "", banco_id: "", banco_novo_nome: "",
-        nome_conta: "", numero_conta: "", tipo_conta: "", saldo_inicial: "", data_saldo: hojeISO(),
-      });
-      setNovoBanco(false);
-      setNovaSecretaria(false);
-      setMostrarForm(false);
-      await carregarDados();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao criar conta."));
-    } finally {
-      setSalvando(false);
-    }
-  }
-
   async function salvarNovoSaldo(contaId) {
     setSalvando(true);
     setErro(null);
     try {
+      // Sem valor digitado não há o que lançar: o campo em branco nunca vira
+      // R$ 0,00 no banco.
+      if (!campoPreenchido(novoSaldo.valor)) {
+        throw erroAmigavel("Digite o novo saldo desta conta.");
+      }
       const valor = paraNumeroMoeda(novoSaldo.valor);
-      const { error } = await supabase.from("saldos_historico").upsert(
-        { conta_id: contaId, valor_saldo: valor, data_saldo: novoSaldo.data },
-        { onConflict: "conta_id,data_saldo" }
-      );
-      if (error) throw error;
+      await lancarSaldoDaConta({ contaId, valor, data: novoSaldo.data });
 
       // Auditoria: lançamento de saldo é evento crítico.
       const { conta, secretaria } = localizarConta(contaId);
@@ -811,13 +1064,11 @@ export default function Saldos() {
             .single();
           if (eConta) throw eConta;
 
-          const valor = paraNumeroMoeda(saldoStr);
-          const { error: eSaldo } = await supabase.from("saldos_historico").insert({
-            conta_id: contaData.id,
-            valor_saldo: valor,
-            data_saldo: hojeISO(),
-          });
-          if (eSaldo) throw eSaldo;
+          // Mesma rotina de lançamento das demais telas: o saldo da linha só é
+          // gravado quando ela realmente traz um valor.
+          if (campoPreenchido(saldoStr)) {
+            await lancarSaldoDaConta({ contaId: contaData.id, valor: saldoStr, data: hojeISO() });
+          }
 
           criadas++;
         } catch (e) {
@@ -903,18 +1154,19 @@ export default function Saldos() {
             {modoVisualizacao === "atual" && (
               <>
                 <button
-                  onClick={() => { setMostrarImportar((v) => !v); setMostrarForm(false); }}
+                  onClick={() => setMostrarImportar((v) => !v)}
                   className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
                 >
                   <Upload size={14} /> Importar em lote
                 </button>
-                <button
-                  onClick={() => { setMostrarForm((v) => !v); setMostrarImportar(false); }}
-                  className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
-                >
-                  {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-                  {mostrarForm ? "Cancelar" : "Novo Registro"}
-                </button>
+                {podeCadastrar && (
+                  <button
+                    onClick={abrirNovaConta}
+                    className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90"
+                  >
+                    <Plus size={16} /> Nova Conta
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -942,6 +1194,14 @@ export default function Saldos() {
         {erro && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-5 print:hidden">
             {erro}
+          </div>
+        )}
+        {aviso && (
+          <div className="flex items-start justify-between gap-3 bg-[#EAFBF0] border border-[#16A34A]/25 text-[#15803D] text-sm rounded-lg px-4 py-3 mb-5 print:hidden">
+            <span>{aviso}</span>
+            <button onClick={() => setAviso(null)} className="text-[#15803D]/60 hover:text-[#15803D]">
+              <X size={14} />
+            </button>
           </div>
         )}
         {modoVisualizacao === "atual" && mostrarImportar && (
@@ -981,139 +1241,6 @@ export default function Saldos() {
           </div>
         )}
 
-        {modoVisualizacao === "atual" && mostrarForm && (
-          <form
-            onSubmit={criarConta}
-            className="bg-white rounded-2xl border border-black/5 shadow-sm p-5 mb-6 space-y-4 print:hidden"
-          >
-            <h2 className="text-base font-semibold text-[#0F2A44]">Cadastrar nova conta</h2>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Secretaria</label>
-                {!novaSecretaria ? (
-                  <select
-                    value={form.secretaria_id}
-                    onChange={(e) => {
-                      if (e.target.value === "__nova__") setNovaSecretaria(true);
-                      else setForm({ ...form, secretaria_id: e.target.value });
-                    }}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  >
-                    <option value="">Selecione...</option>
-                    {secretarias.map((s) => (
-                      <option key={s.id} value={s.id}>{s.nome}</option>
-                    ))}
-                    <option value="__nova__">+ Cadastrar nova secretaria</option>
-                  </select>
-                ) : (
-                  <div className="flex gap-2 mt-1">
-                    <input
-                      type="text" placeholder="Nome da nova secretaria"
-                      value={form.secretaria_novo_nome}
-                      onChange={(e) => setForm({ ...form, secretaria_novo_nome: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                    <button type="button" onClick={() => { setNovaSecretaria(false); setForm({ ...form, secretaria_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
-                      <X size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Banco</label>
-                {!novoBanco ? (
-                  <select
-                    value={form.banco_id}
-                    onChange={(e) => {
-                      if (e.target.value === "__novo__") setNovoBanco(true);
-                      else setForm({ ...form, banco_id: e.target.value });
-                    }}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                  >
-                    <option value="">Selecione...</option>
-                    {bancos.map((b) => (
-                      <option key={b.id} value={b.id}>{b.nome}</option>
-                    ))}
-                    <option value="__novo__">+ Cadastrar novo banco</option>
-                  </select>
-                ) : (
-                  <div className="flex gap-2 mt-1">
-                    <input
-                      type="text" placeholder="Nome do novo banco"
-                      value={form.banco_novo_nome}
-                      onChange={(e) => setForm({ ...form, banco_novo_nome: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                    />
-                    <button type="button" onClick={() => { setNovoBanco(false); setForm({ ...form, banco_novo_nome: "" }); }} className="px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/50">
-                      <X size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Nome da conta</label>
-                <input
-                  type="text" placeholder="Ex: Conta Movimento"
-                  value={form.nome_conta}
-                  onChange={(e) => setForm({ ...form, nome_conta: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Número da conta (opcional)</label>
-                <input
-                  type="text"
-                  value={form.numero_conta}
-                  onChange={(e) => setForm({ ...form, numero_conta: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Tipo (opcional)</label>
-                <input
-                  type="text" placeholder="Ex: custeio, investimento"
-                  value={form.tipo_conta}
-                  onChange={(e) => setForm({ ...form, tipo_conta: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Saldo inicial</label>
-                <CampoMoeda
-                  placeholder="R$ 0,00"
-                  valor={form.saldo_inicial}
-                  onValorChange={(numero) => setForm({ ...form, saldo_inicial: numero })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-[#0F2A44]/70">Data do saldo</label>
-                <input
-                  type="date"
-                  value={form.data_saldo}
-                  onChange={(e) => setForm({ ...form, data_saldo: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit" disabled={salvando}
-              className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
-            >
-              <Save size={15} />
-              {salvando ? "Salvando..." : "Salvar conta"}
-            </button>
-          </form>
-        )}
         {modoVisualizacao === "atual" && (
           carregando ? (
             <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
@@ -1157,9 +1284,16 @@ export default function Saldos() {
                             <input
                               type="date"
                               value={dataLote}
-                              onChange={(e) => setDataLote(e.target.value)}
+                              onChange={(e) => mudarDataLote(sec, e.target.value)}
                               className="px-2 py-1 rounded border border-black/10 text-xs"
                             />
+                            <button
+                              onClick={() => setLimparPendente({ secretariaId: sec.id })}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
+                              title="Esvaziar os campos de saldo desta secretaria (só na tela)"
+                            >
+                              <Eraser size={12} /> Limpar campos
+                            </button>
                             <button
                               onClick={() => salvarLote(sec)}
                               disabled={salvando}
@@ -1234,13 +1368,25 @@ export default function Saldos() {
                               <td className="px-4 py-2.5 whitespace-nowrap text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
                               <td className="px-4 py-2.5 text-center whitespace-nowrap tabular-nums font-bold">
                                 {emLote ? (
-                                  <CampoMoeda
-                                    valor={saldosLote[c.id] ?? ""}
-                                    onValorChange={(numero) =>
-                                      setSaldosLote((atual) => ({ ...atual, [c.id]: numero }))
-                                    }
-                                    className="w-28 px-2 py-1 rounded border border-black/10 text-xs text-center"
-                                  />
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <CampoMoeda
+                                      placeholder="R$ 0,00"
+                                      valor={saldosLote[c.id] ?? ""}
+                                      onValorChange={(numero, texto) =>
+                                        // Campo esvaziado volta a ser "em branco", não zero:
+                                        // sem valor digitado, nada é gravado no banco.
+                                        setSaldosLote((atual) => ({ ...atual, [c.id]: texto === "" ? "" : numero }))
+                                      }
+                                      className="w-28 px-2 py-1 rounded border border-black/10 text-xs text-center"
+                                    />
+                                    {/* Referência discreta: o último saldo conhecido continua
+                                        à vista mesmo com o campo em branco. */}
+                                    <span className="text-[10px] font-normal text-[#0F2A44]/40 whitespace-nowrap">
+                                      {c.dataSaldo
+                                        ? `Último: ${formatBRL(c.saldo)} · ${dataBR(c.dataSaldo)}`
+                                        : "Sem lançamento anterior"}
+                                    </span>
+                                  </div>
                                 ) : editando === c.id ? (
                                   <div className="flex items-center justify-center gap-2">
                                     <input
@@ -1276,19 +1422,28 @@ export default function Saldos() {
                                     ) : (
                                       <>
                                         <button
-                                          onClick={() => { setEditando(c.id); setNovoSaldo({ valor: c.saldo ?? 0, data: hojeISO() }); }}
+                                          onClick={() => { setEditando(c.id); setNovoSaldo({ valor: "", data: hojeISO() }); }}
                                           className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
-                                          title="Atualizar saldo"
+                                          title="Lançar novo saldo"
                                         >
                                           <Pencil size={15} />
                                         </button>
+                                        {podeEditarCadastro && (
+                                          <button
+                                            onClick={() => abrirEdicaoConta(c.id)}
+                                            className="text-[#0F2A44]/40 hover:text-[#0F2A44]"
+                                            title="Editar cadastro da conta (não altera saldos)"
+                                          >
+                                            <Settings2 size={15} />
+                                          </button>
+                                        )}
                                         {podeExcluir && (
                                           <button
-                                            onClick={() => excluirConta(c.id)}
-                                            className="text-[#0F2A44]/30 hover:text-red-500"
-                                            title="Excluir conta"
+                                            onClick={() => abrirSituacaoConta(c.id, "desativar")}
+                                            className="text-[#0F2A44]/30 hover:text-[#B45309]"
+                                            title="Desativar conta (o histórico é preservado)"
                                           >
-                                            <Trash2 size={15} />
+                                            <Archive size={15} />
                                           </button>
                                         )}
                                       </>
@@ -1305,6 +1460,12 @@ export default function Saldos() {
                   </div>
                 );
               })}
+
+              <ContasDesativadas
+                contas={contasInativas}
+                podeReativar={podeExcluir}
+                onReativar={(conta) => abrirSituacaoConta(conta.id, "reativar")}
+              />
             </div>
           )
         )}
@@ -1468,6 +1629,38 @@ export default function Saldos() {
           detalhes={exclusaoPendente.detalhes}
           onCancelar={() => setExclusaoPendente(null)}
           onConfirmar={confirmarExclusao}
+        />
+      )}
+
+      {modalConta && (
+        <ModalContaBancaria
+          modo={modalConta.modo}
+          conta={modalConta.conta}
+          secretarias={secretarias}
+          bancos={bancos}
+          fontes={comFonteRecurso ? fontes : null}
+          onCancelar={() => setModalConta(null)}
+          onSalvar={salvarConta}
+        />
+      )}
+
+      {situacaoPendente && (
+        <ModalSituacaoConta
+          conta={situacaoPendente.conta}
+          destino={situacaoPendente.destino}
+          detalhes={situacaoPendente.detalhes}
+          programacoes={situacaoPendente.programacoes}
+          verificando={situacaoPendente.verificando}
+          onCancelar={() => setSituacaoPendente(null)}
+          onConfirmar={confirmarSituacao}
+        />
+      )}
+
+      {limparPendente && (
+        <ModalLimparCampos
+          quantidade={camposPreenchidosNoLote()}
+          onCancelar={() => setLimparPendente(null)}
+          onConfirmar={limparCamposLote}
         />
       )}
     </Layout>
