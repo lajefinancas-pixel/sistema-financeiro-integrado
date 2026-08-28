@@ -9,8 +9,16 @@ export const ACOES_ESPECIAIS = [
   { id: "visualizar_pix", label: "Visualizar PIX" },
   { id: "cadastrar_pix", label: "Cadastrar PIX" },
   { id: "editar_pix", label: "Editar PIX" },
-  { id: "executar_transferencia", label: "Executar transferência entre contas" },
-  { id: "estornar_transferencia", label: "Cancelar/estornar transferência" },
+  // Execução financeira da programação diária (Fase 2 dos Pagamentos
+  // Diários). Aprovar e definir a conta de um pagamento NÃO movimentam saldo;
+  // a transferência entre contas confirmada é a única operação da etapa que
+  // move dinheiro, e por isso tem permissão própria para executar e outra,
+  // separada, para estornar.
+  { id: "aprovar_programacao", label: "Aprovar programação de pagamento" },
+  { id: "executar_programacao", label: "Executar programação aprovada" },
+  { id: "definir_conta_pagamento", label: "Definir conta de pagamento" },
+  { id: "executar_transferencia", label: "Transferir entre contas" },
+  { id: "estornar_transferencia", label: "Estornar transferência" },
   { id: "visualizar_baixas", label: "Visualizar baixas" },
   { id: "registrar_baixa", label: "Registrar baixa" },
   { id: "registrar_baixa_avulsa", label: "Registrar baixa avulsa (sem programação)" },

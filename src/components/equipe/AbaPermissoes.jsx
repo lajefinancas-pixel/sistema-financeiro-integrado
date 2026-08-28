@@ -72,6 +72,13 @@ export default function AbaPermissoes({ usuarioId, podeEditar }) {
         visualizar_pix: fornecedor.pode_visualizar === true,
         cadastrar_pix: fornecedor.pode_cadastrar === true,
         editar_pix: fornecedor.pode_editar === true,
+        // Padrão das cinco permissões da execução financeira: quem já podia
+        // aprovar, editar ou excluir em Pagamentos continua podendo. Assim
+        // ninguém perde acesso só porque a permissão passou a ser listada
+        // aqui -- e cada uma pode ser afrouxada ou apertada uma a uma.
+        aprovar_programacao: pagamentos.pode_aprovar === true,
+        executar_programacao: pagamentos.pode_aprovar === true,
+        definir_conta_pagamento: pagamentos.pode_editar === true,
         executar_transferencia: pagamentos.pode_aprovar === true,
         estornar_transferencia: pagamentos.pode_excluir === true,
       };

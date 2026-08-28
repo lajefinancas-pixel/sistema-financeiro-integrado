@@ -10,6 +10,13 @@ import { usePermissaoModulo } from "../lib/permissoes";
 import { agoraBR, exportarExcelProgramacao, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
 import { FUNCOES_FASE_1, classificarFalhaFase1, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
+import { verificarEstruturaFase2 } from "../lib/estruturaPagamentosFase2";
+import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
+import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, definirContaDePagamentos, estruturaFase2Ausente } from "../lib/execucaoProgramacaoDados";
+import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoProgramacao";
+import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
+import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
+import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -21,6 +28,7 @@ const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
 const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
+const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
 
 function idInteiro(valor, campo) {
   const id = Number(valor);
@@ -81,13 +89,39 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
   return mensagemAmigavel(falha, mensagemPadrao);
 }
 
+// A execução financeira tem migration própria, e ela roda à mão no SQL Editor.
+// Enquanto não rodar, a tela não pode quebrar: a Fase 1 inteira continua de pé e
+// só a aprovação, a execução e a transferência ficam indisponíveis, com o aviso
+// dizendo qual arquivo executar.
+function mensagemFalhaFase2(falha, mensagemPadrao) {
+  if (estruturaFase2Ausente(falha)) {
+    return `A estrutura da Fase 2 (execução financeira) não está no banco conectado a esta tela. Execute ${MIGRATION_FASE_2} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo do banco está no console (F12).`;
+  }
+  return mensagemFalhaFase1(falha, mensagemPadrao);
+}
+
+function registrarErroFase2(operacao, falha, contexto = {}) {
+  if (typeof console === "undefined") return;
+  console.error(`[Pagamentos Fase 2] ${operacao}`, {
+    ...contexto,
+    code: falha?.code,
+    message: falha?.message,
+    details: falha?.details,
+    hint: falha?.hint,
+    status: falha?.status,
+    classificacao: classificarFalhaFase1(falha),
+    erroOriginal: falha,
+  });
+}
+
 function nomePagamento(pagamento) {
   return pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Fornecedor avulso";
 }
 
 function statusLabel(status, fechado = false) {
-  if (fechado) return "HISTÓRICO";
-  return status === "em_analise" ? "EM ANÁLISE" : "EM ELABORAÇÃO";
+  // "APROVADA / AGUARDANDO EXECUÇÃO" entra aqui: aprovado não é pago, e o
+  // rótulo diz isso ao usuário sem depender de nenhuma outra tela.
+  return statusLabelExecucao(status, fechado);
 }
 
 export default function PagamentosRedesenhado() {
@@ -117,7 +151,19 @@ export default function PagamentosRedesenhado() {
   // a lista completa para sobrar na tela (e no papel) o que foi escolhido.
   const [contasConfirmadas, setContasConfirmadas] = React.useState(false);
   const [fornecedoresConfirmados, setFornecedoresConfirmados] = React.useState(false);
-  const podeEditarProgramacao = podeEditar && programacao?.fechado !== true;
+  // Etapa de execução (Fase 2). Nada aqui movimenta saldo, com uma única
+  // exceção: a transferência entre contas confirmada.
+  const [estruturaFase2, setEstruturaFase2] = React.useState(null);
+  const [permissoesFase2, setPermissoesFase2] = React.useState(null);
+  const [transferencias, setTransferencias] = React.useState([]);
+  const [contasTransferencia, setContasTransferencia] = React.useState([]);
+  const [mostrarAprovacao, setMostrarAprovacao] = React.useState(false);
+  const [mostrarTransferencia, setMostrarTransferencia] = React.useState(false);
+  const [estornoAlvo, setEstornoAlvo] = React.useState(null);
+  // Aprovada trava a proposta: o que muda depois disso é a execução, não o
+  // planejamento. Retirar fornecedor, alterar valor e mexer nas contas valem
+  // enquanto a programação está em elaboração ou em análise.
+  const podeEditarProgramacao = podeEditar && programacao?.fechado !== true && programacao?.status !== STATUS_APROVADA;
 
   React.useEffect(() => {
     carregarSecretarias();
@@ -135,19 +181,38 @@ export default function PagamentosRedesenhado() {
     else limparEdicao();
   }, [programacaoId]);
 
+  React.useEffect(() => {
+    let ativo = true;
+    carregarPermissoesFase2(permissao).then((valores) => {
+      if (ativo) setPermissoesFase2(valores);
+    });
+    return () => { ativo = false; };
+  }, [permissao]);
+
   // Conferência ativa, feita ao abrir a tela: diz exatamente quais colunas
   // faltam, em vez de esperar uma ação falhar e adivinhar o motivo. `limit(0)`
   // não traz linha nenhuma, então policy de RLS restritiva não é confundida
   // com estrutura ausente.
   async function conferirEstrutura() {
-    const resultado = await verificarEstruturaFase1(supabase);
+    const [resultado, resultadoFase2] = await Promise.all([
+      verificarEstruturaFase1(supabase),
+      verificarEstruturaFase2(supabase),
+    ]);
     setEstrutura(resultado);
+    setEstruturaFase2(resultadoFase2);
     if (typeof console !== "undefined" && resultado.falhas.length) {
       console.error("[Pagamentos Fase 1] Verificação de estrutura", {
         faltando: resultado.faltando,
         naoVerificado: resultado.naoVerificado,
         funcoesEsperadas: FUNCOES_FASE_1,
         falhas: resultado.falhas,
+      });
+    }
+    if (typeof console !== "undefined" && resultadoFase2.falhas.length) {
+      console.error("[Pagamentos Fase 2] Verificação de estrutura", {
+        faltando: resultadoFase2.faltando,
+        naoVerificado: resultadoFase2.naoVerificado,
+        falhas: resultadoFase2.falhas,
       });
     }
   }
@@ -227,6 +292,7 @@ export default function PagamentosRedesenhado() {
 
   function limparEdicao() {
     setProgramacao(null);
+    setTransferencias([]);
     setContasSelecionadas(new Set());
     setPagamentos([]);
     setContasConfirmadas(false);
@@ -248,9 +314,16 @@ export default function PagamentosRedesenhado() {
       const { data: responsavel } = programa?.responsavel_id
         ? await supabase.from("usuarios").select("nome_completo").eq("id", programa.responsavel_id).maybeSingle()
         : { data: null };
+      const contaPorPagamento = await contasDefinidasDosPagamentos(idProgramacao);
       setProgramacao({ ...programa, responsavel });
       setContasSelecionadas(new Set((vinculadas ?? []).map((item) => item.conta_id)));
-      setPagamentos((itens ?? []).map((item) => ({ ...item, valor_a_pagar: numero(item.valor_a_pagar) })));
+      setPagamentos((itens ?? []).map((item) => ({
+        ...item,
+        valor_a_pagar: numero(item.valor_a_pagar),
+        conta_origem_id: contaPorPagamento.get(String(item.id)) ?? null,
+      })));
+      if (programa?.status === STATUS_APROVADA) await atualizarTransferencias(idProgramacao);
+      else setTransferencias([]);
       // Programação que já tem escolha feita abre recolhida; vazia abre com as
       // listas visíveis para a seleção começar. Recarga feita depois de salvar
       // mantém a tela como o usuário deixou -- salvar não recolhe nem reabre.
@@ -420,6 +493,131 @@ export default function PagamentosRedesenhado() {
     await carregarProgramacoes(programacao.id);
   }
 
+  // A conta de cada pagamento é lida em consulta própria e tolerante a falha:
+  // se a migration da Fase 2 ainda não rodou, a coluna não existe, a
+  // programação abre normalmente sem a informação e o aviso do topo explica o
+  // que executar. Sem isto a tela inteira quebraria por causa de uma coluna.
+  async function contasDefinidasDosPagamentos(idProgramacao) {
+    const { data: itens, error } = await supabase
+      .from("pagamentos")
+      .select("id, conta_origem_id")
+      .eq("programacao_id", idProgramacao)
+      .is("excluido_em", null);
+    if (error) {
+      registrarErroFase2("Falha ao ler a conta definida de cada pagamento", error, { programacaoId: idProgramacao });
+      return new Map();
+    }
+    return new Map((itens ?? []).map((item) => [String(item.id), item.conta_origem_id ?? null]));
+  }
+
+  async function atualizarTransferencias(id) {
+    try {
+      setTransferencias(await carregarTransferenciasDaProgramacao(idInteiro(id, "Programação")));
+    } catch (falha) {
+      registrarErroFase2("Falha ao carregar as transferências da programação", falha, { programacaoId: id });
+      setTransferencias([]);
+    }
+  }
+
+  // APROVAR NÃO É PAGAR: a aprovação grava a proposta como ela está na tela,
+  // troca o status e registra a conferência. Não debita conta, não dá baixa em
+  // nota, não altera saldo de fornecedor e não marca nota como paga.
+  async function confirmarAprovacao() {
+    if (!programacao) return;
+    const salvo = await salvarProgramacao();
+    if (!salvo) return;
+    setSalvando(true);
+    setErro("");
+    setMensagem("");
+    try {
+      await aprovarProgramacao({
+        programacaoId: idInteiro(programacao.id, "Programação"),
+        saldoConsiderado: totalDisponivel,
+        totalProgramado,
+        restante,
+      });
+      setMostrarAprovacao(false);
+      setMensagem("Programação aprovada e aguardando execução. Nenhuma conta foi debitada: aprovar não é pagar.");
+      await carregarProgramacao(programacao.id, { manterRecolhimento: true });
+      await carregarProgramacoes(programacao.id);
+    } catch (falha) {
+      registrarErroFase2("Falha ao aprovar programação", falha, { programacaoId: programacao.id });
+      setErro(mensagemFalhaFase2(falha, "Não foi possível aprovar a programação."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // ATRIBUIR CONTA NÃO DEBITA CONTA: o vínculo é o roteiro do pagamento. O
+  // mesmo caminho atende um pagamento, os marcados e todos -- e depois de
+  // aplicar em lote a troca individual continua possível.
+  async function gravarContaDosPagamentos(ids, contaId) {
+    if (!programacao) return;
+    const alvos = (ids ?? []).filter((id) => id != null).map((id) => idInteiro(id, "Pagamento"));
+    if (!alvos.length) {
+      setErro("Salve a programação antes de definir a conta destes pagamentos.");
+      return;
+    }
+    setSalvando(true);
+    setErro("");
+    setMensagem("");
+    try {
+      const conta = contaId ? idInteiro(contaId, "Conta") : null;
+      await definirContaDePagamentos({
+        programacaoId: idInteiro(programacao.id, "Programação"),
+        pagamentoIds: alvos,
+        contaId: conta,
+      });
+      setPagamentos((itens) => aplicarContaEmPagamentos(itens, alvos, conta));
+      setMensagem(alvos.length === 1
+        ? "Conta do pagamento definida. Definir conta não debita conta."
+        : `Conta definida em ${alvos.length} pagamentos. Definir conta não debita conta.`);
+    } catch (falha) {
+      registrarErroFase2("Falha ao definir a conta do pagamento", falha, { programacaoId: programacao.id, pagamentos: alvos });
+      setErro(mensagemFalhaFase2(falha, "Não foi possível definir a conta destes pagamentos."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function garantirContasDeTransferencia() {
+    const carregadas = await carregarContasParaTransferencia({ secretariaId, secretarias });
+    setContasTransferencia(carregadas);
+    return carregadas;
+  }
+
+  async function abrirTransferencia() {
+    setErro("");
+    try {
+      await garantirContasDeTransferencia();
+      setMostrarTransferencia(true);
+    } catch (falha) {
+      registrarErroFase2("Falha ao carregar as contas para transferência", falha, { secretariaId });
+      setErro(mensagemFalhaFase2(falha, "Não foi possível carregar as contas para a transferência."));
+    }
+  }
+
+  async function abrirEstorno(transferencia) {
+    setErro("");
+    if (contasTransferencia.length === 0) {
+      try {
+        await garantirContasDeTransferencia();
+      } catch (falha) {
+        registrarErroFase2("Falha ao carregar contas para o estorno", falha, { secretariaId });
+      }
+    }
+    setEstornoAlvo(transferencia);
+  }
+
+  // Depois de uma transferência confirmada ou estornada o saldo mudou de
+  // verdade: as contas são recarregadas da mesma fonte que alimenta a aba
+  // Saldos das Contas, então as duas telas mostram o novo saldo na hora.
+  async function aposMovimentoDeSaldo(aviso) {
+    await carregarBase();
+    if (programacao) await atualizarTransferencias(programacao.id);
+    setMensagem(aviso);
+  }
+
   // O documento leva só o que foi escolhido: contas selecionadas e fornecedores
   // propostos. Os pagamentos vão em duas colunas -- fornecedor e valor -- e é a
   // mesma carga usada na impressão, no PDF e na planilha.
@@ -467,6 +665,12 @@ export default function PagamentosRedesenhado() {
   const fornecedoresFiltrados = fornecedores.filter((item) => item.razao_social.toLocaleLowerCase("pt-BR").includes(buscaFornecedor.trim().toLocaleLowerCase("pt-BR")));
   const todasVisiveisMarcadas = contasFiltradas.length > 0 && contasFiltradas.every((conta) => contasSelecionadas.has(conta.id));
   const nomeSecretariaSelecionada = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "--";
+  const emEtapaDeExecucao = emExecucao(programacao);
+  const emRevisao = emRevisaoPosAnalise(programacao);
+  const resumoDaAprovacao = resumoAprovacao({ contasSelecionadas: contasSelecionadasComSaldo, pagamentos });
+  const impedimentosDaAprovacao = impedimentosParaAprovar({ programacao, contasSelecionadas: contasSelecionadasComSaldo, pagamentos });
+  const fase2Indisponivel = estruturaFase2 != null && estruturaFase2.ok === false;
+  const nomeDaConta = (id) => [...contas, ...contasTransferencia].find((item) => String(item.id) === String(id))?.nome_conta || `Conta ${id ?? "--"}`;
 
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
@@ -503,6 +707,16 @@ export default function PagamentosRedesenhado() {
           {estrutura.naoVerificado.length > 0 && <p className="mt-1 text-[11px]">Sem permissão para conferir: {listaLegivel(estrutura.naoVerificado)} — estes não estão sendo acusados de faltar.</p>}
         </div>}
 
+        {/* A tela funciona antes de a migration da Fase 2 rodar: o aviso diz o
+            que falta e só a aprovação, a execução e a transferência ficam
+            indisponíveis. Nada do planejamento é afetado. */}
+        {estruturaFase2 && !estruturaFase2.ok && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
+          <p className="font-semibold"><AlertTriangle size={14} className="mr-1 inline"/> Estrutura da execução financeira (Fase 2) incompleta no banco conectado a esta tela</p>
+          <p className="mt-1">Não existe no banco: <strong>{listaLegivel(estruturaFase2.faltando)}</strong>.</p>
+          <p className="mt-1">Execute {MIGRATION_FASE_2} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. A revisão, a impressão e o restante do planejamento continuam funcionando; apenas aprovar, executar e transferir ficam indisponíveis.</p>
+          {estruturaFase2.naoVerificado.length > 0 && <p className="mt-1 text-[11px]">Sem permissão para conferir: {listaLegivel(estruturaFase2.naoVerificado)} — estes não estão sendo acusados de faltar.</p>}
+        </div>}
+
         {(erro || mensagem) && <div className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={15}/></button></div>}
 
         {carregando ? <p className="py-12 text-center text-[13px] text-[#17352F]/55">Carregando...</p> : <>
@@ -511,8 +725,22 @@ export default function PagamentosRedesenhado() {
           {!programacao ? <div className="rounded-xl border border-dashed border-[#17352F]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[#17352F]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[#17352F]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#17352F] px-3 py-2 text-white">
               <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
-              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B98C55] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}</div>
+              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B98C55] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}</div>
             </div>
+
+            {/* Volta da reunião com o gestor: a MESMA programação é reaberta
+                para ajuste. Retirar da programação não é excluir fornecedor --
+                sai só desta programação, e cadastro, notas, processos,
+                histórico, dados de banco e certidões ficam intactos. */}
+            {emRevisao && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 print:hidden">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A321C]">Revisão após a análise</p>
+              <p className="mt-1 text-[12px] text-[#17352F]">Acrescentar fornecedor, retirar fornecedor, alterar valor, acrescentar conta e retirar conta nesta mesma programação. Cada mudança recalcula na hora o saldo da programação, o total programado e o restante.</p>
+              <p className="mt-1 text-[11px] text-[#17352F]/70">Retirar da programação não é excluir fornecedor: sai apenas desta programação. O cadastro, as notas, os processos, o histórico, os dados de banco e PIX e as certidões continuam intactos.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={alterarContas} disabled={!podeEditarProgramacao} className="rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8] disabled:opacity-50">REVISAR CONTAS</button>
+                <button onClick={alterarFornecedores} disabled={!podeEditarProgramacao} className="rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8] disabled:opacity-50">REVISAR FORNECEDORES</button>
+              </div>
+            </div>}
 
             <div className="grid gap-3 xl:grid-cols-[1.05fr_.95fr]">
               <section className="overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm">
@@ -573,8 +801,51 @@ export default function PagamentosRedesenhado() {
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[#17352F]/45">Valor editável, pode ser menor que o aberto</span></div>
               {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0"><strong className="block truncate text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
             </section>}
+
+            {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma
+                operação daqui movimenta saldo, exceto a transferência entre
+                contas confirmada. */}
+            {emEtapaDeExecucao && <div className="mt-3 print:hidden">
+              <PainelExecucaoProgramacao
+                programacao={programacao}
+                pagamentos={pagamentos}
+                contas={contas}
+                contasSelecionadas={contasSelecionadas}
+                secretariaId={secretariaId}
+                nomePagamento={nomePagamento}
+                transferencias={transferencias}
+                permissoes={fase2Indisponivel ? { definir_conta_pagamento: false, executar_programacao: false, executar_transferencia: false, estornar_transferencia: false } : (permissoesFase2 ?? {})}
+                salvando={salvando}
+                onDefinirConta={(pagamento, contaId) => gravarContaDosPagamentos([pagamento.id], contaId)}
+                onAtribuirAosSelecionados={(ids, contaId) => gravarContaDosPagamentos(ids, contaId)}
+                onAplicarATodos={(contaId) => gravarContaDosPagamentos(pagamentos.map((item) => item.id), contaId)}
+                onTransferir={abrirTransferencia}
+                onEstornar={abrirEstorno}
+              />
+            </div>}
           </>}
         </>}
+        {mostrarAprovacao && programacao && <ModalAprovacaoProgramacao
+          resumo={resumoDaAprovacao}
+          programacao={programacao}
+          salvando={salvando}
+          onFechar={() => setMostrarAprovacao(false)}
+          onConfirmar={confirmarAprovacao}
+        />}
+
+        {mostrarTransferencia && programacao && <ModalTransferenciaEntreContas
+          programacao={programacao}
+          contas={contasTransferencia}
+          onFechar={() => setMostrarTransferencia(false)}
+          onConcluida={() => aposMovimentoDeSaldo("Transferência confirmada. Transferência entre contas próprias não é despesa: o patrimônio total continua igual.")}
+        />}
+
+        {estornoAlvo && <ModalEstornoTransferencia
+          transferencia={estornoAlvo}
+          nomeConta={nomeDaConta}
+          onFechar={() => setEstornoAlvo(null)}
+          onConcluido={() => aposMovimentoDeSaldo("Transferência estornada. A original continua registrada no histórico e na auditoria.")}
+        />}
       </div>
     </Layout>
   );
