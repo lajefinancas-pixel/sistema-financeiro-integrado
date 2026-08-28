@@ -607,6 +607,11 @@ is 'Aprova a programação diária. APROVADO NAO E PAGO: não debita conta, não
 -- ---------------------------------------------------------------------------
 -- Aceita um ou muitos pagamentos na mesma chamada: é isso que atende a
 -- atribuição individual, a atribuição aos selecionados e o aplicar a todos.
+-- Assinaturas anteriores já existem em produção e o create or replace não
+-- consegue alterar defaults, nomes de parâmetros ou tipo de retorno: o drop
+-- antes da recriação evita o erro 42P13. Os grants abaixo são reaplicados.
+drop function if exists public.definir_conta_origem_pagamento(integer, integer[], integer);
+
 create or replace function public.definir_conta_origem_pagamento(
   p_programacao_id integer,
   p_pagamento_ids integer[],
@@ -734,6 +739,11 @@ is 'Define a conta de origem de um ou mais pagamentos da programação. CONTA DE
 -- ---------------------------------------------------------------------------
 -- 6. Transferência entre contas — a ÚNICA operação desta fase que move saldo
 -- ---------------------------------------------------------------------------
+-- Assinaturas anteriores já existem em produção e o create or replace não
+-- consegue alterar defaults, nomes de parâmetros ou tipo de retorno: o drop
+-- antes da recriação evita o erro 42P13. Os grants abaixo são reaplicados.
+drop function if exists public.confirmar_transferencias_programacao(integer, integer, jsonb, text, text);
+
 create or replace function public.confirmar_transferencias_programacao(
   p_programacao_id integer,
   p_conta_destino_id integer,
@@ -1034,6 +1044,11 @@ is 'Transferência entre contas próprias: várias origens para um destino, atô
 -- ---------------------------------------------------------------------------
 -- 7. Estorno — transferência não se exclui, se estorna
 -- ---------------------------------------------------------------------------
+-- Assinaturas anteriores já existem em produção e o create or replace não
+-- consegue alterar defaults, nomes de parâmetros ou tipo de retorno: o drop
+-- antes da recriação evita o erro 42P13. Os grants abaixo são reaplicados.
+drop function if exists public.estornar_transferencia(uuid, text);
+
 create or replace function public.estornar_transferencia(
   p_transferencia_id uuid,
   p_observacao text
