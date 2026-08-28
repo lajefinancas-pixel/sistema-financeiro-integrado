@@ -27,7 +27,13 @@ const MENSAGENS_POR_CODIGO = {
   "23505": "Já existe um registro com esses dados.",
   "23503": "Este registro está ligado a outros lançamentos e não pode ser alterado ou excluído.",
   "23502": "Preencha todos os campos obrigatórios.",
-  "22P02": "Algum valor informado está em um formato inválido.",
+  // 22P02 (invalid_text_representation) quase nunca é o valor que o usuário
+  // digitou: na prática é uma comparação no banco entre tipos incompatíveis --
+  // texto contra enum, texto contra boolean. Acusar o formato do valor mandava
+  // quem usa o sistema procurar defeito onde não havia. O código sai junto para
+  // poder ser relatado, e o erro completo está no console.
+  "22P02":
+    "O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente (código 22P02). Não é o valor que você digitou. O erro completo está no console do navegador (F12).",
   "22003": "O valor informado é maior do que o sistema aceita.",
   "42501": "Você não tem permissão para fazer isso.",
   PGRST301: "Sua sessão expirou. Entre novamente para continuar.",
@@ -88,6 +94,31 @@ function ehFalhaDeRede(erro, texto) {
   );
 }
 
+// Códigos com que as funções deste sistema falam com quem usa a tela: P0001 é o
+// `raise exception 'texto'` sem errcode, e 42501 é usado com texto próprio nas
+// recusas por permissão.
+const CODIGOS_DE_MENSAGEM_ESCRITA = new Set(["P0001", "42501"]);
+
+/**
+ * Mensagem redigida em português dentro de uma função do banco.
+ *
+ * As funções da aplicação levantam `raise exception` com frases escritas para o
+ * usuário ("Não é possível aprovar uma programação sem fornecedores."). Como
+ * todo erro do PostgREST carrega `code`, `ehTecnico` classificava essas frases
+ * como texto de backend e as trocava pela mensagem genérica da tela -- o usuário
+ * recebia uma explicação inventada em vez do motivo real da recusa. Aqui elas
+ * voltam a passar, mas só quando o código é de mensagem escrita e o texto tem
+ * cara de português para pessoas, sem nenhuma assinatura técnica.
+ */
+function mensagemEscritaNoBanco(erro, texto) {
+  if (!texto) return null;
+  const codigo = String(erro?.code ?? "");
+  if (!CODIGOS_DE_MENSAGEM_ESCRITA.has(codigo)) return null;
+  if (PADROES_TECNICOS.some((padrao) => padrao.test(texto))) return null;
+  if (!PADROES_AMIGAVEIS.some((padrao) => padrao.test(texto))) return null;
+  return texto;
+}
+
 function ehTecnico(erro, texto) {
   // Erro vindo do Postgres/PostgREST: tem code/details/hint e nunca é para a tela.
   if (erro && typeof erro === "object" && (erro.details || erro.hint || erro.code)) return true;
@@ -121,6 +152,9 @@ export function mensagemAmigavel(erro, mensagemPadrao = MENSAGEM_GENERICA) {
   const traducao = TRADUCOES.find(([padraoTexto]) => padraoTexto.test(texto));
   if (traducao) return traducao[1];
 
+  const escritaNoBanco = mensagemEscritaNoBanco(erro, texto);
+  if (escritaNoBanco) return escritaNoBanco;
+
   const codigo = String(erro?.code ?? erro?.status ?? "");
   if (MENSAGENS_POR_CODIGO[codigo]) return MENSAGENS_POR_CODIGO[codigo];
 
@@ -128,11 +162,28 @@ export function mensagemAmigavel(erro, mensagemPadrao = MENSAGEM_GENERICA) {
   return ehTecnico(erro, texto) ? padrao : texto;
 }
 
-/** Guarda o erro original no console, para quem for investigar depois. */
+/**
+ * Guarda o erro original no console, para quem for investigar depois.
+ *
+ * O objeto de erro do Supabase aparece no console como `{}` em alguns
+ * navegadores, porque `code`, `details` e `hint` não são enumeráveis na hora de
+ * imprimir. Por isso os campos são copiados um a um: sem eles não há como saber
+ * qual foi a recusa do banco por trás da mensagem mostrada na tela.
+ */
 function registrarDetalhe(erro) {
   if (typeof console === "undefined") return;
   try {
-    console.warn("[erro tratado]", erro);
+    const detalhe =
+      erro && typeof erro === "object"
+        ? {
+            code: erro.code ?? null,
+            message: erro.message ?? null,
+            details: erro.details ?? null,
+            hint: erro.hint ?? null,
+            status: erro.status ?? null,
+          }
+        : { message: String(erro) };
+    console.error("[erro tratado]", detalhe, erro);
   } catch {
     // console indisponível: não há o que fazer.
   }

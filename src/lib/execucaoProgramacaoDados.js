@@ -9,6 +9,7 @@ import { supabase } from "./supabaseClient";
 import { carregarSaldosDasContas } from "./saldosContasDados";
 import { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 import { classificarFalhaFase1 } from "./estruturaPagamentosFase1.js";
+import { erroAmigavel } from "./erros";
 
 export { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 
@@ -86,13 +87,37 @@ export async function carregarTransferenciasDaProgramacao(programacaoId) {
 }
 
 /** Aprova a programação. Não move saldo nenhum -- APROVADO NÃO É PAGO. */
+/**
+ * Número que o banco aceita, ou a recusa explícita de um valor impossível.
+ *
+ * A tela já converte moeda brasileira em número antes de chegar aqui, mas quem
+ * lê o aviso de erro não tem como saber disso. Este passo torna a garantia
+ * verificável: ou o argumento sai como número finito arredondado em centavos, ou
+ * a falha nomeia o campo, em vez de virar uma recusa genérica do banco.
+ */
+function numeroParaOBanco(valor, campo) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  const numero = typeof valor === "number" ? valor : Number(valor);
+  if (!Number.isFinite(numero)) {
+    throw erroAmigavel(`O campo ${campo} não está com um valor numérico válido. Confira o valor e tente de novo.`);
+  }
+  return Math.round(numero * 100) / 100;
+}
+
 export async function aprovarProgramacao({ programacaoId, saldoConsiderado, totalProgramado, restante }) {
-  const { data, error } = await supabase.rpc("aprovar_programacao_pagamento", {
+  const argumentos = {
     p_programacao_id: programacaoId,
-    p_saldo_considerado: saldoConsiderado ?? null,
-    p_total_programado: totalProgramado ?? null,
-    p_restante: restante ?? null,
-  });
+    p_saldo_considerado: numeroParaOBanco(saldoConsiderado, "saldo disponível"),
+    p_total_programado: numeroParaOBanco(totalProgramado, "total programado"),
+    p_restante: numeroParaOBanco(restante, "restante"),
+  };
+  // Os argumentos exatos ficam no console antes da chamada: assim dá para
+  // comparar o que a tela enviou com o que o banco recusou, sem depender da
+  // mensagem mostrada ao usuário.
+  if (typeof console !== "undefined") {
+    console.info("[Pagamentos Fase 2] rpc aprovar_programacao_pagamento", argumentos);
+  }
+  const { data, error } = await supabase.rpc("aprovar_programacao_pagamento", argumentos);
   if (error) throw error;
   return data;
 }

@@ -63,6 +63,36 @@ function corpoDaFuncao(sql, nome) {
   return sql.slice(inicio, fim);
 }
 
+// Nada destrutivo: nenhuma linha apagada, nenhuma tabela derrubada.
+//
+// `drop function if exists` e `drop policy if exists` seguidos da recriação do
+// mesmo objeto no mesmo arquivo não são destruição: é a forma de trocar o tipo
+// de retorno de uma função ou reescrever uma política sem perder um único dado,
+// e é o que torna a migration idempotente. O que não pode aparecer é apagar
+// linha, derrubar tabela ou coluna e truncar. A recriação de tudo que é
+// derrubado é conferida aqui, então a garantia fica mais forte, e não mais
+// fraca.
+function conferirNadaDestrutivo(sql) {
+  assert.doesNotMatch(sql, /delete from|drop table|drop column|drop schema|truncate\s+(table\s+)?public\./i);
+
+  const recriado = {
+    function: (nome) => sql.includes(`create or replace function public.${nome}(`),
+    policy: (nome) => sql.includes(`create policy ${nome}`),
+  };
+
+  const drops = [...sql.matchAll(/^\s*drop\s+([a-z]+)\s+if exists\s+(?:public\.)?("[^"]+"|[a-z0-9_]+)/gim)];
+  assert.ok(drops.length > 0, "nenhum drop encontrado: a conferência ficaria vazia");
+  for (const [, tipo, nome] of drops) {
+    const conferir = recriado[tipo.toLowerCase()];
+    assert.ok(conferir, `drop proibido na migration: drop ${tipo}`);
+    assert.ok(conferir(nome), `${tipo} derrubada e não recriada no mesmo arquivo: ${nome}`);
+  }
+
+  // Nenhum drop sem `if exists`, e nenhum tipo de drop além dos dois acima.
+  const todos = [...sql.matchAll(/^\s*drop\s+([a-z]+)/gim)];
+  assert.equal(todos.length, drops.length, "há drop sem `if exists` na migration");
+}
+
 const conta = (id, saldo, secretariaId = 1, secretariaNome = "SECRETARIA DE EDUCAÇÃO") => ({
   id,
   saldo,
@@ -117,7 +147,7 @@ test("retirar da programação não é excluir fornecedor: nada além da própri
   assert.doesNotMatch(pagina, /from\("fornecedores"\)\.delete|\.delete\(\)/);
   // A migration não apaga nada em lugar nenhum (o único "delete" que aparece é
   // o revoke do privilégio -- que justamente tira o direito de apagar).
-  assert.doesNotMatch(sql, /delete from|drop table|drop function|truncate\s+(table\s+)?public\./i);
+  conferirNadaDestrutivo(sql);
   assert.doesNotMatch(sql, /fornecedores\s+set\s+|update public\.fornecedores/i);
 });
 
@@ -525,7 +555,7 @@ test("migration da fase 2 é única, idempotente, aditiva e valida os tipos ante
   assert.match(sql, /add column if not exists conta_origem_id/);
   assert.match(sql, /create unique index if not exists/);
   // Nada de destrutivo e nada agendado.
-  assert.doesNotMatch(sql, /delete from|drop table|drop function|truncate\s+(table\s+)?public\./i);
+  conferirNadaDestrutivo(sql);
   // O direito de apagar a razão das transferências é retirado de quem usa a tela.
   assert.match(sql, /revoke insert, update, delete, truncate on public\.transferencias_contas from authenticated;/);
   assert.doesNotMatch(sql, /schedule\s*:|cron\s*\(/i);
