@@ -81,6 +81,11 @@ const ACOES = {
   // atenção; pedir restauração continua sendo ação crítica.
   gerou_backup: "Gerou backup manual",
   restauracao_backup: "Solicitou restauração de backup",
+  // Baixas de Pagamentos: a baixa confirma o pagamento e abate o valor em
+  // aberto da nota (sem tocar no saldo da conta); o estorno devolve o valor ao
+  // em aberto e preserva o registro original, por isso é nível crítico.
+  registrou_baixa: "Registrou baixa",
+  estornou_baixa: "Estornou baixa",
 };
 
 export function acaoLabel(valor) {

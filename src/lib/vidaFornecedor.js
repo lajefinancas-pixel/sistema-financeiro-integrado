@@ -43,7 +43,9 @@ function nomeDaConta(conta) {
 export async function carregarPagamentosPorFornecedor() {
   const { data: baixas, error: erroBaixas } = await supabase
     .from("pagamentos_baixas")
-    .select("id,fornecedor_id,pagamento_id,valor_pago,data_pagamento,conta_id,status,documento,observacao")
+    .select(
+      "id,fornecedor_id,pagamento_id,valor_em_aberto_id,valor_pago,data_pagamento,conta_id,status,documento,observacao",
+    )
     .order("data_pagamento", { ascending: false });
   if (!erroBaixas) {
     const { data: contasBaixas } = await supabase
@@ -56,6 +58,9 @@ export async function carregarPagamentosPorFornecedor() {
       (porFornecedor[String(baixa.fornecedor_id)] ??= []).push({
         id: baixa.id,
         pagamento_id: baixa.pagamento_id ?? null,
+        // Nota que a baixa abateu: é o mesmo registro que a aba de Baixas de
+        // Pagamentos gravou, sem cópia e sem dado novo.
+        valor_em_aberto_id: baixa.valor_em_aberto_id ?? null,
         data: soData(baixa.data_pagamento),
         valor: paraNumeroMoeda(baixa.valor_pago),
         contas: conta ? [nomeDaConta(conta)] : [],
