@@ -16,7 +16,28 @@
 // não a cada clique no botão.
 
 import { supabase } from "./supabaseClient";
+import { detalheDoBanco } from "./estruturaPagamentosFase1";
 export { calcularConferenciaTransferencias, conferirTransferenciaMultipla, pernasParaEnvio } from "./regrasTransferencia";
+
+/**
+ * Recusa do banco na transferência, com os campos que explicam a falha.
+ *
+ * Continua sendo um Error (quem só lê `.message` não muda), mas carrega code,
+ * details e hint como um erro do Supabase. É o que faz `mensagemAmigavel`
+ * reconhecer a falha: com `code` presente ela mostra a frase escrita para o
+ * usuário quando o código é P0001 ou 42501, e a mensagem da tela quando o texto
+ * é técnico -- em vez de tratar toda recusa como desconhecida.
+ */
+export class ErroDaTransferencia extends Error {
+  constructor({ message, code, details, hint, status }) {
+    super(message || "Não foi possível confirmar as transferências.");
+    this.name = "ErroDaTransferencia";
+    this.code = code ?? null;
+    this.details = details ?? null;
+    this.hint = hint ?? null;
+    this.status = status ?? null;
+  }
+}
 
 export async function confirmarTransferencias(payload) {
   const { data } = await supabase.auth.getSession();
@@ -26,8 +47,32 @@ export async function confirmarTransferencias(payload) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "Não foi possível confirmar as transferências.");
-  return body;
+  if (response.ok) return body;
+
+  const falha = new ErroDaTransferencia({
+    message: body.error,
+    code: body.code,
+    details: body.details,
+    hint: body.hint,
+    status: response.status,
+  });
+
+  // Erro COMPLETO no console ANTES de qualquer mensagem na tela. O DETAIL da
+  // função do banco traz a etapa nomeada, a restrição recusada e o tipo real de
+  // cada coluna; a etapa sai também separada, para não ser preciso ler o texto
+  // inteiro. Nada disso vai para a tela -- lá aparece só a frase em português.
+  if (typeof console !== "undefined") {
+    console.error("[Pagamentos Fase 2] Transferência entre contas recusada pelo banco.", {
+      code: falha.code,
+      message: falha.message,
+      details: falha.details,
+      hint: falha.hint,
+      status: falha.status,
+      ...detalheDoBanco(falha),
+    });
+  }
+
+  throw falha;
 }
 
 /**

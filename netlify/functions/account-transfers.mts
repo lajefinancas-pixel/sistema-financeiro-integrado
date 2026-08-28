@@ -23,7 +23,10 @@ export default async (req: Request) => {
         p_transferencia_id: body.transferId,
         p_observacao: motivo,
       });
-      if (error) throw error;
+      if (error) {
+        registrarRecusa("estornar_transferencia", { p_transferencia_id: body.transferId }, error);
+        throw error;
+      }
       return Response.json(data);
     }
 
@@ -43,7 +46,18 @@ export default async (req: Request) => {
       p_chave_idempotencia: String(body.idempotencyKey).trim(),
       p_observacao: body.note || null,
     });
-    if (error) throw error;
+    if (error) {
+      registrarRecusa(
+        "confirmar_transferencias_programacao",
+        {
+          p_programacao_id: Number(body.programId),
+          p_conta_destino_id: Number(body.destinationAccountId),
+          p_transferencias: pernas,
+        },
+        error
+      );
+      throw error;
+    }
 
     await espelharParaConferencia({ data, body, userId: user.id });
     return Response.json(data);
@@ -51,6 +65,31 @@ export default async (req: Request) => {
     return errorResponse(error);
   }
 };
+
+/**
+ * Erro completo do Supabase no log da função, com os argumentos da chamada.
+ *
+ * A recusa do banco chega como objeto simples ({ message, details, hint, code }),
+ * e é o DETAIL que carrega a etapa nomeada, a restrição recusada e o tipo real
+ * de cada coluna. Nada disso pode depender de alguém abrir o console do
+ * navegador: fica registrado aqui, do lado do servidor, antes de qualquer
+ * resposta. Não há valor de conta bancária nem chave de idempotência no log --
+ * só ids e os campos do erro.
+ */
+function registrarRecusa(funcao: string, argumentos: Record<string, unknown>, error: unknown) {
+  const campo = (nome: string) => {
+    const valor = (error as Record<string, unknown> | null)?.[nome];
+    return typeof valor === "string" && valor.trim() ? valor : null;
+  };
+  console.error("[account-transfers] o banco recusou a chamada", {
+    funcao,
+    argumentos,
+    code: campo("code"),
+    message: campo("message"),
+    details: campo("details"),
+    hint: campo("hint"),
+  });
+}
 
 /**
  * Cópia de conferência das transferências efetivadas.
