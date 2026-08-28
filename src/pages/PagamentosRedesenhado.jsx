@@ -9,7 +9,7 @@ import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { agoraBR, exportarExcelProgramacao, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
-import { FUNCOES_FASE_1, classificarFalhaFase1, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
+import { FUNCOES_FASE_1, classificarFalhaFase1, detalheDoBanco, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 import { verificarEstruturaFase2 } from "../lib/estruturaPagamentosFase2";
 import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
 import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, definirContaDePagamentos, estruturaFase2Ausente } from "../lib/execucaoProgramacaoDados";
@@ -30,6 +30,14 @@ const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pa
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
 const MIGRATION_CORRECAO_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
+const MIGRATION_CORRECAO_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
+
+// Ausência de id: nulo, indefinido, texto vazio ou zero. Nenhum deles é um id
+// de registro, e nenhum deles pode chegar ao banco como se fosse -- em coluna
+// com vínculo o banco recusaria a gravação inteira.
+function vazio(valor) {
+  return valor == null || valor === "" || Number(valor) === 0;
+}
 
 function idInteiro(valor, campo) {
   const id = Number(valor);
@@ -42,8 +50,10 @@ function idInteiro(valor, campo) {
 }
 
 // Todo erro da Fase 1 vai inteiro para o console: o objeto original do Supabase
-// (code, message, details, hint) mais o contexto da chamada e a classificação
-// que a tela usou para escolher a mensagem. Nenhuma falha fica só como texto.
+// (code, message, details, hint) mais o contexto da chamada, a classificação que
+// a tela usou para escolher a mensagem e os campos estruturados que o banco
+// mandou no DETAIL (etapa, constraint, tabela, coluna). Nenhuma falha fica só
+// como texto, e nenhuma chave estrangeira fica sem nome.
 function registrarErroFase1(operacao, falha, contexto = {}) {
   if (typeof console === "undefined") return;
   console.error(`[Pagamentos Fase 1] ${operacao}`, {
@@ -53,6 +63,7 @@ function registrarErroFase1(operacao, falha, contexto = {}) {
     details: falha?.details,
     hint: falha?.hint,
     status: falha?.status,
+    banco: detalheDoBanco(falha),
     classificacao: classificarFalhaFase1(falha),
     erroOriginal: falha,
   });
@@ -96,6 +107,17 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
     return `O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente. Não é o valor digitado na tela. Execute ${MIGRATION_CORRECAO_APROVACAO} no SQL Editor do mesmo projeto Supabase usado pela aplicação e tente novamente. O erro completo do banco está no console (F12).`;
   }
 
+  // 23503 é recusa de vínculo entre registros. A mensagem geral do sistema
+  // ("este registro está ligado a outros lançamentos") descreve o caso oposto --
+  // aqui o problema é um id que NÃO existe no destino, não um registro em uso.
+  // Depois da migration de correção o próprio banco explica qual vínculo caiu;
+  // enquanto ela não roda, a tela diz o que executar.
+  if (String(falha?.code ?? "") === "23503") {
+    const banco = detalheDoBanco(falha);
+    const vinculo = banco.constraint || banco.coluna ? " O vínculo exato está no console (F12)." : "";
+    return `O banco recusou um vínculo entre registros: algum item escolhido aponta para um cadastro que não existe mais. Recarregue a página, refaça a escolha dos fornecedores e das contas e salve. Se continuar, execute ${MIGRATION_CORRECAO_FORNECEDORES} no SQL Editor do mesmo projeto Supabase usado pela aplicação.${vinculo}`;
+  }
+
   return mensagemAmigavel(falha, mensagemPadrao);
 }
 
@@ -119,6 +141,7 @@ function registrarErroFase2(operacao, falha, contexto = {}) {
     details: falha?.details,
     hint: falha?.hint,
     status: falha?.status,
+    banco: detalheDoBanco(falha),
     classificacao: classificarFalhaFase1(falha),
     erroOriginal: falha,
   });
@@ -459,10 +482,14 @@ export default function PagamentosRedesenhado() {
         saldo_considerado: numero(conta.saldo),
         ordem: indice + 1,
       }));
+      // Fornecedor avulso não tem fornecedor_id: o campo vai NULO e o nome vai
+      // em nome_avulso. Campo vazio ou zero é ausência de fornecedor, não id --
+      // mandá-lo como id faria o banco recusar o vínculo (23503). O que sai daqui
+      // é id inteiro válido ou nulo, nunca "" e nunca 0.
       const payloadPagamentos = pagamentos.map((item) => ({
-        id: item.id == null ? null : idInteiro(item.id, "Pagamento"),
-        fornecedor_id: item.fornecedor_id == null ? null : idInteiro(item.fornecedor_id, "Fornecedor"),
-        nome_avulso: item.nome_avulso,
+        id: vazio(item.id) ? null : idInteiro(item.id, "Pagamento"),
+        fornecedor_id: vazio(item.fornecedor_id) ? null : idInteiro(item.fornecedor_id, "Fornecedor"),
+        nome_avulso: typeof item.nome_avulso === "string" ? item.nome_avulso.trim() || null : null,
         valor_a_pagar: numero(item.valor_a_pagar),
         cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
       }));

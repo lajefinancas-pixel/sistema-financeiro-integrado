@@ -88,6 +88,36 @@ export function objetoDaFalha(falha) {
 }
 
 /**
+ * Campos estruturados que as funções do banco mandam dentro do DETAIL.
+ *
+ * As funções dos Pagamentos Diários escrevem `etapa=`, `constraint=`, `tabela=`,
+ * `coluna=` e `detalhe=` no DETAIL do erro, porque um `raise exception` novo
+ * perde os campos estruturados do erro original. Uma violação de chave
+ * estrangeira (23503) só é identificável pelo NOME da constraint, e ela chega
+ * empacotada em texto: aqui cada campo volta a ser campo, para o console apontar
+ * a chave exata em um único teste em vez de exigir leitura da linha inteira.
+ *
+ * @returns {{etapa, constraint, tabela, coluna, detalhe}} com null no que faltar.
+ */
+export function detalheDoBanco(falha) {
+  const texto = `${falha?.details ?? ""} ${falha?.hint ?? ""} ${falha?.message ?? ""}`;
+  const campo = (nome) => {
+    // Para em "outra_chave=" ou no separador "|": o valor pode ter espaços
+    // (etapa e detalhe têm), mas nunca invade o campo seguinte.
+    const achado = texto.match(new RegExp(`${nome}=([^|]+?)(?:\\s+[a-z_]+=|\\s*\\||$)`, "i"));
+    const valor = achado ? achado[1].trim() : "";
+    return valor && valor !== "-" ? valor : null;
+  };
+  return {
+    etapa: campo("etapa"),
+    constraint: campo("constraint"),
+    tabela: campo("tabela") ?? campo("table"),
+    coluna: campo("coluna") ?? campo("column"),
+    detalhe: campo("detalhe"),
+  };
+}
+
+/**
  * Classifica uma falha da Fase 1 sem olhar palavras soltas da mensagem.
  *
  * @returns { tipo: "estrutura" | "permissao" | "outro", alvo, objeto, codigo }
