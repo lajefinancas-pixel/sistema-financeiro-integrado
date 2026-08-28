@@ -340,10 +340,13 @@ export default function Historico() {
         .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
       if (e1) throw e1;
 
+      // Sem filtro de ativo: aqui se consulta o passado, e conta desativada
+      // continua tendo histórico. Só entra na tela a conta que realmente tinha
+      // saldo lançado na data (o filtro por saldo !== null, mais abaixo), então
+      // a conta desativada não polui datas em que ela não existia.
       const { data: contas, error: e2 } = await supabase
         .from("contas_bancarias")
-        .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)")
-        .eq("ativo", true);
+        .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)");
       if (e2) throw e2;
 
       const { data: saldos, error: e3 } = await supabase
