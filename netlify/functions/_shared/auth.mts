@@ -1,33 +1,151 @@
 import { createClient } from "@supabase/supabase-js";
 
-export async function authenticatedSupabase(req: Request) {
+/**
+ * Recusa da PORTARIA (esta função), não do banco.
+ *
+ * ERA AQUI QUE O DIAGNÓSTICO AINDA MORRIA. As quatro saídas de
+ * `authenticatedSupabase` levantavam `new Response("texto", { status })`, e
+ * `errorResponse` devolve todo Response intacto. Consequência, para quem estava
+ * na tela: o corpo é TEXTO, então o `response.json()` do navegador falha, o
+ * objeto de erro sai sem `code`, sem `details` e sem `hint`, e a tela mostra a
+ * frase genérica. Do lado do servidor não sobrava nem log, porque a portaria
+ * levantava antes de qualquer `console.error`. Uma recusa aqui era, palavra por
+ * palavra, "sem etapa, sem código, sem detalhe" -- exatamente o sintoma que as
+ * funções do banco já não produzem mais, cada uma nomeando a sua etapa.
+ *
+ * Agora toda recusa da portaria sai como JSON com um CÓDIGO PRÓPRIO e é
+ * registrada antes de subir. Os códigos são estáveis e não colidem com os do
+ * Postgres/PostgREST:
+ *
+ *   AUTH_SEM_TOKEN       -> a requisição chegou sem Authorization
+ *   AUTH_CONFIG_AUSENTE  -> a função não tem VITE_SUPABASE_URL/ANON_KEY no
+ *                           ambiente de execução (só no de build, por exemplo)
+ *   AUTH_SESSAO_INVALIDA -> o token não vale mais (expirado, revogado)
+ *   AUTH_SEM_CADASTRO    -> o login não achou linha em public.usuarios por
+ *                           auth_id: ou não existe, ou a RLS da tabela não
+ *                           deixa o próprio usuário ler a própria linha
+ */
+function recusaDaPortaria(
+  code: string,
+  message: string,
+  status: number,
+  details: string | null = null,
+  hint: string | null = null,
+) {
+  console.error("[api] a portaria recusou a requisição antes de chamar o banco", {
+    code,
+    message,
+    details,
+    hint,
+    status,
+  });
+  return new Response(JSON.stringify({ error: message, code, details, hint }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Autentica a requisição e devolve o cliente Supabase que fala pelo usuário.
+ *
+ * `exigirCadastro` decide o que fazer quando a linha de public.usuarios não é
+ * encontrada por auth_id:
+ *
+ *   true  (padrão) -> recusa com 403. É o necessário para quem grava com o id
+ *                     de public.usuarios do lado da função (a trilha de
+ *                     auditoria gravada aqui tem RLS amarrando usuario_id ao
+ *                     usuário da sessão, e sem o id não há o que gravar).
+ *   false          -> segue com registroId nulo e deixa a decisão para o banco.
+ *                     É o certo para quem chama uma função SECURITY DEFINER que
+ *                     já resolve o usuário e já confere a permissão sozinha:
+ *                     a portaria não tem nada a acrescentar e, se recusar aqui,
+ *                     recusa uma operação que o banco teria aprovado.
+ */
+export async function authenticatedSupabase(req: Request, { exigirCadastro = true } = {}) {
   const authorization = req.headers.get("authorization") ?? "";
   const token = authorization.replace(/^Bearer\s+/i, "");
-  if (!token) throw new Response("Não autorizado.", { status: 401 });
+  if (!token) {
+    throw recusaDaPortaria("AUTH_SEM_TOKEN", "Não autorizado.", 401);
+  }
 
   const url = process.env.VITE_SUPABASE_URL;
   const key = process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Response("Configuração de autenticação indisponível.", { status: 503 });
+  if (!url || !key) {
+    throw recusaDaPortaria(
+      "AUTH_CONFIG_AUSENTE",
+      "Configuração de autenticação indisponível.",
+      503,
+      `faltando no ambiente de execução da função: ${[!url && "VITE_SUPABASE_URL", !key && "VITE_SUPABASE_ANON_KEY"]
+        .filter(Boolean)
+        .join(", ")}`,
+      "As duas variáveis precisam estar visíveis para as funções, não só para o build.",
+    );
+  }
 
   const supabase = createClient(url, key, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) throw new Response("Sessão inválida.", { status: 401 });
+  if (error || !data.user) {
+    throw recusaDaPortaria(
+      "AUTH_SESSAO_INVALIDA",
+      "Sessão inválida.",
+      401,
+      error?.message ?? "getUser não devolveu usuário para o token enviado.",
+    );
+  }
 
+  // A linha de public.usuarios é lida COM O JWT DO USUÁRIO, então ela passa pela
+  // RLS da tabela. Vazio aqui não significa "não existe": significa "este login
+  // não conseguiu ler a própria linha". Os dois casos ficam separados no log, e
+  // o motivo vai no details da recusa quando ela acontece.
   const { data: usuarios, error: userError } = await supabase
     .from("usuarios")
     .select("id,nome_completo")
     .eq("auth_id", data.user.id)
     .limit(1);
-  if (userError || !usuarios?.[0]) throw new Response("Usuário não encontrado.", { status: 403 });
-  return { supabase, user: usuarios[0], token };
+
+  const registro = usuarios?.[0] ?? null;
+  if (!registro) {
+    const detalhe = userError
+      ? `a leitura de public.usuarios por auth_id foi recusada (code=${userError.code ?? "-"}): ${userError.message}`
+      : "a leitura de public.usuarios por auth_id não devolveu linha: ou não há cadastro para este login, ou a RLS da tabela não permite que ele leia a própria linha";
+
+    if (exigirCadastro) {
+      throw recusaDaPortaria("AUTH_SEM_CADASTRO", "Usuário não encontrado.", 403, detalhe);
+    }
+    // Segue adiante: quem chamou disse que o banco decide. Fica registrado, para
+    // que a ausência do cadastro nunca seja uma falha silenciosa.
+    console.error("[api] login autenticado sem cadastro legível em public.usuarios", {
+      code: "AUTH_SEM_CADASTRO",
+      details: detalhe,
+      authId: data.user.id,
+    });
+  }
+
+  return {
+    supabase,
+    // Mantido como antes para quem exige cadastro: `user.id` é o id de
+    // public.usuarios. Com exigirCadastro:false ele pode ser nulo, e aí
+    // `authId` é o único identificador disponível.
+    user: registro ?? { id: null, nome_completo: null },
+    registroId: registro?.id ?? null,
+    authId: data.user.id,
+    token,
+  };
 }
 
 export async function requireSpecialPermission(supabase: any, action: string) {
   const { data, error } = await supabase.rpc("tem_permissao_especial", { p_acao: action });
-  if (error || data !== true) throw new Response("Você não possui permissão para esta operação.", { status: 403 });
+  if (error || data !== true) {
+    throw recusaDaPortaria(
+      "AUTH_SEM_PERMISSAO_ESPECIAL",
+      "Você não possui permissão para esta operação.",
+      403,
+      error ? `tem_permissao_especial falhou (code=${error.code ?? "-"}): ${error.message}` : `ação recusada: ${action}`,
+    );
+  }
 }
 
 /**

@@ -39,6 +39,30 @@ export class ErroDaTransferencia extends Error {
   }
 }
 
+/**
+ * Corpo da resposta, mesmo quando ele não é JSON.
+ *
+ * Ler a resposta só como JSON, caindo para objeto vazio quando o parse falha,
+ * era um apagão a mais: as recusas da
+ * portaria da função Netlify saíam como TEXTO puro ("Usuário não encontrado.",
+ * "Sessão inválida.", "Configuração de autenticação indisponível."), o parse
+ * falhava, o corpo virava {} e a falha subia sem mensagem, sem código e sem
+ * detalhe -- indistinguível de uma recusa do banco. Agora a portaria responde
+ * JSON, e o texto continua sendo lido como último recurso: qualquer camada no
+ * caminho (proxy, 404 de função, gateway) que devolva texto ainda chega à tela
+ * com o status como código.
+ */
+async function corpoDaResposta(response) {
+  const bruto = await response.text().catch(() => "");
+  if (!bruto.trim()) return {};
+  try {
+    const analisado = JSON.parse(bruto);
+    return analisado && typeof analisado === "object" ? analisado : { error: String(analisado) };
+  } catch {
+    return { error: bruto.trim().slice(0, 500) };
+  }
+}
+
 export async function confirmarTransferencias(payload) {
   const { data } = await supabase.auth.getSession();
   const response = await fetch("/api/account-transfers", {
@@ -46,12 +70,14 @@ export async function confirmarTransferencias(payload) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token || ""}` },
     body: JSON.stringify(payload),
   });
-  const body = await response.json().catch(() => ({}));
+  const body = await corpoDaResposta(response);
   if (response.ok) return body;
 
   const falha = new ErroDaTransferencia({
+    // Sem código no corpo, o status HTTP vira o código: `mensagemAmigavel` já
+    // sabe traduzir 401 e 403, e sem isso a tela cairia na frase genérica.
     message: body.error,
-    code: body.code,
+    code: body.code ?? String(response.status),
     details: body.details,
     hint: body.hint,
     status: response.status,

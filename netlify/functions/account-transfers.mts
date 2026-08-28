@@ -11,8 +11,22 @@ import { authenticatedSupabase, errorResponse } from "./_shared/auth.mjs";
  */
 export default async (req: Request) => {
   try {
-    if (req.method !== "POST") return new Response("Método não permitido.", { status: 405 });
-    const { supabase, user } = await authenticatedSupabase(req);
+    if (req.method !== "POST") {
+      return Response.json({ error: "Método não permitido.", code: "METODO_NAO_PERMITIDO" }, { status: 405 });
+    }
+    // exigirCadastro: false -- de propósito. A autorização desta operação é
+    // inteira do banco: confirmar_transferencias_programacao e
+    // estornar_transferencia recusam com 42501 quando auth.uid() é nulo e quando
+    // public.pode_em_pagamentos_fase2('executar_transferencia') é falso, e essa
+    // permissão só existe para quem TEM cadastro ativo em public.usuarios.
+    // Repetir a conferência aqui não acrescenta nada e cria uma recusa a mais:
+    // esta leitura passa pela RLS de public.usuarios, então um login legítimo que
+    // não consiga ler a própria linha era barrado ANTES de a função do banco ser
+    // chamada -- sem etapa, sem código e sem detalhe, porque nada do banco tinha
+    // sido executado. A transferência é a única operação de rotina que passa por
+    // uma função Netlify; o resto das telas fala direto com o Supabase e por isso
+    // nunca encostou nesta portaria.
+    const { supabase, registroId, authId } = await authenticatedSupabase(req, { exigirCadastro: false });
     const body = await req.json();
 
     if (body.action === "reverse") {
@@ -59,7 +73,7 @@ export default async (req: Request) => {
       throw error;
     }
 
-    await espelharParaConferencia({ data, body, userId: user.id });
+    await espelharParaConferencia({ data, body, userId: registroId ?? authId });
     return Response.json(data);
   } catch (error) {
     return errorResponse(error);
