@@ -17,6 +17,8 @@ import { usePermissaoModulo } from "../lib/permissoes";
 import { usePermissoesEspeciais } from "../lib/permissoesEspeciais";
 import { resumirDadosPagamentoFornecedores } from "../lib/dadosPagamentoFornecedor";
 import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
+import CampoMoeda from "../components/CampoMoeda";
+import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda, paraNumeroMoeda } from "../lib/moeda";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
 import PainelFiltros from "../components/comuns/PainelFiltros";
 import {
@@ -27,9 +29,6 @@ import {
   vinculosDoFornecedor,
 } from "../lib/exclusaoRegistros";
 
-function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -149,6 +148,15 @@ function paraNumero(v) {
   if (v === "" || v === null || v === undefined) return null;
   const n = parseFloat(String(v).replace(",", "."));
   return Number.isNaN(n) ? null : n;
+}
+// Campo de valor (filtros de faixa): em branco continua significando "sem
+// limite" (null); o resto é lido pelo utilitário único de moeda, então tanto o
+// texto com máscara ("R$ 1.234,56") quanto o valor colado de uma planilha
+// ("1234.56") chegam ao filtro como o mesmo número.
+function paraValorMonetario(v) {
+  const texto = String(v ?? "");
+  if (!/\d/.test(texto)) return null;
+  return paraNumeroMoeda(texto);
 }
 function filtroPreenchido(f) {
   return (
@@ -770,15 +778,15 @@ export default function Fornecedores() {
   }
 
   function calcularISS() {
-    const base = parseFloat(formValor.base_calculo || formValor.valor_bruto || "0");
+    const base = paraNumeroMoeda(formValor.base_calculo || formValor.valor_bruto);
     return base * (aliquotaIssFinal() / 100);
   }
   function calcularIR() {
-    const base = parseFloat(formValor.base_calculo || formValor.valor_bruto || "0");
+    const base = paraNumeroMoeda(formValor.base_calculo || formValor.valor_bruto);
     return base * (aliquotaIrFinal() / 100);
   }
   function calcularValorLiquido() {
-    const bruto = parseFloat(formValor.valor_bruto || "0");
+    const bruto = paraNumeroMoeda(formValor.valor_bruto);
     if (formValor.optante_simples) return bruto;
     return bruto - calcularISS() - calcularIR();
   }
@@ -802,8 +810,8 @@ export default function Fornecedores() {
       if (!formValor.fornecedor_id) throw erroAmigavel("Selecione o fornecedor.");
       if (!formValor.valor_bruto) throw erroAmigavel("Informe o valor da nota.");
 
-      const bruto = parseFloat(formValor.valor_bruto);
-      const base = parseFloat(formValor.base_calculo || formValor.valor_bruto);
+      const bruto = paraNumeroMoeda(formValor.valor_bruto);
+      const base = paraNumeroMoeda(formValor.base_calculo || formValor.valor_bruto);
       const issAliquota = formValor.optante_simples ? 0 : aliquotaIssFinal();
       const irAliquota = formValor.optante_simples ? 0 : aliquotaIrFinal();
       const iss = formValor.optante_simples ? 0 : calcularISS();
@@ -940,7 +948,13 @@ export default function Fornecedores() {
         });
       });
     });
-    const ws = XLSX.utils.json_to_sheet(linhas);
+    const cabecalho = ["Fornecedor", "CPF_CNPJ", "NF", "Bruto", "ISS", "IR", "Liquido", "Situacao"];
+    const ws = XLSX.utils.json_to_sheet(linhas, { header: cabecalho });
+    // Bruto, ISS, IR e Líquido saem como número com formato de moeda brasileiro:
+    // somam na planilha em vez de chegarem como texto.
+    marcarColunasDeMoeda(ws, colunasPorCabecalho(cabecalho, ["Bruto", "ISS", "IR", "Liquido"]), {
+      ultimaLinha: linhas.length,
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Fornecedores");
     XLSX.writeFile(wb, `fornecedores-${hojeISO()}.xlsx`);
@@ -1007,8 +1021,8 @@ export default function Fornecedores() {
     const nomeBusca = normalizarTexto(nome);
     const docDigitos = somenteDigitos(documento);
     const docTexto = normalizarTexto(documento);
-    const minimo = paraNumero(valorMin);
-    const maximo = paraNumero(valorMax);
+    const minimo = paraValorMonetario(valorMin);
+    const maximo = paraValorMonetario(valorMax);
     const temPeriodo = Boolean(dataInicial || dataFinal);
     const periodoNoLancamento = temPeriodo && campoData !== "cadastro";
     // Valor, situação e período (exceto cadastro) precisam bater todos no mesmo lançamento.
@@ -1282,8 +1296,8 @@ export default function Fornecedores() {
       });
     }
     if (f.valorMin || f.valorMax) {
-      const min = f.valorMin ? formatBRL(paraNumero(f.valorMin)) : "...";
-      const max = f.valorMax ? formatBRL(paraNumero(f.valorMax)) : "...";
+      const min = f.valorMin ? formatBRL(paraValorMonetario(f.valorMin)) : "...";
+      const max = f.valorMax ? formatBRL(paraValorMonetario(f.valorMax)) : "...";
       chips.push({
         chave: "valor",
         rotulo: `Valor: ${min} a ${max}`,
@@ -1335,8 +1349,17 @@ export default function Fornecedores() {
     return chips;
   }, [filtrosAplicados, buscaRapida, secretarias]);
 
+  // A faixa é comparada pelo número, não pelo texto: o campo com máscara guarda
+  // "R$ 1.000,01" e a faixa guarda "1000.01" -- é o mesmo valor.
+  function faixaAtiva(faixa) {
+    return (
+      paraValorMonetario(filtros.valorMin) === paraValorMonetario(faixa.min) &&
+      paraValorMonetario(filtros.valorMax) === paraValorMonetario(faixa.max)
+    );
+  }
+
   function aplicarFaixa(faixa) {
-    const jaAtiva = filtros.valorMin === faixa.min && filtros.valorMax === faixa.max;
+    const jaAtiva = faixaAtiva(faixa);
     const novos = jaAtiva
       ? { ...filtros, valorMin: "", valorMax: "" }
       : { ...filtros, valorMin: faixa.min, valorMax: faixa.max };
@@ -1494,19 +1517,19 @@ export default function Fornecedores() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">Valor mínimo</label>
-                  <input
-                    type="number" step="0.01" placeholder="0,00"
-                    value={filtros.valorMin}
-                    onChange={(e) => setFiltros({ ...filtros, valorMin: e.target.value })}
+                  <CampoMoeda
+                    placeholder="R$ 0,00"
+                    valor={filtros.valorMin}
+                    onValorChange={(_numero, texto) => setFiltros({ ...filtros, valorMin: texto })}
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">Valor máximo</label>
-                  <input
-                    type="number" step="0.01" placeholder="0,00"
-                    value={filtros.valorMax}
-                    onChange={(e) => setFiltros({ ...filtros, valorMax: e.target.value })}
+                  <CampoMoeda
+                    placeholder="R$ 0,00"
+                    valor={filtros.valorMax}
+                    onValorChange={(_numero, texto) => setFiltros({ ...filtros, valorMax: texto })}
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                   />
                 </div>
@@ -1518,7 +1541,7 @@ export default function Fornecedores() {
                     type="button"
                     onClick={() => aplicarFaixa(faixa)}
                     className={`px-3 py-1.5 rounded-md text-xs border ${
-                      filtros.valorMin === faixa.min && filtros.valorMax === faixa.max
+                      faixaAtiva(faixa)
                         ? "bg-[#0F2A44] text-white border-[#0F2A44]"
                         : "border-black/10 text-[#0F2A44]/60 hover:bg-black/5"
                     }`}
@@ -1773,10 +1796,10 @@ export default function Fornecedores() {
               </div>
               <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">Valor bruto da nota</label>
-                <input
-                  type="number" step="0.01" placeholder="0,00"
-                  value={formValor.valor_bruto}
-                  onChange={(e) => setFormValor({ ...formValor, valor_bruto: e.target.value })}
+                <CampoMoeda
+                  placeholder="R$ 0,00"
+                  valor={formValor.valor_bruto}
+                  onValorChange={(_numero, texto) => setFormValor({ ...formValor, valor_bruto: texto })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                 />
               </div>
@@ -1809,11 +1832,10 @@ export default function Fornecedores() {
               <div className="bg-[#0F2A44]/[0.03] rounded-lg p-4 space-y-4">
                 <div>
                   <label className="text-xs font-medium text-[#0F2A44]/70">Base de cálculo</label>
-                  <input
-                    type="number" step="0.01"
-                    placeholder={formValor.valor_bruto || "0,00"}
-                    value={formValor.base_calculo}
-                    onChange={(e) => setFormValor({ ...formValor, base_calculo: e.target.value })}
+                  <CampoMoeda
+                    placeholder={formValor.valor_bruto || "R$ 0,00"}
+                    valor={formValor.base_calculo}
+                    onValorChange={(_numero, texto) => setFormValor({ ...formValor, base_calculo: texto })}
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
                   />
                   <p className="text-[10px] text-[#0F2A44]/40 mt-1">Deixe em branco para usar o valor bruto como base.</p>

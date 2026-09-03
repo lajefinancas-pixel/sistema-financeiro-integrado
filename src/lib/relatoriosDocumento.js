@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { agoraBR } from "./saldosDocumento";
 import { colunaNumerica, formatarCelula } from "./relatoriosCatalogo";
 import { modoImpressao, orientacaoSugerida } from "./relatoriosCabecalho";
-import { formatBRL, formatBRLSimples } from "./moeda";
+import { colunasPorCabecalho, formatBRL, formatBRLSimples, marcarColunasDeMoeda, paraNumeroMoeda } from "./moeda";
 
 // Impressão, PDF e planilha da Central de Relatórios.
 //
@@ -580,8 +580,12 @@ export function gerarPdfRelatorio({
 
 // --- Planilha ---
 /**
- * Excel com uma linha por registro. Valores monetários vão como número (é a
- * planilha que formata), do mesmo jeito que a exportação de Saldos.
+ * Excel com uma linha por registro.
+ *
+ * Coluna de valor sai como NÚMERO com o formato de moeda brasileiro gravado na
+ * célula (R$ #,##0.00). É o mesmo tratamento das planilhas de Programação e de
+ * Baixas: quem recebe o arquivo vê "R$ 1.234,56" e a coluna soma na planilha,
+ * porque nenhum valor viaja como texto.
  */
 export function exportarExcelRelatorio({ titulo, resultado, arquivo }) {
   if (!resultado || resultado.registros === 0) return;
@@ -597,7 +601,8 @@ export function exportarExcelRelatorio({ titulo, resultado, arquivo }) {
       if (temGrupo) registro[rotuloGrupo] = grupo.nome ?? "";
       resultado.colunas.forEach((c) => {
         const valor = linha[c.chave];
-        if (c.tipo === "moeda" || c.tipo === "numero") registro[c.label] = Number(valor ?? 0);
+        if (c.tipo === "moeda") registro[c.label] = paraNumeroMoeda(valor);
+        else if (c.tipo === "numero") registro[c.label] = Number(valor ?? 0);
         else if (c.tipo === "data") registro[c.label] = formatarCelula(valor, "data");
         else registro[c.label] = String(valor ?? "");
       });
@@ -606,6 +611,16 @@ export function exportarExcelRelatorio({ titulo, resultado, arquivo }) {
   });
 
   const planilha = XLSX.utils.json_to_sheet(linhas, { header: cabecalho });
+  const rotulosDeMoeda = resultado.colunas.filter((c) => c.tipo === "moeda").map((c) => c.label);
+  marcarColunasDeMoeda(planilha, colunasPorCabecalho(cabecalho, rotulosDeMoeda), {
+    primeiraLinha: 1,
+    ultimaLinha: linhas.length,
+  });
+
+  planilha["!cols"] = cabecalho.map((rotulo) => ({
+    wch: Math.max(12, Math.min(40, String(rotulo).length + 4)),
+  }));
+
   const arquivoExcel = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(arquivoExcel, planilha, "Relatorio");
   XLSX.writeFile(arquivoExcel, arquivo || `${titulo || "relatorio"}.xlsx`);

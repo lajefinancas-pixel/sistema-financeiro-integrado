@@ -3,7 +3,7 @@ import { gerarPdfRelatorio, imprimirRelatorio } from "./relatoriosDocumento";
 import { montarCabecalho, resumoDeFiltros, textoPeriodo } from "./relatoriosCabecalho";
 import { agoraBR } from "./saldosDocumento";
 import { formatarData, hojeISO, situacaoDaNota } from "./notasFornecedor";
-import { FORMATO_MOEDA_PLANILHA } from "./moeda";
+import { formatBRL, marcarCelulasDeMoeda } from "./moeda";
 import {
   baixasDaNota,
   centavos,
@@ -26,8 +26,9 @@ import {
 // e os filtros aplicados definem as linhas, o título e o resumo do topo.
 //
 // A planilha é montada aqui, e não pelo exportador genérico de relatórios,
-// porque este precisa gravar o FORMATO DE MOEDA BRASILEIRO nas células de valor
-// (R$ #,##0.00) -- o genérico grava o número sem formato.
+// porque esta tem duas abas (notas e baixas) e subtotais por bloco. O formato de
+// moeda das células vem do utilitário compartilhado (lib/moeda.js), o mesmo que
+// o exportador genérico e a planilha de Programação usam.
 //
 // Este arquivo só lê. Nenhuma linha aqui movimenta saldo de conta: os valores
 // impressos são o valor da nota, o que já foi baixado e o que continua em
@@ -243,7 +244,7 @@ function gruposRestantes(baixas, notas, contexto) {
 
 /** Moeda em texto para os títulos dos blocos (o resto usa as colunas de moeda). */
 function formatarValorTexto(valor) {
-  return (Number(valor) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return formatBRL(valor);
 }
 
 /* -------------------------------------------------------------------------
@@ -474,12 +475,7 @@ function abaDoResultado({ resultado, cabecalho }) {
 
   const planilha = XLSX.utils.aoa_to_sheet(linhas);
 
-  moeda.forEach(({ linha, coluna }) => {
-    const celula = planilha[XLSX.utils.encode_cell({ r: linha, c: coluna })];
-    if (!celula) return;
-    celula.t = "n";
-    celula.z = FORMATO_MOEDA_PLANILHA;
-  });
+  marcarCelulasDeMoeda(planilha, moeda);
   negrito.forEach(({ linha, coluna }) => {
     const celula = planilha[XLSX.utils.encode_cell({ r: linha, c: coluna })];
     if (!celula) return;

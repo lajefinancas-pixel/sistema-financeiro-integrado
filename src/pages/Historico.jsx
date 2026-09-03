@@ -20,6 +20,7 @@ import FiltrosHistorico from "../components/historico/FiltrosHistorico";
 import LinhaDoTempoHistorico from "../components/historico/LinhaDoTempoHistorico";
 import { mensagemAmigavel } from "../lib/erros";
 import { agoraBR } from "../lib/saldosDocumento";
+import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda } from "../lib/moeda";
 import {
   ATALHOS,
   FILTROS_VAZIOS,
@@ -52,9 +53,6 @@ const MESES = [
 const FALHA_AO_CARREGAR = "Não foi possível carregar as movimentações no momento.";
 const SEM_REGISTROS = "Nenhum registro disponível ainda.";
 
-function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function toISO(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -423,7 +421,10 @@ export default function Historico() {
         linhas.push({ Secretaria: sec.nome, Banco: c.banco, Conta: c.nome_conta, Saldo: c.saldo, DataDoSaldo: c.dataDoSaldo });
       });
     });
-    const ws = XLSX.utils.json_to_sheet(linhas);
+    const cabecalho = ["Secretaria", "Banco", "Conta", "Saldo", "DataDoSaldo"];
+    const ws = XLSX.utils.json_to_sheet(linhas, { header: cabecalho });
+    // Saldo como número com formato de moeda: a coluna soma na planilha.
+    marcarColunasDeMoeda(ws, colunasPorCabecalho(cabecalho, ["Saldo"]), { ultimaLinha: linhas.length });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Historico");
     XLSX.writeFile(wb, `historico-${dataExpandida}.xlsx`);

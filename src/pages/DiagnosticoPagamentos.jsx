@@ -7,7 +7,7 @@ import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { mensagemAmigavel } from "../lib/erros";
-import { formatBRL, paraNumeroMoeda, FORMATO_MOEDA_PLANILHA } from "../lib/moeda";
+import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda, paraNumeroMoeda } from "../lib/moeda";
 import { emCentavos, somar, TOLERANCIA } from "../lib/rateioPagamentos";
 import { debitoEsperadoPorConta } from "../lib/saldosContas";
 import { buscarPaginado, estruturaDeRateioAusente } from "../lib/saldosContasDados";
@@ -278,13 +278,17 @@ export default function DiagnosticoPagamentos() {
       });
     });
 
-    const ws = XLSX.utils.json_to_sheet(dados);
-    ["D", "F", "G", "H"].forEach((coluna) => {
-      dados.forEach((_, i) => {
-        const celula = ws[`${coluna}${i + 2}`];
-        if (celula && typeof celula.v === "number") celula.z = FORMATO_MOEDA_PLANILHA;
-      });
-    });
+    const cabecalho = [
+      "Pagamento", "Secretaria", "Data", "Valor do pagamento", "Conta",
+      "Débito realizado", "Débito correto (rateio)", "Diferença", "Observação",
+    ];
+    const ws = XLSX.utils.json_to_sheet(dados, { header: cabecalho });
+    // As quatro colunas de valor saem como número com formato de moeda; célula
+    // sem apuração (null) continua em branco e não vira R$ 0,00.
+    const colunasDeValor = colunasPorCabecalho(cabecalho, [
+      "Valor do pagamento", "Débito realizado", "Débito correto (rateio)", "Diferença",
+    ]);
+    marcarColunasDeMoeda(ws, colunasDeValor, { ultimaLinha: dados.length });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Diagnóstico");
     XLSX.writeFile(wb, `diagnostico-pagamentos-${new Date().toISOString().slice(0, 10)}.xlsx`);

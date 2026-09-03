@@ -1,13 +1,14 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatBRL } from "./moeda";
 
 // Documento compartilhado de impressão e PDF da página de Saldos das Contas.
 // A ordem das colunas é fixa e definitiva: Banco | Número da Conta | Saldo | Nome da Conta
 export const COLUNAS_SALDOS = ["Banco", "Número da Conta", "Saldo", "Nome da Conta"];
 
-export function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
+// Reexportado porque a impressão e o PDF desta tela já o consumiam daqui; a
+// implementação é a compartilhada de lib/moeda.js.
+export { formatBRL };
 
 // O separador do "R$" vem como espaço não separável, que algumas fontes de PDF não possuem.
 function textoSimples(v) {

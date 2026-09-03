@@ -29,6 +29,89 @@ export function formatBRLSimples(valor) {
 /** Formato de célula de planilha equivalente a formatBRL. */
 export const FORMATO_MOEDA_PLANILHA = "R$ #,##0.00";
 
+/* -------------------------------------------------------------------------
+ * Planilha (Excel)
+ *
+ * Regra única das exportações: valor monetário sai como NÚMERO com o formato
+ * de moeda brasileiro gravado na célula -- nunca como texto. É isso que deixa
+ * a coluna somar na planilha de quem recebe o arquivo.
+ *
+ * Célula em branco continua em branco: "não informado" não vira R$ 0,00.
+ * ---------------------------------------------------------------------- */
+
+/** "A1", "B7", "AA3" -- índices de base zero, como os do xlsx. */
+function referenciaDaCelula(linha, coluna) {
+  let letras = "";
+  for (let resto = coluna; resto >= 0; resto = Math.floor(resto / 26) - 1) {
+    letras = String.fromCharCode(65 + (resto % 26)) + letras;
+  }
+  return `${letras}${linha + 1}`;
+}
+
+/** Última linha ocupada, lida do próprio intervalo da planilha ("A1:E42"). */
+function ultimaLinhaDaPlanilha(planilha) {
+  const fim = String(planilha?.["!ref"] ?? "").split(":")[1];
+  const numero = Number(/(\d+)$/.exec(fim ?? "")?.[1]);
+  return Number.isFinite(numero) ? numero - 1 : -1;
+}
+
+/** Célula sem conteúdo: fica como está, sem virar zero. */
+function celulaVazia(celula) {
+  return !celula || celula.v === null || celula.v === undefined || String(celula.v).trim() === "";
+}
+
+/**
+ * Marca uma célula como moeda: número puro no valor e formato brasileiro.
+ * `formula` é opcional e serve para os totais conferidos pela própria planilha.
+ */
+function marcarCelula(celula, formula) {
+  if (celulaVazia(celula)) return false;
+  const numero = paraNumeroMoeda(celula.v);
+  if (!Number.isFinite(numero)) return false;
+  celula.t = "n";
+  celula.v = numero;
+  celula.z = FORMATO_MOEDA_PLANILHA;
+  if (formula) celula.f = formula;
+  return true;
+}
+
+/**
+ * Marca células avulsas como moeda.
+ *
+ * @param celulas [{ linha, coluna, formula }] em índices de base zero -- é o
+ *                formato que as planilhas montadas linha a linha já usam.
+ */
+export function marcarCelulasDeMoeda(planilha, celulas = []) {
+  celulas.forEach(({ linha, coluna, formula }) => {
+    marcarCelula(planilha[referenciaDaCelula(linha, coluna)], formula);
+  });
+  return planilha;
+}
+
+/**
+ * Marca colunas inteiras como moeda, da primeira linha de dados até o fim.
+ *
+ * @param colunas       índices de base zero das colunas de valor
+ * @param primeiraLinha primeira linha de dados (1 quando há cabeçalho)
+ * @param ultimaLinha   última linha de dados; por padrão, o fim da planilha
+ */
+export function marcarColunasDeMoeda(planilha, colunas = [], { primeiraLinha = 1, ultimaLinha } = {}) {
+  const fim = ultimaLinha ?? ultimaLinhaDaPlanilha(planilha);
+  for (let linha = primeiraLinha; linha <= fim; linha++) {
+    colunas.forEach((coluna) => marcarCelula(planilha[referenciaDaCelula(linha, coluna)]));
+  }
+  return planilha;
+}
+
+/** Índices das colunas de valor a partir da ordem do cabeçalho da planilha. */
+export function colunasPorCabecalho(cabecalho = [], rotulosDeMoeda = []) {
+  const procurados = new Set(rotulosDeMoeda);
+  return cabecalho.reduce((indices, rotulo, indice) => {
+    if (procurados.has(rotulo)) indices.push(indice);
+    return indices;
+  }, []);
+}
+
 /**
  * Variação percentual já com o sinal: "+12,5%", "-3,2%", "0,0%".
  *
