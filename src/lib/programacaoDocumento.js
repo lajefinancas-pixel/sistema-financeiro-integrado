@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
-import { formatBRL, formatBRLSimples, FORMATO_MOEDA_PLANILHA } from "./moeda.js";
+import { formatBRL, formatBRLSimples, marcarCelulasDeMoeda } from "./moeda.js";
 import { ALTURA, PAGINA, alturaDoSaldoRestante, montarPaginas } from "./programacaoPaginacao.js";
 
 // Documento da Programação Diária de Pagamentos -- o papel que vai à mesa do
@@ -574,13 +574,7 @@ export function montarPlanilhaProgramacao(entrada) {
 
   const planilha = XLSX.utils.aoa_to_sheet(linhas, { cellDates: true });
 
-  moeda.forEach(({ linha, coluna, formula }) => {
-    const celula = planilha[XLSX.utils.encode_cell({ r: linha, c: coluna })];
-    if (!celula) return;
-    celula.t = "n";
-    celula.z = FORMATO_MOEDA_PLANILHA;
-    if (formula) celula.f = formula;
-  });
+  marcarCelulasDeMoeda(planilha, moeda);
   datas.forEach(({ linha, coluna, formato }) => {
     const celula = planilha[XLSX.utils.encode_cell({ r: linha, c: coluna })];
     if (!celula) return;

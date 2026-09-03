@@ -11,7 +11,7 @@ import { totalizarSaldos } from "../lib/saldosContas";
 import { somar } from "../lib/rateioPagamentos";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
-import { paraNumeroMoeda } from "../lib/moeda";
+import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda, paraNumeroMoeda } from "../lib/moeda";
 import { registrarEvento } from "../lib/auditoria";
 import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
 import { usePermissaoModulo } from "../lib/permissoes";
@@ -37,9 +37,6 @@ const MESES = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
-function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 // Banco e Nome da Conta nunca quebram linha. Textos muito longos apenas encolhem
 // um pouco a fonte, mantendo a altura das linhas uniforme.
 function classeTextoLongo(texto) {
@@ -70,6 +67,9 @@ function gerarDiasDoMes(ano, mes) {
   for (let d = 1; d <= ultimoDia.getDate(); d++) dias.push(d);
   return dias;
 }
+
+// Mesma ordem do cabeçalho da planilha, usada para achar a coluna de valor.
+const COLUNAS_EXCEL_SALDOS = ["Secretaria", "Banco", "Número da Conta", "Saldo", "Nome da Conta"];
 
 const TABELA_ORDEM = "preferencias_ordem_secretarias";
 const CHAVE_ORDEM_LOCAL = "saldos:ordem-secretarias";
@@ -943,6 +943,11 @@ export default function Saldos() {
     });
     const ws = XLSX.utils.json_to_sheet(linhas, {
       header: ["Secretaria", "Banco", "Número da Conta", "Saldo", "Nome da Conta"],
+    });
+    // Saldo sai como número com formato de moeda brasileiro na célula: some na
+    // planilha e ainda é lido como "R$ 1.234,56" por quem abre o arquivo.
+    marcarColunasDeMoeda(ws, colunasPorCabecalho(COLUNAS_EXCEL_SALDOS, ["Saldo"]), {
+      ultimaLinha: linhas.length,
     });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Saldos");

@@ -14,6 +14,7 @@ import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
 import { emCentavos, somar } from "../lib/rateioPagamentos";
 import { filtroVigentes } from "../lib/exclusaoRegistros";
+import { formatBRL } from "../lib/moeda";
 
 const ICONES_SECRETARIA = {
   finan: Landmark,
@@ -41,9 +42,6 @@ function corPara(nome) {
   return CORES_SECRETARIA[chave] ?? { cor: "#0F2A44", bg: "#EAF1FF" };
 }
 
-function formatBRL(v) {
-  return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 function saudacao() {
   const h = new Date().getHours();
   if (h < 12) return "Bom dia";
