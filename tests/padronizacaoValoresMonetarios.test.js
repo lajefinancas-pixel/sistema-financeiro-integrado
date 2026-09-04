@@ -31,6 +31,7 @@ import * as XLSX from "xlsx";
 import {
   colunasPorCabecalho,
   formatBRL,
+  formatBRLSeNumerico,
   formatBRLSimples,
   FORMATO_MOEDA_PLANILHA,
   marcarCelulasDeMoeda,
@@ -365,4 +366,113 @@ test("as exportações para Excel gravam o formato de moeda pelo utilitário ún
   const relatorios = await read("src/lib/relatoriosDocumento.js");
   assert.match(relatorios, /c\.tipo === "moeda"\) registro\[c\.label\] = paraNumeroMoeda\(valor\)/);
   assert.match(relatorios, /colunas\.filter\(\(c\) => c\.tipo === "moeda"\)/);
+});
+
+// ---------------------------------------------------------------------------
+// 6. Trilha de auditoria e Histórico de movimentações
+//
+// A comparação Antes/Depois é o último lugar do sistema em que dinheiro
+// aparecia fora do padrão: parte dos eventos é escrita pelas funções do banco
+// (baixa, estorno, transferência, aprovação da programação), que gravam o
+// número cru em valor_anterior/valor_novo. Na tela isso saía como "1.234,56" --
+// sem "R$" e, quando o número vinha como texto de coluna numeric, como
+// "1234.56" mesmo.
+//
+// O mesmo texto alimenta a impressão e o PDF do Histórico, então a correção
+// vale para os três de uma vez.
+//
+// `src/lib/auditoria.js` importa a camada de dados (supabaseClient) e por isso
+// não é carregável fora do navegador: aqui o comportamento é conferido no
+// utilitário compartilhado e a ligação com a auditoria, na fonte -- é como os
+// outros testes de não regressão já leem esse módulo.
+// ---------------------------------------------------------------------------
+
+// Lista nominal dos campos de dinheiro da auditoria, lida da própria fonte.
+async function camposDeMoedaDaAuditoria() {
+  const fonte = await read("src/lib/auditoria.js");
+  const lista = /const CAMPOS_DE_MOEDA = new Set\(\[([\s\S]*?)\]\);/.exec(fonte);
+  assert.ok(lista, "auditoria.js precisa declarar CAMPOS_DE_MOEDA");
+  return new Set([...lista[1].matchAll(/"([^"]+)"/g)].map((c) => c[1]));
+}
+
+test("valor de dinheiro na comparação Antes/Depois sai no padrão do sistema", async () => {
+  // Evento de baixa, como a função registrar_baixa_nota do banco o grava.
+  const antes = { situacao: "em_aberto", valor_pago: 0, valor_em_aberto: 194631.04 };
+  const depois = {
+    situacao: "parcialmente_pago",
+    valor_pago: "1234.56",
+    valor_em_aberto: "193396.48",
+    valor_da_baixa: 1234.56,
+    movimentou_saldo: false,
+  };
+
+  const camposDeMoeda = await camposDeMoedaDaAuditoria();
+  for (const campo of ["valor_pago", "valor_em_aberto", "valor_da_baixa"]) {
+    assert.ok(camposDeMoeda.has(campo), `${campo} é dinheiro e precisa estar na lista`);
+  }
+
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(antes.valor_pago)), "R$ 0,00");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(depois.valor_pago)), "R$ 1.234,56");
+  // Texto de coluna numeric também: era ele que aparecia cru na tela.
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(antes.valor_em_aberto)), "R$ 194.631,04");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(depois.valor_em_aberto)), "R$ 193.396,48");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(depois.valor_da_baixa)), "R$ 1.234,56");
+
+  // O que não é dinheiro fica fora da lista e segue com a leitura de sempre: a
+  // regra financeira registrada no evento continua legível (a baixa não
+  // movimenta saldo) e a situação continua saindo como está gravada.
+  assert.ok(!camposDeMoeda.has("movimentou_saldo"));
+  assert.ok(!camposDeMoeda.has("situacao"));
+});
+
+test("campo parecido com valor, mas que não é dinheiro, não ganha R$", async () => {
+  // Identificador, nome de tabela e contagem convivem com os campos de valor
+  // nos eventos do banco -- por isso a lista é nominal, nunca por prefixo.
+  const camposDeMoeda = await camposDeMoedaDaAuditoria();
+  for (const campo of [
+    "valor_em_aberto_id",
+    "saldos_historico",
+    "historico_saldos",
+    "valores_em_aberto",
+    "saldo_insuficiente",
+    "movimentou_saldo",
+  ]) {
+    assert.ok(!camposDeMoeda.has(campo), `${campo} não é dinheiro`);
+  }
+
+  // Texto gravado no lugar do número continua texto: conta cadastrada sem saldo
+  // inicial não passa a exibir R$ 0,00.
+  assert.equal(formatBRLSeNumerico("Não informado"), null);
+  assert.equal(formatBRLSeNumerico("em_aberto"), null);
+  assert.equal(formatBRLSeNumerico("2026-09-04"), null);
+  assert.equal(formatBRLSeNumerico(true), null);
+  assert.equal(formatBRLSeNumerico(null), null);
+  // Já o campo de dinheiro sai formatado, venha número ou texto.
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(1234.5)), "R$ 1.234,50");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico("1234.50")), "R$ 1.234,50");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(0)), "R$ 0,00");
+  assert.equal(semEspacoEstreito(formatBRLSeNumerico(-1000)), "-R$ 1.000,00");
+  // Reformatar o que a tela já gravou formatado devolve o mesmo texto.
+  assert.equal(formatBRLSeNumerico(formatBRL(1234.5)), formatBRL(1234.5));
+});
+
+test("a impressão e o PDF do Histórico levam o valor já formatado", async () => {
+  // O documento do Histórico monta a linha com os campos da comparação, então
+  // a tela, a impressão e o PDF mostram o valor no mesmo formato.
+  const documento = await read("src/lib/historicoDocumento.js");
+  assert.match(documento, /\$\{m\.label\}: \$\{m\.antes\} → \$\{m\.depois\}/);
+
+  const linha = `Saldo: ${formatBRLSeNumerico("629746.73")} → ${formatBRLSeNumerico("639746.73")}`;
+  assert.equal(semEspacoEstreito(linha), "Saldo: R$ 629.746,73 → R$ 639.746,73");
+});
+
+test("nenhuma tela reimplementa a leitura de valor da auditoria", async () => {
+  const auditoria = await read("src/lib/auditoria.js");
+  // A formatação vem do utilitário único, não de um formatador local.
+  assert.match(auditoria, /import \{ formatBRLSeNumerico \} from "\.\/moeda"/);
+  assert.doesNotMatch(auditoria, /style: "currency"/);
+  // E é a leitura da auditoria que aplica a lista, recebendo o nome do campo.
+  assert.match(auditoria, /CAMPOS_DE_MOEDA\.has\(chave\)/);
+  assert.match(auditoria, /antes: valorLegivel\(antes\[chave\], chave\)/);
+  assert.match(auditoria, /depois: valorLegivel\(depois\[chave\], chave\)/);
 });

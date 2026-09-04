@@ -29,6 +29,29 @@ export function formatBRLSimples(valor) {
 /** Formato de célula de planilha equivalente a formatBRL. */
 export const FORMATO_MOEDA_PLANILHA = "R$ #,##0.00";
 
+// Número escrito: "1234.56" (o que uma coluna numeric devolve), "R$ 1.234,56"
+// (o que algumas telas já gravam formatado), "-1.000,00". O que NÃO casa aqui é
+// texto comum, e é essa a diferença que importa: "Não informado" é o que fica
+// gravado quando o saldo inicial de uma conta não é preenchido.
+const TEXTO_NUMERICO = /^-?\s*(R\$)?\s*\d[\d.,]*$/;
+
+/**
+ * Formata só quando o conteúdo é um número escrito; devolve `null` quando não é.
+ *
+ * Serve para o caso em que se sabe que o CAMPO é de dinheiro mas não se sabe o
+ * que ele carrega -- é a situação da comparação Antes/Depois da auditoria, que
+ * lê jsonb gravado por telas e por funções do banco. Formatar às cegas passaria
+ * por `paraNumeroMoeda` e transformaria "Não informado" em R$ 0,00; devolver
+ * `null` deixa quem chamou seguir com a leitura genérica.
+ *
+ * Reformatar o que já está formatado devolve o mesmo texto.
+ */
+export function formatBRLSeNumerico(valor) {
+  if (typeof valor === "number") return Number.isFinite(valor) ? formatBRL(valor) : null;
+  if (typeof valor !== "string" || !TEXTO_NUMERICO.test(valor.trim())) return null;
+  return formatBRL(valor);
+}
+
 /* -------------------------------------------------------------------------
  * Planilha (Excel)
  *
