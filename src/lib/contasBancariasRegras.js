@@ -30,11 +30,109 @@ export function tipoContaLabel(valor) {
 export const ROTULOS_CONTA = {
   secretaria: "Secretaria",
   banco: "Banco",
+  agencia: "Agência",
   numero_conta: "Número da conta",
   nome_conta: "Nome da conta",
   tipo_conta: "Tipo de conta",
   fonte_recurso: "Fonte de recurso",
+  possui_pix: "Possui PIX",
+  pix_tipo_chave: "Tipo da chave PIX",
+  pix_chave: "Chave PIX",
+  pix_titular: "Titular do PIX",
+  pix_documento_titular: "CPF/CNPJ do titular do PIX",
 };
+
+/**
+ * Tipos de chave PIX aceitos no cadastro da conta bancária. Mesma lista usada
+ * nos dados para pagamento do fornecedor, para que a leitura seja a mesma nas
+ * duas telas.
+ */
+export const TIPOS_CHAVE_PIX = [
+  { id: "cpf", label: "CPF" },
+  { id: "cnpj", label: "CNPJ" },
+  { id: "telefone", label: "Telefone" },
+  { id: "email", label: "E-mail" },
+  { id: "aleatoria", label: "Chave aleatória" },
+];
+
+/** Rótulo do tipo da chave; valor desconhecido é mostrado como está. */
+export function tipoChavePixLabel(valor) {
+  const texto = String(valor ?? "").trim();
+  if (!texto) return "--";
+  return TIPOS_CHAVE_PIX.find((tipo) => tipo.id === texto)?.label ?? texto;
+}
+
+/**
+ * O CPF/CNPJ do titular é exigido? Só quando a própria chave é um CPF ou um
+ * CNPJ -- nos outros tipos o campo continua na tela ("quando aplicável"), mas
+ * em branco não impede o cadastro.
+ */
+export function documentoDoTitularObrigatorio(tipoChave) {
+  return ["cpf", "cnpj"].includes(String(tipoChave ?? "").trim());
+}
+
+/** O formulário marcou "Possui PIX? Sim"? */
+export function contaTemPix(valor) {
+  if (typeof valor === "boolean") return valor;
+  const texto = String(valor ?? "").trim().toLowerCase();
+  return ["sim", "true", "1", "s", "y", "yes"].includes(texto);
+}
+
+/**
+ * Validação da seção PIX do MESMO formulário da conta.
+ *
+ * PIX é opcional: "Não" (ou nada marcado) passa sem nenhuma exigência e a conta
+ * salva normalmente. Marcado "Sim", tipo da chave, chave e titular passam a ser
+ * obrigatórios, e o CPF/CNPJ do titular só quando a chave é CPF ou CNPJ.
+ */
+export function validarPixDaConta({
+  possui_pix = false,
+  pix_tipo_chave = "",
+  pix_chave = "",
+  pix_titular = "",
+  pix_documento_titular = "",
+} = {}) {
+  const erros = {};
+  if (!contaTemPix(possui_pix)) return erros;
+
+  if (String(pix_tipo_chave).trim() === "") erros.pix_tipo_chave = "Escolha o tipo da chave PIX.";
+  if (String(pix_chave).trim() === "") erros.pix_chave = "Informe a chave PIX.";
+  if (String(pix_titular).trim() === "") erros.pix_titular = "Informe o titular do PIX.";
+  if (documentoDoTitularObrigatorio(pix_tipo_chave) && String(pix_documento_titular).trim() === "") {
+    erros.pix_documento_titular = "Informe o CPF/CNPJ do titular da chave.";
+  }
+  return erros;
+}
+
+/**
+ * Dados de PIX prontos para gravar, em snake_case.
+ *
+ * "Não" grava tudo em branco: a conta fica sem PIX, sem sobra de chave antiga.
+ * O PIX vive no MESMO registro da conta bancária -- não existe tabela, aba nem
+ * cadastro separado.
+ */
+export function dadosPixParaGravar(dados = {}) {
+  if (!contaTemPix(dados.possui_pix)) {
+    return {
+      possui_pix: false,
+      pix_tipo_chave: null,
+      pix_chave: null,
+      pix_titular: null,
+      pix_documento_titular: null,
+    };
+  }
+  const texto = (valor) => {
+    const limpo = String(valor ?? "").trim();
+    return limpo === "" ? null : limpo;
+  };
+  return {
+    possui_pix: true,
+    pix_tipo_chave: texto(dados.pix_tipo_chave),
+    pix_chave: texto(dados.pix_chave),
+    pix_titular: texto(dados.pix_titular),
+    pix_documento_titular: texto(dados.pix_documento_titular),
+  };
+}
 
 /**
  * Número da conta reduzido ao que identifica a conta: só letras e dígitos, em
@@ -54,19 +152,20 @@ export function chaveDoNumero(numero) {
  *
  * @returns { valido, erros: { campo: mensagem }, mensagem }
  */
-export function validarCadastroConta({
-  nova_secretaria = false,
-  secretaria_id = "",
-  secretaria_novo_nome = "",
-  novo_banco = false,
-  banco_id = "",
-  banco_novo_nome = "",
-  nome_conta = "",
-  numero_conta = "",
-  tipo_conta = "",
-  saldo_inicial = "",
-  exigirSaldoInicial = false,
-} = {}) {
+export function validarCadastroConta(dados = {}) {
+  const {
+    nova_secretaria = false,
+    secretaria_id = "",
+    secretaria_novo_nome = "",
+    novo_banco = false,
+    banco_id = "",
+    banco_novo_nome = "",
+    nome_conta = "",
+    numero_conta = "",
+    tipo_conta = "",
+    saldo_inicial = "",
+    exigirSaldoInicial = false,
+  } = dados;
   const erros = {};
 
   const temSecretaria = nova_secretaria
@@ -91,6 +190,11 @@ export function validarCadastroConta({
   } else if (exigirSaldoInicial) {
     erros.saldo_inicial = "Informe o saldo inicial.";
   }
+
+  // Agência é opcional: conta sem agência informada continua salvando.
+  // PIX também é opcional; quando marcado "Sim", os campos dele passam a ser
+  // conferidos no MESMO envio do formulário.
+  Object.assign(erros, validarPixDaConta(dados));
 
   const campos = Object.keys(erros);
   return {
@@ -171,13 +275,20 @@ function valorComparavel(valor) {
  * consegue rotular cada linha.
  */
 export function retratoDoCadastro(conta) {
+  const temPix = contaTemPix(conta?.possui_pix);
   return {
     secretaria: conta?.secretaria ?? "--",
     banco: conta?.banco ?? "--",
+    agencia: conta?.agencia ?? "--",
     numero_conta: conta?.numero_conta ?? "--",
     nome_conta: conta?.nome_conta ?? "--",
     tipo_conta: tipoContaLabel(conta?.tipo_conta),
     fonte_recurso: conta?.fonte_recurso ?? "--",
+    possui_pix: temPix ? "Sim" : "Não",
+    pix_tipo_chave: temPix ? tipoChavePixLabel(conta?.pix_tipo_chave) : "--",
+    pix_chave: temPix ? (conta?.pix_chave ?? "--") : "--",
+    pix_titular: temPix ? (conta?.pix_titular ?? "--") : "--",
+    pix_documento_titular: temPix ? (conta?.pix_documento_titular ?? "--") : "--",
   };
 }
 
@@ -191,7 +302,12 @@ export function retratoDasAlteracoes(alterados) {
   const anterior = {};
   const novo = {};
   for (const [campo, valores] of Object.entries(alterados ?? {})) {
-    const legivel = (valor) => (campo === "tipo_conta" ? tipoContaLabel(valor) : (valor ?? "--"));
+    const legivel = (valor) => {
+      if (campo === "tipo_conta") return tipoContaLabel(valor);
+      if (campo === "pix_tipo_chave") return tipoChavePixLabel(valor);
+      if (campo === "possui_pix") return contaTemPix(valor) ? "Sim" : "Não";
+      return valor ?? "--";
+    };
     anterior[campo] = legivel(valores?.de);
     novo[campo] = legivel(valores?.para);
   }

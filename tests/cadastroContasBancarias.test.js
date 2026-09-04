@@ -152,7 +152,9 @@ test("retrato do cadastro usa as chaves que o dicionário da auditoria traduz", 
     fonte_recurso: "FPM",
   });
   assert.deepEqual(Object.keys(retrato).sort(), [
-    "banco", "fonte_recurso", "nome_conta", "numero_conta", "secretaria", "tipo_conta",
+    "agencia", "banco", "fonte_recurso", "nome_conta", "numero_conta", "pix_chave",
+    "pix_documento_titular", "pix_tipo_chave", "pix_titular", "possui_pix", "secretaria",
+    "tipo_conta",
   ]);
   assert.equal(retrato.tipo_conta, "Poupança");
 });

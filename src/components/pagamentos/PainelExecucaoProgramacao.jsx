@@ -2,6 +2,7 @@ import React from "react";
 import { AlertTriangle, ArrowLeftRight, Check, RotateCcw, Wallet } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
 import { contasAtribuiveis, resumoExecucao } from "../../lib/execucaoProgramacao";
+import SeletorContas from "../comuns/SeletorContas";
 
 /**
  * Etapa de execução da programação aprovada.
@@ -89,22 +90,22 @@ export default function PainelExecucaoProgramacao({
       {/* Atribuição em lote: marcar vários e aplicar de uma vez, ou aplicar a
           todos. Depois disso a troca individual continua possível. */}
       <div className="flex flex-wrap items-end gap-2 px-4 py-3">
-        <label className="min-w-[220px] flex-1 text-[11px] font-medium text-[#17352F]/60">
+        <div className="min-w-[220px] flex-1 text-[11px] font-medium text-[#17352F]/60">
           Conta para atribuição
-          <select
-            value={contaEmLote}
-            onChange={(e) => setContaEmLote(e.target.value)}
-            disabled={!podeDefinir || disponiveis.length === 0}
-            className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm disabled:bg-black/[0.03]"
-          >
-            <option value="">Selecione...</option>
-            {disponiveis.map((conta) => (
-              <option key={conta.id} value={conta.id}>
-                {conta.nome_conta} · {conta.banco} · saldo {formatBRL(conta.saldo ?? 0)}
-              </option>
-            ))}
-          </select>
-        </label>
+          {/* Contas de trabalho já confirmadas, com busca e agrupadas por
+              Secretaria. Atribuir conta ao pagamento é registro de qual conta
+              paga: não debita, não reserva e não altera saldo. */}
+          <SeletorContas
+            className="mt-1"
+            contas={disponiveis}
+            modo="unica"
+            valor={contaEmLote}
+            onEscolher={(conta) => setContaEmLote(String(conta.id))}
+            desabilitado={!podeDefinir}
+            altura="max-h-[200px]"
+            vazio="Nenhuma conta de trabalho confirmada para esta programação."
+          />
+        </div>
         <button
           type="button"
           onClick={() => onAtribuirAosSelecionados?.([...marcados], Number(contaEmLote)).then(() => setMarcados(new Set()))}

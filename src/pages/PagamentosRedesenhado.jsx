@@ -17,6 +17,9 @@ import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoPr
 import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
 import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
 import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
+import SeletorContas from "../components/comuns/SeletorContas";
+import { filtrarContasCadastradas } from "../lib/contasBancariasBusca";
+import { estruturaDePixAusente } from "../lib/contasBancarias";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -25,7 +28,24 @@ const hojeISO = () => {
 const numero = (valor) => valorPlanejamento(valor);
 const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-BR");
 const nomeAutomatico = (data) => `PROGRAMAÇÃO DIÁRIA — ${dataBR(data)}`;
-const textoConta = (conta) => `${conta.banco} ${conta.numero_conta} ${conta.nome_conta}`.toLocaleLowerCase("pt-BR");
+const COLUNAS_CONTA_PROGRAMACAO = "id, nome_conta, numero_conta, secretaria_id, bancos(nome)";
+
+/**
+ * Contas ATIVAS da secretaria da programação — as mesmas de sempre, e apenas
+ * elas: a programação continua trabalhando dentro da própria secretaria.
+ *
+ * A agência entra na consulta quando a coluna já existe no banco; sem ela, a
+ * lista vem igual, só sem a busca por agência.
+ */
+async function contasAtivasDaSecretaria(secretariaId) {
+  const consultar = (colunas) =>
+    supabase.from("contas_bancarias").select(colunas).eq("secretaria_id", secretariaId).eq("ativo", true);
+
+  const comAgencia = await consultar(`${COLUNAS_CONTA_PROGRAMACAO}, agencia`);
+  if (!comAgencia.error) return comAgencia;
+  if (!estruturaDePixAusente(comAgencia.error)) return comAgencia;
+  return consultar(COLUNAS_CONTA_PROGRAMACAO);
+}
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
@@ -268,7 +288,7 @@ export default function PagamentosRedesenhado() {
     setErro("");
     try {
       const [{ data: contasBrutas, error: erroContas }, { data: fornecedoresAtivos, error: erroFornecedores }] = await Promise.all([
-        supabase.from("contas_bancarias").select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)").eq("secretaria_id", secretariaId).eq("ativo", true),
+        contasAtivasDaSecretaria(secretariaId),
         supabase.from("fornecedores").select("id, razao_social").eq("secretaria_id", secretariaId).eq("ativo", true).order("razao_social"),
       ]);
       if (erroContas) throw erroContas;
@@ -280,6 +300,7 @@ export default function PagamentosRedesenhado() {
           id: conta.id,
           nome_conta: conta.nome_conta,
           numero_conta: conta.numero_conta,
+          agencia: conta.agencia ?? "",
           banco: conta.bancos?.nome || "--",
           secretaria: nomeSecretaria,
           secretaria_id: conta.secretaria_id,
@@ -701,7 +722,7 @@ export default function PagamentosRedesenhado() {
     exportarExcelProgramacao(dadosDocumento());
   }
 
-  const contasFiltradas = contas.filter((conta) => textoConta(conta).includes(buscaConta.trim().toLocaleLowerCase("pt-BR")));
+  const contasFiltradas = filtrarContasCadastradas(contas, buscaConta);
   const contasSelecionadasComSaldo = contas.filter((conta) => contasSelecionadas.has(conta.id));
   const totalDisponivel = somarContasSelecionadas(contas, contasSelecionadas);
   const totalProgramado = somarPagamentos(pagamentos);
@@ -794,13 +815,30 @@ export default function PagamentosRedesenhado() {
                     <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">1.</span> Contas de trabalho</h2>
                     <span className="text-[10px] text-[#17352F]/45 print:hidden">{contasConfirmadas ? "Confirmadas — seleção não movimenta saldo" : "Selecionar não movimenta saldo"}</span>
                   </div>
-                  {!contasConfirmadas && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaConta} onChange={(evento) => setBuscaConta(evento.target.value)} placeholder="Buscar banco, conta ou nome" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
                 </div>
 
-                {/* Lista completa: só enquanto a seleção não foi confirmada, e nunca no papel. */}
+                {/* Lista completa: só enquanto a seleção não foi confirmada, e nunca no papel.
+                    As contas vêm agrupadas pela Secretaria, com grupo que abre e
+                    fecha e busca por número, nome, banco, agência ou secretaria.
+                    Marcar conta aqui NÃO debita, não reserva e não altera saldo:
+                    é o registro de com quais contas a programação trabalha. Não
+                    existe aqui criar conta — só se escolhe conta já cadastrada. */}
                 {!contasConfirmadas && <div className="print:hidden">
-                  <label className="grid cursor-pointer grid-cols-[1.6rem_1fr] border-b border-black/5 bg-[#F2F0E8] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-3.5 w-3.5 accent-[#17352F]"/> Selecionar todas</label>
-                  <div className="max-h-[430px] overflow-y-auto"><div className="hidden grid-cols-[1.6rem_1.1fr_1fr_1fr_1.2fr] gap-2 border-b border-black/5 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[#17352F]/45 md:grid"><span></span><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>{contasFiltradas.map((conta) => <label key={conta.id} className={`grid cursor-pointer items-center gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.6rem_1.1fr_1fr_1fr_1.2fr] md:gap-2 ${contasSelecionadas.has(conta.id) ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={contasSelecionadas.has(conta.id)} onChange={() => alternarConta(conta.id)} className="h-3.5 w-3.5 accent-[#17352F]"/><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></label>)}</div>
+                  <SeletorContas
+                    contas={contas}
+                    modo="multipla"
+                    selecionadas={[...contasSelecionadas]}
+                    onEscolher={(conta) => alternarConta(conta.id)}
+                    busca={buscaConta}
+                    onBuscaChange={setBuscaConta}
+                    desabilitado={!podeEditarProgramacao}
+                    altura="max-h-[430px]"
+                    className="rounded-none border-0"
+                    vazio="Nenhuma conta cadastrada nesta secretaria."
+                    acoes={
+                      <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-3.5 w-3.5 accent-[#17352F]"/> Selecionar todas</label>
+                    }
+                  />
                 </div>}
 
                 {/* Resumo do que foi escolhido: na tela quando confirmado, na impressão sempre. */}

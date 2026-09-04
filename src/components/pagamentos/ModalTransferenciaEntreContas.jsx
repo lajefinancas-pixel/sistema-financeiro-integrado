@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle, ArrowLeftRight, Plus, Trash2, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
+import SeletorContas from "../comuns/SeletorContas";
 import { formatBRL } from "../../lib/moeda";
 import { mensagemAmigavel } from "../../lib/erros";
 import { conferirTransferenciaMultipla, pernasParaEnvio } from "../../lib/regrasTransferencia";
@@ -45,6 +46,8 @@ export default function ModalTransferenciaEntreContas({
     valor: linha.valor,
   }));
   const conferencia = conferirTransferenciaMultipla({ destino, origens });
+  // A conta de destino não pode ser também origem.
+  const origensPossiveis = contas.filter((conta) => String(conta.id) !== String(destinoId));
 
   function alterarLinha(indice, campo, valor) {
     setLinhas((atual) => atual.map((linha, i) => (i === indice ? { ...linha, [campo]: valor } : linha)));
@@ -95,22 +98,27 @@ export default function ModalTransferenciaEntreContas({
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <label className="block text-xs font-medium text-[#17352F]/70">
+          <div className="block text-xs font-medium text-[#17352F]/70">
             Conta de destino
-            <select
-              value={destinoId}
-              onChange={(e) => setDestinoId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm"
-            >
-              <option value="">Selecione...</option>
-              {contas.map((conta) => (
-                <option key={conta.id} value={conta.id}>
-                  {conta.nome_conta} · {conta.banco} · {conta.numero_conta || "sem número"} · {conta.secretaria} · saldo{" "}
-                  {formatBRL(conta.saldo ?? 0)}
-                </option>
-              ))}
-            </select>
-          </label>
+            {/* Contas já cadastradas, agrupadas por Secretaria e com busca por
+                número, nome, banco, agência ou secretaria. Aqui não se cadastra
+                conta: só se escolhe conta que já existe. */}
+            <SeletorContas
+              className="mt-1"
+              contas={contas}
+              modo="unica"
+              valor={destinoId}
+              onEscolher={(conta) => setDestinoId(String(conta.id))}
+              altura="max-h-[220px]"
+              vazio="Nenhuma conta disponível para transferência."
+            />
+            {destino && (
+              <p className="mt-1.5 text-[11px] font-normal text-[#17352F]/60">
+                Destino: {destino.nome_conta} · {destino.banco} · {destino.numero_conta || "sem número"} ·{" "}
+                {destino.secretaria} · saldo {formatBRL(destino.saldo ?? 0)}
+              </p>
+            )}
+          </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -127,23 +135,18 @@ export default function ModalTransferenciaEntreContas({
             {conferencia.linhas.map((linha, indice) => (
               <div key={indice} className="rounded-xl border border-black/5 bg-[#F5F3EC]/60 p-3">
                 <div className="grid gap-2 sm:grid-cols-[1fr_170px_auto] sm:items-end">
-                  <label className="text-[11px] font-medium text-[#17352F]/60">
+                  <div className="text-[11px] font-medium text-[#17352F]/60">
                     Conta de origem
-                    <select
-                      value={linhas[indice].contaId}
-                      onChange={(e) => alterarLinha(indice, "contaId", e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Selecione...</option>
-                      {contas
-                        .filter((conta) => String(conta.id) !== String(destinoId))
-                        .map((conta) => (
-                          <option key={conta.id} value={conta.id}>
-                            {conta.nome_conta} · {conta.banco} · {conta.secretaria} · saldo {formatBRL(conta.saldo ?? 0)}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
+                    <SeletorContas
+                      className="mt-1"
+                      contas={origensPossiveis}
+                      modo="unica"
+                      valor={linhas[indice].contaId}
+                      onEscolher={(conta) => alterarLinha(indice, "contaId", String(conta.id))}
+                      altura="max-h-[200px]"
+                      vazio="Nenhuma outra conta disponível como origem."
+                    />
+                  </div>
                   <label className="text-[11px] font-medium text-[#17352F]/60">
                     Valor
                     <CampoMoeda
