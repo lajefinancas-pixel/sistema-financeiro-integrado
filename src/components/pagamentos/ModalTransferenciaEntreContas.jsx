@@ -82,8 +82,15 @@ export default function ModalTransferenciaEntreContas({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <form onSubmit={confirmar} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-        <div className="sticky top-0 flex items-start justify-between border-b border-black/5 bg-white px-5 py-4">
+      {/* Mesma moldura da baixa: max-h-full impede o modal de passar da altura
+          da janela, o corpo rola por dentro e cabeçalho e rodapé ficam fixos.
+          Com as contas agrupadas por Secretaria a lista pode ficar longa, e o
+          botão "Confirmar transferência" precisa continuar visível. */}
+      <form
+        onSubmit={confirmar}
+        className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="flex shrink-0 items-start justify-between border-b border-black/5 bg-white px-5 py-4">
           <div>
             <h2 className="inline-flex items-center gap-2 font-semibold text-[#17352F]">
               <ArrowLeftRight size={17} /> Transferir entre contas
@@ -98,7 +105,7 @@ export default function ModalTransferenciaEntreContas({
           </button>
         </div>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           <div className="block text-xs font-medium text-[#17352F]/70">
             Conta de destino
             {/* Contas já cadastradas, agrupadas por Secretaria e com busca por
@@ -110,7 +117,7 @@ export default function ModalTransferenciaEntreContas({
               modo="unica"
               valor={destinoId}
               onEscolher={(conta) => setDestinoId(String(conta.id))}
-              altura="max-h-[220px]"
+              altura="max-h-[min(220px,32vh)]"
               vazio="Nenhuma conta disponível para transferência."
             />
             {/* Escolhida, a conta aparece por extenso: Banco | Conta | Nome da
@@ -146,7 +153,7 @@ export default function ModalTransferenciaEntreContas({
                       modo="unica"
                       valor={linhas[indice].contaId}
                       onEscolher={(conta) => alterarLinha(indice, "contaId", String(conta.id))}
-                      altura="max-h-[200px]"
+                      altura="max-h-[min(200px,30vh)]"
                       vazio="Nenhuma outra conta disponível como origem."
                     />
                   </div>
@@ -210,7 +217,7 @@ export default function ModalTransferenciaEntreContas({
           )}
         </div>
 
-        <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-black/5 bg-white px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-black/5 bg-white px-5 py-4">
           <span className="text-[11px] text-[#17352F]/45">
             Esta transferência tem identificador único: confirmar duas vezes não a executa duas vezes.
           </span>
