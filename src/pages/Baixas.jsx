@@ -13,6 +13,7 @@ import {
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import PainelFiltros from "../components/comuns/PainelFiltros";
+import NomeFornecedor from "../components/comuns/NomeFornecedor";
 import ModalRegistrarBaixa from "../components/baixas/ModalRegistrarBaixa";
 import ModalEstornarBaixa from "../components/baixas/ModalEstornarBaixa";
 import { carregarBaseDaTelaDeBaixas, carregarNotasEBaixas } from "../lib/baixasPagamentos";
@@ -31,6 +32,7 @@ import {
   totaisDasNotas,
 } from "../lib/regrasBaixas";
 import { exportarExcelBaixas, gerarPdfBaixas, imprimirBaixas, VISAO_BAIXAS, VISAO_NOTAS } from "../lib/baixasDocumento";
+import { nomeExibicaoDoFornecedor } from "../lib/nomesFornecedor";
 import { formatarData, hojeISO, situacaoDaNota } from "../lib/notasFornecedor";
 import { formatBRL } from "../lib/moeda";
 import { mensagemAmigavel } from "../lib/erros";
@@ -46,7 +48,8 @@ import { mensagemAmigavel } from "../lib/erros";
  * transferência entre contas).
  *
  * O caminho da tela é o do balcão:
- *   1. escolher o fornecedor (nome, razão social, nome fantasia ou CNPJ/CPF);
+ *   1. escolher o fornecedor (nome, apelido, razão social, nome fantasia ou
+ *      CNPJ/CPF);
  *   2. ver as notas dele que ainda têm valor em aberto;
  *   3. abrir a nota para registrar a baixa -- parcial ou integral -- e ler o
  *      histórico das baixas que ela já recebeu.
@@ -313,7 +316,7 @@ export default function Baixas() {
               {fornecedor
                 ? `${notasFiltradas.length} ${
                     notasFiltradas.length === 1 ? "nota em aberto" : "notas em aberto"
-                  } de ${nomeDoFornecedor(fornecedor)}`
+                  } de ${nomeExibicaoDoFornecedor(fornecedor)}`
                 : "Escolha o fornecedor para ver as notas que ainda têm valor em aberto"}
             </p>
           </div>
@@ -376,7 +379,9 @@ export default function Baixas() {
                   <Users size={17} />
                 </span>
                 <div>
-                  <div className="text-sm font-semibold text-[#0F2A44]">{nomeDoFornecedor(fornecedor)}</div>
+                  <div className="text-sm font-semibold text-[#0F2A44]">
+                    <NomeFornecedor fornecedor={fornecedor} classeSecundaria="text-[#0F2A44]/60" />
+                  </div>
                   <div className="text-xs text-[#0F2A44]/55">
                     {[fornecedor.cpf_cnpj, fornecedor.secretarias?.nome].filter(Boolean).join(" · ") ||
                       "Sem CNPJ/CPF informado"}
@@ -400,7 +405,7 @@ export default function Baixas() {
                   <input
                     value={busca}
                     onChange={(e) => setBusca(e.target.value)}
-                    placeholder="Busque por nome, razão social, nome fantasia ou CNPJ/CPF"
+                    placeholder="Busque por nome, apelido, razão social, nome fantasia ou CNPJ/CPF"
                     className="w-full rounded-lg border border-black/10 py-2.5 pl-9 pr-3 text-sm"
                   />
                 </div>
@@ -422,7 +427,11 @@ export default function Baixas() {
                         className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[#F4F7F9]"
                       >
                         <span>
-                          <span className="block text-sm text-[#0F2A44]">{nomeDoFornecedor(item)}</span>
+                          <NomeFornecedor
+                            fornecedor={item}
+                            classeDestaque="text-sm text-[#0F2A44]"
+                            classeSecundaria="text-[#0F2A44]/50"
+                          />
                           <span className="block text-xs text-[#0F2A44]/50">
                             {[item.cpf_cnpj, item.secretarias?.nome].filter(Boolean).join(" · ") || "Sem CNPJ/CPF"}
                           </span>

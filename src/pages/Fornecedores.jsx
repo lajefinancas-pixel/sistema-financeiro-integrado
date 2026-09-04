@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, Filter, Eraser, Star, ArrowUpDown } from "lucide-react";
+import { Plus, X, Save, ChevronDown, ChevronUp, Trash2, Printer, FileText, FileSpreadsheet, Filter, Eraser, Star, ArrowUpDown, Pencil } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { listarFiltrosFavoritos, salvarFiltroFavorito, excluirFiltroFavorito } from "../lib/filtrosFavoritos";
@@ -20,6 +20,13 @@ import { comTratamento, erroAmigavel, mensagemAmigavel } from "../lib/erros";
 import CampoMoeda from "../components/CampoMoeda";
 import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda, paraNumeroMoeda } from "../lib/moeda";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import NomeFornecedor from "../components/comuns/NomeFornecedor";
+import {
+  LIMITE_NOME_EXIBICAO,
+  apelidoDoFornecedor,
+  estruturaDeApelidoAusente,
+  normalizarNomeExibicao,
+} from "../lib/nomesFornecedor";
 import PainelFiltros from "../components/comuns/PainelFiltros";
 import {
   auditarExclusao,
@@ -28,6 +35,15 @@ import {
   textoDosVinculos,
   vinculosDoFornecedor,
 } from "../lib/exclusaoRegistros";
+
+/**
+ * Recado de quando a migration do apelido ainda não foi rodada neste banco.
+ * O cadastro sem apelido continua funcionando igual; só quem tenta gravar um
+ * apelido precisa da coluna nova.
+ */
+const AVISO_MIGRATION_APELIDO =
+  "O campo Apelido ainda não existe neste banco. Rode a migration " +
+  "20260905120000_apelido_fornecedor_e_nome_exibicao_programacao.sql no SQL Editor do Supabase e tente de novo.";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -415,12 +431,20 @@ export default function Fornecedores() {
   const [form, setForm] = React.useState({
     razao_social: "",
     nome_fantasia: "",
+    apelido: "",
     cpf_cnpj: "",
     secretaria_id: "",
     descricao: "",
     telefone: "",
     email: "",
   });
+
+  // Apelido de fornecedor já cadastrado: o cadastro não tem tela de edição, então
+  // o apelido é ajustado no lápis ao lado do nome, aqui mesmo na listagem. Grava
+  // SÓ a coluna `apelido` -- razão social, nome fantasia, CPF/CNPJ, dados
+  // bancários, NFs, processos e histórico ficam intactos.
+  const [apelidoEditando, setApelidoEditando] = React.useState(null);
+  const [salvandoApelido, setSalvandoApelido] = React.useState(false);
 
   const [formValor, setFormValor] = React.useState(FORM_VALOR_VAZIO);
   const [fixarIss, setFixarIss] = React.useState(false);
@@ -461,6 +485,8 @@ export default function Fornecedores() {
   const { usuario: usuarioLogado, permissao: permissaoFornecedores } =
     usePermissaoModulo("fornecedores");
   const podeExcluirFornecedor = permissaoFornecedores?.pode_excluir === true;
+  // Apelido é dado de identificação: quem pode editar o fornecedor pode ajustá-lo.
+  const podeEditarFornecedor = permissaoFornecedores?.pode_editar === true;
 
   // Documentação: as certidões vêm da mesma tabela do módulo de Certidões e só
   // são pedidas para quem enxerga o módulo (pode_visualizar em 'certidoes').
@@ -646,7 +672,10 @@ export default function Fornecedores() {
       if (!form.razao_social || !form.cpf_cnpj || !form.secretaria_id) {
         throw erroAmigavel("Preencha razão social, CPF/CNPJ e secretaria.");
       }
-      const { error } = await supabase.from("fornecedores").insert({
+      // Apelido é opcional: vazio nem entra no insert, para o cadastro continuar
+      // idêntico em banco onde a migration do apelido ainda não rodou.
+      const apelido = normalizarNomeExibicao(form.apelido);
+      const cadastro = {
         razao_social: form.razao_social,
         nome_fantasia: form.nome_fantasia || null,
         cpf_cnpj: form.cpf_cnpj,
@@ -654,8 +683,14 @@ export default function Fornecedores() {
         descricao: form.descricao || null,
         telefone: form.telefone || null,
         email: form.email || null,
-      });
-      if (error) throw error;
+      };
+      if (apelido) cadastro.apelido = apelido;
+
+      const { error } = await supabase.from("fornecedores").insert(cadastro);
+      if (error) {
+        if (apelido && estruturaDeApelidoAusente(error)) throw erroAmigavel(AVISO_MIGRATION_APELIDO);
+        throw error;
+      }
 
       // Auditoria: cadastro de fornecedor é evento de informação.
       await registrarEvento({
@@ -665,6 +700,7 @@ export default function Fornecedores() {
         valorNovo: {
           razao_social: form.razao_social,
           nome_fantasia: form.nome_fantasia || null,
+          apelido,
           cpf_cnpj: form.cpf_cnpj,
           secretaria: secretarias.find((s) => String(s.id) === String(form.secretaria_id))?.nome ?? null,
           telefone: form.telefone || null,
@@ -675,7 +711,7 @@ export default function Fornecedores() {
       });
 
       setForm({
-        razao_social: "", nome_fantasia: "", cpf_cnpj: "", secretaria_id: "",
+        razao_social: "", nome_fantasia: "", apelido: "", cpf_cnpj: "", secretaria_id: "",
         descricao: "", telefone: "", email: "",
       });
       setMostrarForm(false);
@@ -684,6 +720,57 @@ export default function Fornecedores() {
       setErro(mensagemAmigavel(e, "Erro ao cadastrar fornecedor."));
     } finally {
       setSalvando(false);
+    }
+  }
+
+  /** Abre o lápis do apelido já com o apelido atual do fornecedor no campo. */
+  function abrirEdicaoApelido(f) {
+    setErro(null);
+    setApelidoEditando({
+      id: f.id,
+      oficial: f.razao_social ?? "",
+      texto: apelidoDoFornecedor(f),
+    });
+  }
+
+  /**
+   * Grava o apelido do fornecedor -- e SÓ o apelido.
+   *
+   * O update toca uma única coluna: razão social, nome fantasia, CPF/CNPJ,
+   * secretaria, dados bancários, NFs, processos, programações, pagamentos e
+   * histórico não são alterados. Campo apagado volta a `null`, e a tela passa a
+   * mostrar o nome de sempre.
+   */
+  async function salvarApelido(e) {
+    e.preventDefault();
+    if (!apelidoEditando) return;
+    setSalvandoApelido(true);
+    setErro(null);
+    try {
+      const apelido = normalizarNomeExibicao(apelidoEditando.texto);
+      const { error } = await supabase
+        .from("fornecedores")
+        .update({ apelido })
+        .eq("id", apelidoEditando.id);
+      if (error) {
+        if (estruturaDeApelidoAusente(error)) throw erroAmigavel(AVISO_MIGRATION_APELIDO);
+        throw error;
+      }
+
+      await registrarEvento({
+        modulo: "fornecedores",
+        acao: "editou",
+        registroAfetado: `Apelido de ${apelidoEditando.oficial || `fornecedor ${apelidoEditando.id}`}`,
+        valorNovo: { apelido },
+        nivel: "informacao",
+      });
+
+      setApelidoEditando(null);
+      await carregarDados();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Erro ao salvar o apelido do fornecedor."));
+    } finally {
+      setSalvandoApelido(false);
     }
   }
 
@@ -1038,7 +1125,12 @@ export default function Fornecedores() {
 
     fornecedores.forEach((f) => {
       const digitosDoc = somenteDigitos(f.cpf_cnpj);
-      const nomes = normalizarTexto(`${f.razao_social ?? ""} ${f.nome_fantasia ?? ""}`);
+      // A busca considera razão social, nome fantasia e APELIDO: digitar "Zé"
+      // encontra quem tem apelido "Zé Alimentos" sem deixar de encontrar quem
+      // tem "Zé" na razão social. O CPF/CNPJ continua comparado por dígitos.
+      const nomes = normalizarTexto(
+        `${f.razao_social ?? ""} ${f.nome_fantasia ?? ""} ${f.nome ?? ""} ${f.apelido ?? ""}`,
+      );
 
       if (busca) {
         const buscaDigitos = somenteDigitos(busca);
@@ -2007,6 +2099,24 @@ export default function Fornecedores() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label className="text-xs font-medium text-[#0F2A44]/70">Apelido / Nome de exibição (opcional)</label>
+                <input
+                  type="text"
+                  value={form.apelido}
+                  onChange={(e) => setForm({ ...form, apelido: e.target.value })}
+                  maxLength={LIMITE_NOME_EXIBICAO}
+                  placeholder="Ex.: Zé Alimentos"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-black/10 text-sm"
+                />
+                <p className="mt-1 text-[11px] text-[#0F2A44]/50">
+                  Serve para reconhecer e buscar o fornecedor nas telas. A razão social continua gravada e é a que vai
+                  para documento oficial e fiscal.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
                 <label className="text-xs font-medium text-[#0F2A44]/70">CPF ou CNPJ</label>
                 <input
                   type="text"
@@ -2102,7 +2212,9 @@ export default function Fornecedores() {
                       title={aberto ? "Ocultar detalhes" : "Ver detalhes"}
                       className="flex-1 min-w-0 text-left"
                     >
-                      <div className="text-sm font-semibold text-[#0F2A44] truncate">{f.razao_social}</div>
+                      <div className="text-sm font-semibold text-[#0F2A44]">
+                        <NomeFornecedor fornecedor={f} classeSecundaria="text-[#0F2A44]/60" />
+                      </div>
                       <div className="text-xs text-[#0F2A44]/50 truncate">
                         {f.cpf_cnpj} · {f.secretarias?.nome ?? "--"}
                       </div>
@@ -2110,6 +2222,15 @@ export default function Fornecedores() {
                         {dadosPagamentoPorFornecedor[String(f.id)] || f.dados_bancarios ? "Dados bancários ✓" : "Dados para pagamento pendentes"}
                       </div>
                     </button>
+                    {podeEditarFornecedor && (
+                      <button
+                        onClick={() => abrirEdicaoApelido(f)}
+                        className="shrink-0 text-[#0F2A44]/30 hover:text-[#0F2A44] print:hidden"
+                        title={apelidoDoFornecedor(f) ? "Editar apelido" : "Dar um apelido a este fornecedor"}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
                     <div className="flex items-center gap-3 shrink-0">
                       {documental && (
                         <span
@@ -2152,6 +2273,48 @@ export default function Fornecedores() {
                       </button>
                     </div>
                   </div>
+
+                  {apelidoEditando?.id === f.id && (
+                    <form
+                      onSubmit={salvarApelido}
+                      className="px-4 pb-3 pt-1 border-t border-black/5 bg-[#F7F9FC] print:hidden"
+                    >
+                      <label className="text-xs font-medium text-[#0F2A44]/70">
+                        Apelido / Nome de exibição (opcional)
+                      </label>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={apelidoEditando.texto}
+                          onChange={(ev) =>
+                            setApelidoEditando((atual) => ({ ...atual, texto: ev.target.value }))
+                          }
+                          maxLength={LIMITE_NOME_EXIBICAO}
+                          placeholder="Ex.: Zé Alimentos"
+                          className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-black/10 text-sm"
+                        />
+                        <button
+                          type="submit"
+                          disabled={salvandoApelido}
+                          className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg bg-[#0F2A44] text-white disabled:opacity-60"
+                        >
+                          <Save size={14} /> {salvandoApelido ? "Salvando..." : "Salvar apelido"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setApelidoEditando(null)}
+                          className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70"
+                        >
+                          <X size={14} /> Cancelar
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#0F2A44]/50">
+                        Grava apenas o apelido. Razão social, nome fantasia, CPF/CNPJ, dados bancários, NFs, processos e
+                        histórico continuam como estão. Campo vazio volta a mostrar o nome de sempre.
+                      </p>
+                    </form>
+                  )}
 
                   {aberto && (
                     <VidaDoFornecedor

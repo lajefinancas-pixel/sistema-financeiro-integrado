@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { paraNumeroMoeda } from "./moeda";
 import { filtroVigentes } from "./exclusaoRegistros";
 import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
+import { COLUNA_APELIDO, estruturaDeApelidoAusente } from "./nomesFornecedor.js";
 export {
   resumoBaixas,
   situacaoPagamento,
@@ -83,21 +84,33 @@ export async function estornarBaixaDeNota(baixaId, motivo) {
  * Leitura
  * ---------------------------------------------------------------------- */
 
+const COLUNAS_FORNECEDOR_BAIXA = "id,razao_social,nome_fantasia,cpf_cnpj,secretaria_id,ativo,secretarias(nome)";
+
 /**
  * Fornecedores para a busca do primeiro passo da tela: nome, razão social,
- * nome fantasia e CNPJ/CPF. Fornecedor excluído (Lixeira) não aparece.
+ * nome fantasia, APELIDO e CNPJ/CPF. Fornecedor excluído (Lixeira) não aparece.
+ *
+ * O apelido entra na consulta quando a coluna já existe no banco; sem ela
+ * (migration 20260905120000 ainda não rodada) a lista vem igual ao que era, só
+ * sem a busca pelo apelido -- a tela não quebra por causa de uma coluna nova.
  */
 export async function carregarFornecedoresDaBaixa() {
   const vigentes = await filtroVigentes("fornecedores");
-  const { data, error } = await vigentes(
-    supabase
-      .from("fornecedores")
-      .select("id,razao_social,nome_fantasia,cpf_cnpj,secretaria_id,ativo,secretarias(nome)")
-      .eq("ativo", true)
-      .order("razao_social", { nullsFirst: false }),
-  );
-  if (error) throw error;
-  return data ?? [];
+  const consultar = async (colunas) =>
+    vigentes(
+      supabase
+        .from("fornecedores")
+        .select(colunas)
+        .eq("ativo", true)
+        .order("razao_social", { nullsFirst: false }),
+    );
+
+  let resposta = await consultar(`${COLUNAS_FORNECEDOR_BAIXA},${COLUNA_APELIDO}`);
+  if (resposta.error && estruturaDeApelidoAusente(resposta.error)) {
+    resposta = await consultar(COLUNAS_FORNECEDOR_BAIXA);
+  }
+  if (resposta.error) throw resposta.error;
+  return resposta.data ?? [];
 }
 
 const COLUNAS_CONTA_BAIXA = "id,nome_conta,numero_conta,banco_id,secretaria_id,bancos(nome),secretarias(nome)";

@@ -117,9 +117,11 @@ export function situacaoDaLinha(certidao) {
   return certidao?.naoCadastrada ? SITUACAO_NAO_CADASTRADA : situacaoEfetiva(certidao);
 }
 
-/** Nome + fantasia, para que a busca por fornecedor encontre os dois. */
+/** Nome, fantasia e apelido, para a busca por fornecedor encontrar os três. */
 function textoDoFornecedor(fornecedor) {
-  return normalizarTexto(`${fornecedor?.razao_social ?? ""} ${fornecedor?.nome_fantasia ?? ""}`);
+  return normalizarTexto(
+    `${fornecedor?.razao_social ?? ""} ${fornecedor?.nome_fantasia ?? ""} ${fornecedor?.apelido ?? ""}`,
+  );
 }
 
 /**
