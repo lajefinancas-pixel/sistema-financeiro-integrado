@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { mensagemAmigavel } from "./erros";
 import { diasAte, formatarData, nomeFornecedor } from "./certidoes";
+import { contarRegularidade, somenteVigentes } from "./certidoesRegras";
 import { notificar } from "./notificacoes";
 
 /**
@@ -26,6 +27,11 @@ import { notificar } from "./notificacoes";
  *  4. Dispensar encerra a pendência. Ela só volta se o prazo apertar além do
  *     ponto em que foi dispensada (quem dispensou o aviso de 30 dias ainda
  *     precisa saber quando a certidão vencer).
+ *
+ *  5. Só a certidão MAIS RECENTE de cada tipo avisa. Havendo duas emissões do
+ *     mesmo documento (um FGTS vencido e outro novo), a anterior continua
+ *     cadastrada e visível, mas não gera pendência — a regra é a compartilhada
+ *     de lib/certidoesRegras.js, a mesma da listagem e dos relatórios.
  *
  * A varredura roda no navegador de quem está logado, quando a tela abre — o
  * mesmo desenho dos avisos de prazo das tarefas. Cada pessoa recebe os avisos
@@ -111,6 +117,10 @@ export async function prazosDeAlerta() {
  * A avaliação é pela data, não pela situação gravada: uma certidão marcada
  * como "Em renovação" continua vencendo, e esconder isso seria perder o
  * controle do documento. Quem não quiser o lembrete pode dispensá-lo.
+ *
+ * A função olha uma certidão por vez. Quem decide QUAIS certidões merecem aviso
+ * é `sincronizarAlertasCertidoes`, que só passa por aqui as vigentes de cada
+ * tipo — uma emissão já superada por outra mais nova não gera pendência.
  */
 export function estagioAlerta(certidao, prazos = PRAZOS_PADRAO) {
   if (!certidao?.data_vencimento) return null;
@@ -142,26 +152,27 @@ export function mensagemAlerta(certidao, estagio) {
 /**
  * Resumo curto para o card do Painel Principal: quantas vencem dentro da janela
  * de alerta e quantas já venceram.
+ *
+ * A conta é a compartilhada (lib/certidoesRegras.js): entra apenas a certidão
+ * mais recente de cada tipo de cada fornecedor. As emissões anteriores continuam
+ * cadastradas e aparecem no `total`, mas não são contadas como vencidas nem como
+ * a vencer — o card não pode acusar pendência de um documento já renovado.
  */
 export function resumoCertidoes(certidoes, prazos = PRAZOS_PADRAO) {
   const janela = Math.max(...prazos, 0);
-  let aVencer = 0;
-  let vencidas = 0;
-
-  (certidoes ?? []).forEach((certidao) => {
-    if (!certidao?.data_vencimento) return;
-    const dias = diasAte(certidao.data_vencimento);
-    if (dias === null) return;
-    if (dias < 0) vencidas += 1;
-    else if (dias <= janela) aVencer += 1;
-  });
+  const { total, vigentes, anteriores, vencidas, aVencer } = contarRegularidade(
+    certidoes ?? [],
+    janela,
+  );
 
   const partes = [];
   if (aVencer > 0) partes.push(`${aVencer} ${aVencer === 1 ? "vence" : "vencem"} em até ${janela} dias`);
   if (vencidas > 0) partes.push(`${vencidas} ${vencidas === 1 ? "vencida" : "vencidas"}`);
 
   return {
-    total: (certidoes ?? []).length,
+    total,
+    vigentes,
+    anteriores,
     aVencer,
     vencidas,
     janela,
@@ -230,8 +241,13 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
   const prazos = await prazosDeAlerta();
   const lista = certidoes ?? [];
 
+  // Só a certidão mais recente de cada tipo gera aviso. A emissão anterior
+  // continua no banco e na tela; o que ela não faz mais é alertar — e o aviso
+  // que ela tinha é recolhido na varredura, como acontece com uma renovação.
+  const vigentes = somenteVigentes(lista);
+
   const estagioPorCertidao = new Map();
-  lista.forEach((certidao) => {
+  vigentes.forEach((certidao) => {
     const estagio = estagioAlerta(certidao, prazos);
     if (estagio) estagioPorCertidao.set(certidao.id, estagio);
   });
@@ -255,7 +271,7 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
   const atualizacoes = [];
 
   estagioPorCertidao.forEach((estagio, certidaoId) => {
-    const certidao = lista.find((c) => c.id === certidaoId);
+    const certidao = vigentes.find((c) => c.id === certidaoId);
     const linha = gravados.get(certidaoId);
     const conteudo = {
       certidao_estagio: estagio,

@@ -25,7 +25,7 @@ import ModalRenovarCertidao from "../components/certidoes/ModalRenovarCertidao";
 import ModalTipoCertidao from "../components/certidoes/ModalTipoCertidao";
 import PainelAlertas from "../components/certidoes/PainelAlertas";
 import TiposCertidao from "../components/certidoes/TiposCertidao";
-import { BadgeSituacao } from "../components/certidoes/badges";
+import { BadgeSituacao, BadgeVigencia } from "../components/certidoes/badges";
 import { sincronizarAlertasCertidoes } from "../lib/alertasCertidoes";
 import { usePermissaoModulo } from "../lib/permissoes";
 import {
@@ -721,7 +721,10 @@ function ListaCertidoes({
                     <span className="text-[#0F2A44]/40">Nenhum documento cadastrado</span>
                   ) : (
                     <>
-                      {certidao.tipos_certidao?.nome ?? "--"}
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {certidao.tipos_certidao?.nome ?? "--"}
+                        <BadgeVigencia certidao={certidao} />
+                      </span>
                       {certidao.numero_documento && (
                         <span className="block text-[11px] text-[#0F2A44]/40">nº {certidao.numero_documento}</span>
                       )}
@@ -764,12 +767,13 @@ function ListaCertidoes({
                 <div className="text-sm font-semibold text-[#0F2A44] break-words">
                   {nomeFornecedor(certidao.fornecedores)}
                 </div>
-                <div className="text-xs text-[#0F2A44]/55 mt-0.5">
+                <div className="text-xs text-[#0F2A44]/55 mt-0.5 flex flex-wrap items-center gap-1.5">
                   {certidao.naoCadastrada
                     ? "Nenhum documento cadastrado"
                     : `${certidao.tipos_certidao?.nome ?? "--"}${
                         certidao.numero_documento ? ` — nº ${certidao.numero_documento}` : ""
                       }`}
+                  <BadgeVigencia certidao={certidao} />
                 </div>
               </div>
               <BadgeSituacao situacao={situacaoDaLinha(certidao)} />
@@ -886,13 +890,16 @@ function CertidoesPorFornecedor({
                   className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-[#0F2A44]">
-                      {certidao.naoCadastrada
-                        ? "Nenhum documento cadastrado"
-                        : certidao.tipos_certidao?.nome ?? "--"}
-                      {certidao.numero_documento && (
-                        <span className="text-[11px] text-[#0F2A44]/40"> · nº {certidao.numero_documento}</span>
-                      )}
+                    <div className="text-sm text-[#0F2A44] flex flex-wrap items-center gap-1.5">
+                      <span>
+                        {certidao.naoCadastrada
+                          ? "Nenhum documento cadastrado"
+                          : certidao.tipos_certidao?.nome ?? "--"}
+                        {certidao.numero_documento && (
+                          <span className="text-[11px] text-[#0F2A44]/40"> · nº {certidao.numero_documento}</span>
+                        )}
+                      </span>
+                      <BadgeVigencia certidao={certidao} />
                     </div>
                     <div className="text-[11px] text-[#0F2A44]/45 mt-0.5">
                       Emissão {formatarData(certidao.data_emissao)} · Vencimento{" "}

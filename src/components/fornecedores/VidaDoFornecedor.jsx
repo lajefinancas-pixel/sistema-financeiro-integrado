@@ -11,13 +11,14 @@ import {
   Wallet,
 } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
-import { BadgeSituacao } from "../certidoes/badges";
+import { BadgeSituacao, BadgeVigencia } from "../certidoes/badges";
 import {
   formatarData as formatarDataCertidao,
   nomeDoAnexo,
   situacaoEfetiva,
   urlDeDownload,
 } from "../../lib/certidoes";
+import { anotarVigencia, ehVigenteNoTipo } from "../../lib/certidoesRegras";
 import { resumoDocumental } from "../../lib/certidoesFornecedor";
 import NotasDoFornecedor from "./NotasDoFornecedor";
 import DadosParaPagamento from "./DadosParaPagamento";
@@ -342,9 +343,14 @@ export default function VidaDoFornecedor({
  * Lê a lista que a tela já carregou da tabela `certidoes` (a mesma do módulo)
  * e mostra tipo, emissão, vencimento, situação e o anexo. A situação segue a
  * mesma regra da tela de Certidões: a manual prevalece e o resto vem das datas.
+ *
+ * Havendo mais de uma emissão do mesmo tipo, TODAS continuam na lista: a mais
+ * recente aparece marcada como "Vigente" e as anteriores como "Anterior". O
+ * resumo do rodapé conta apenas as vigentes, que são as que definem a
+ * regularidade do fornecedor.
  */
 function CertidoesDoFornecedor({ certidoes, carregando, erro, podeCadastrar, onNovaCertidao }) {
-  const lista = certidoes ?? [];
+  const lista = React.useMemo(() => anotarVigencia(certidoes ?? []), [certidoes]);
   const resumo = resumoDocumental(lista);
 
   const botaoNova = podeCadastrar ? (
@@ -380,9 +386,17 @@ function CertidoesDoFornecedor({ certidoes, carregando, erro, podeCadastrar, onN
               </thead>
               <tbody>
                 {lista.map((certidao) => (
-                  <tr key={certidao.id} className="border-t border-black/5">
+                  <tr
+                    key={certidao.id}
+                    className={`border-t border-black/5 ${
+                      ehVigenteNoTipo(certidao) ? "" : "bg-black/[0.015]"
+                    }`}
+                  >
                     <td className="py-2 pr-3 text-xs text-[#0F2A44]/70">
-                      {certidao.tipos_certidao?.nome ?? "--"}
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {certidao.tipos_certidao?.nome ?? "--"}
+                        <BadgeVigencia certidao={certidao} />
+                      </span>
                       {certidao.numero_documento && (
                         <span className="block text-[11px] text-[#0F2A44]/40">
                           nº {certidao.numero_documento}
@@ -421,6 +435,14 @@ function CertidoesDoFornecedor({ certidoes, carregando, erro, podeCadastrar, onN
 
           <p className="mt-2 text-[11px] text-[#0F2A44]/45">
             {resumo.emoji} {resumo.texto}
+            {resumo.anteriores > 0 && (
+              <span className="text-[#0F2A44]/35">
+                {" "}
+                — {resumo.anteriores}{" "}
+                {resumo.anteriores === 1 ? "emissão anterior" : "emissões anteriores"} fora da conta
+                (vale a mais recente de cada tipo)
+              </span>
+            )}
           </p>
         </>
       )}
