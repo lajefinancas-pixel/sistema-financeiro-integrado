@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { mensagemAmigavel } from "./erros";
+import { formatBRLSeNumerico } from "./moeda";
 
 /**
  * Camada de dados da trilha de auditoria (tabela public.auditoria_eventos,
@@ -548,10 +549,75 @@ export function campoLabel(chave) {
   return texto ? texto.charAt(0).toUpperCase() + texto.slice(1) : "--";
 }
 
-/** Valor de um campo pronto para leitura na tela. */
-export function valorLegivel(valor) {
+/**
+ * Campos da comparação que carregam dinheiro.
+ *
+ * A lista é nominal de propósito. Parte destes campos é gravada pelas telas e
+ * parte vem das funções do banco (baixa, estorno, transferência, aprovação da
+ * programação), que escrevem o número cru em valor_anterior/valor_novo. Sem
+ * saber o nome do campo não há como distinguir dinheiro de contagem: perto de
+ * `saldo` existe `saldos_historico`, que é quantidade de registros, e de
+ * `valor_em_aberto` existe `valor_em_aberto_id`, que é identificador. Por isso
+ * nada aqui é decidido por prefixo -- entra só o que está escrito.
+ */
+const CAMPOS_DE_MOEDA = new Set([
+  // Saldos e contas bancárias.
+  "saldo",
+  "saldo_inicial",
+  "saldo_antes",
+  "saldo_depois",
+  "saldo_disponivel",
+  "saldo_considerado",
+  "valor_saldo",
+  "ultimo_saldo",
+  // Notas e pagamentos.
+  "valor",
+  "valor_a_pagar",
+  "valor_bruto",
+  "valor_liquido",
+  "base_calculo",
+  "valor_iss",
+  "valor_ir",
+  "desconto_iss",
+  "desconto_ir",
+  // Baixas e estornos (funções do banco).
+  "valor_pago",
+  "valor_da_baixa",
+  "valor_em_aberto",
+  "valor_estornado",
+  "valor_total_referencia",
+  // Transferência entre contas e rateio (funções do banco).
+  "valor_total",
+  "valor_debitado",
+  "valor_rateado",
+  "saldo_origem_antes",
+  "saldo_origem_depois",
+  "saldo_destino_antes",
+  "saldo_destino_depois",
+  // Totais da programação.
+  "total_programado",
+  "total_aprovado",
+  "total_pagamentos",
+]);
+
+/**
+ * Valor de um campo pronto para leitura na tela.
+ *
+ * Campo de dinheiro sai no padrão do sistema (R$ 1.234,56) pelo MESMO
+ * utilitário das telas, venha o valor como número da função do banco, como
+ * texto de coluna numeric ("1234.56") ou já formatado pela tela que gravou o
+ * evento -- reformatar o que já está formatado devolve o mesmo texto. Campo de
+ * dinheiro com texto no lugar do número ("Não informado") continua como está.
+ *
+ * @param chave nome do campo; sem ela a leitura é a genérica, como antes.
+ */
+export function valorLegivel(valor, chave) {
   if (valor === null || valor === undefined || valor === "") return "--";
   if (typeof valor === "boolean") return valor ? "Sim" : "Não";
+  if (CAMPOS_DE_MOEDA.has(chave)) {
+    const emReal = formatBRLSeNumerico(valor);
+    if (emReal !== null) return emReal;
+  }
   if (typeof valor === "number") return valor.toLocaleString("pt-BR");
   if (typeof valor === "object") return JSON.stringify(valor);
   return String(valor);
@@ -584,8 +650,8 @@ export function comparacaoAntesDepois(evento) {
     .map((chave) => ({
       campo: chave,
       label: campoLabel(chave),
-      antes: valorLegivel(antes[chave]),
-      depois: valorLegivel(depois[chave]),
+      antes: valorLegivel(antes[chave], chave),
+      depois: valorLegivel(depois[chave], chave),
       tinhaAntes: Object.prototype.hasOwnProperty.call(antes, chave),
       temDepois: Object.prototype.hasOwnProperty.call(depois, chave),
     }));
