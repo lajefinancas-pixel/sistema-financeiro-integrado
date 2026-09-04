@@ -272,7 +272,9 @@ test("impressão da página não leva listas completas nem controles de interfac
     // A busca de conta é a do seletor compartilhado ("Buscar conta..."), e a
     // lista inteira de contas continua fora do papel.
     /<SeletorContas/,
-    /placeholder="Buscar fornecedor"/,
+    // A busca de fornecedor agora encontra por apelido também; o campo continua
+    // fora do papel.
+    /placeholder="Buscar por nome, apelido, razão social ou CNPJ\/CPF"/,
     /Selecionar todas/,
     /Adicionar fornecedor avulso/,
   ]) assert.match(pagina, trecho);

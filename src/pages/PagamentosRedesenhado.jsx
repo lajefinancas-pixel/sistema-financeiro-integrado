@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, FileDown, FileSpreadsheet, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
@@ -12,7 +12,7 @@ import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarForne
 import { FUNCOES_FASE_1, classificarFalhaFase1, detalheDoBanco, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 import { verificarEstruturaFase2 } from "../lib/estruturaPagamentosFase2";
 import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
-import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, definirContaDePagamentos, estruturaFase2Ausente } from "../lib/execucaoProgramacaoDados";
+import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, definirContaDePagamentos, definirNomeExibicaoDoPagamento, estruturaFase2Ausente } from "../lib/execucaoProgramacaoDados";
 import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoProgramacao";
 import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
 import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
@@ -20,6 +20,14 @@ import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoPr
 import SeletorContas from "../components/comuns/SeletorContas";
 import { filtrarContasCadastradas } from "../lib/contasBancariasBusca";
 import { estruturaDePixAusente } from "../lib/contasBancarias";
+import NomeFornecedor from "../components/comuns/NomeFornecedor";
+import {
+  LIMITE_NOME_EXIBICAO,
+  estruturaDeApelidoAusente,
+  filtrarFornecedoresPorTermo,
+  nomeExibicaoDoPagamento,
+  normalizarNomeExibicao,
+} from "../lib/nomesFornecedor";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -46,12 +54,60 @@ async function contasAtivasDaSecretaria(secretariaId) {
   if (!estruturaDePixAusente(comAgencia.error)) return comAgencia;
   return consultar(COLUNAS_CONTA_PROGRAMACAO);
 }
+const COLUNAS_FORNECEDOR_PROGRAMACAO = "id, razao_social, nome_fantasia, cpf_cnpj";
+const COLUNAS_PAGAMENTO_PROGRAMACAO = "id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente";
+
+/**
+ * Fornecedores ativos da secretaria, com o APELIDO quando a coluna já existe.
+ *
+ * O apelido entra na consulta para a busca encontrar "Zé Alimentos" e para a
+ * tela mostrá-lo em destaque. Enquanto a migration do apelido não rodar, a lista
+ * vem igual à de sempre -- só sem apelido.
+ */
+async function fornecedoresAtivosDaSecretaria(secretariaId) {
+  const consultar = (colunas) =>
+    supabase
+      .from("fornecedores")
+      .select(colunas)
+      .eq("secretaria_id", secretariaId)
+      .eq("ativo", true)
+      .order("razao_social");
+
+  const comApelido = await consultar(`${COLUNAS_FORNECEDOR_PROGRAMACAO}, apelido`);
+  if (!comApelido.error) return comApelido;
+  if (!estruturaDeApelidoAusente(comApelido.error)) return comApelido;
+  return consultar(COLUNAS_FORNECEDOR_PROGRAMACAO);
+}
+
+/**
+ * Itens da programação, com o nome de exibição próprio do item e o apelido do
+ * fornecedor vinculado quando as colunas já existem. Sem elas, os itens vêm
+ * exatamente como vinham, com a razão social.
+ */
+async function itensDaProgramacao(programacaoId) {
+  const consultar = (colunas) =>
+    supabase
+      .from("pagamentos")
+      .select(colunas)
+      .eq("programacao_id", programacaoId)
+      .is("excluido_em", null)
+      .order("id");
+
+  const comApelido = await consultar(
+    `${COLUNAS_PAGAMENTO_PROGRAMACAO}, nome_exibicao_programacao, fornecedores(razao_social, apelido)`,
+  );
+  if (!comApelido.error) return comApelido;
+  if (!estruturaDeApelidoAusente(comApelido.error)) return comApelido;
+  return consultar(`${COLUNAS_PAGAMENTO_PROGRAMACAO}, fornecedores(razao_social)`);
+}
+
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
 const MIGRATION_CORRECAO_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
 const MIGRATION_CORRECAO_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
 const MIGRATION_PADRONIZACAO_USUARIO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
+const MIGRATION_APELIDO = "supabase/migrations/20260905120000_apelido_fornecedor_e_nome_exibicao_programacao.sql";
 
 // Ausência de id: nulo, indefinido, texto vazio ou zero. Nenhum deles é um id
 // de registro, e nenhum deles pode chegar ao banco como se fosse -- em coluna
@@ -168,8 +224,16 @@ function registrarErroFase2(operacao, falha, contexto = {}) {
   });
 }
 
+/**
+ * Nome do item como a tela e o papel o mostram:
+ * nome de exibição da programação -> apelido do cadastro -> razão social.
+ *
+ * É a mesma função usada na impressão, no PDF, no Excel e no painel de execução,
+ * para que o papel não divirja da tela. Nenhuma delas altera cadastro nenhum: o
+ * vínculo do item continua sendo o `fornecedor_id`.
+ */
 function nomePagamento(pagamento) {
-  return pagamento.fornecedores?.razao_social || pagamento.nome_avulso || "Fornecedor avulso";
+  return nomeExibicaoDoPagamento(pagamento);
 }
 
 function statusLabel(status, fechado = false) {
@@ -218,6 +282,12 @@ export default function PagamentosRedesenhado() {
   // planejamento. Retirar fornecedor, alterar valor e mexer nas contas valem
   // enquanto a programação está em elaboração ou em análise.
   const podeEditarProgramacao = podeEditar && programacao?.fechado !== true && programacao?.status !== STATUS_APROVADA;
+  // O nome mostrado é rótulo, não dinheiro: pode ser ajustado enquanto a
+  // programação não estiver fechada, inclusive depois de aprovada. Renomear a
+  // exibição não altera valor, conta, vínculo nem cadastro. Programação fechada
+  // é histórico -- o banco recusa a alteração.
+  const podeRenomearExibicao = podeEditar && programacao?.fechado !== true;
+  const [nomeExibicaoEditando, setNomeExibicaoEditando] = React.useState(null);
 
   React.useEffect(() => {
     carregarSecretarias();
@@ -289,7 +359,7 @@ export default function PagamentosRedesenhado() {
     try {
       const [{ data: contasBrutas, error: erroContas }, { data: fornecedoresAtivos, error: erroFornecedores }] = await Promise.all([
         contasAtivasDaSecretaria(secretariaId),
-        supabase.from("fornecedores").select("id, razao_social").eq("secretaria_id", secretariaId).eq("ativo", true).order("razao_social"),
+        fornecedoresAtivosDaSecretaria(secretariaId),
       ]);
       if (erroContas) throw erroContas;
       if (erroFornecedores) throw erroFornecedores;
@@ -361,7 +431,7 @@ export default function PagamentosRedesenhado() {
       const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, { data: itens, error: erroPagamentos }] = await Promise.all([
         supabase.from("programacoes_pagamento").select("id, nome_programacao, data_programacao, status, fechado, responsavel_id").eq("id", idProgramacao).single(),
         supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", idProgramacao).eq("ativa", true).order("ordem"),
-        supabase.from("pagamentos").select("id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente, fornecedores(razao_social)").eq("programacao_id", idProgramacao).is("excluido_em", null).order("id"),
+        itensDaProgramacao(idProgramacao),
       ]);
       if (erroPrograma) throw erroPrograma;
       if (erroContas) throw erroContas;
@@ -460,11 +530,73 @@ export default function PagamentosRedesenhado() {
     setPagamentos((itens) => [...itens, {
       id: null,
       fornecedor_id: fornecedor.id,
-      fornecedores: { razao_social: fornecedor.razao_social },
+      // O item guarda o cadastro só para MOSTRAR o nome; o vínculo é o id acima.
+      fornecedores: { razao_social: fornecedor.razao_social, apelido: fornecedor.apelido ?? null },
+      nome_exibicao_programacao: null,
       valor_a_pagar: numero(fornecedor.valor_em_aberto),
       nome_avulso: null,
       cadastrar_fornecedor_posteriormente: false,
     }]);
+  }
+
+  /** Identifica o item na tela: por id quando já gravado, por posição quando não. */
+  function chaveDoPagamento(pagamento, indice) {
+    return vazio(pagamento.id) ? `pos:${indice}` : `id:${pagamento.id}`;
+  }
+
+  function abrirNomeExibicao(pagamento, indice) {
+    if (!podeRenomearExibicao) return;
+    setErro("");
+    setNomeExibicaoEditando({
+      chave: chaveDoPagamento(pagamento, indice),
+      texto: pagamento.nome_exibicao_programacao ?? "",
+    });
+  }
+
+  /**
+   * Salva o nome mostrado deste item, sem sair da tela.
+   *
+   * Muda SÓ o rótulo do item da programação. Razão social, nome fantasia,
+   * CNPJ/CPF, apelido cadastrado, dados para pagamento, NFs, processos e
+   * histórico do fornecedor continuam como estão, e o item segue vinculado ao MESMO
+   * fornecedor_id -- que o banco devolve na resposta, como prova.
+   */
+  async function salvarNomeExibicao(pagamento, indice) {
+    if (!nomeExibicaoEditando) return;
+    const nome = normalizarNomeExibicao(nomeExibicaoEditando.texto);
+
+    // Item ainda não gravado: o nome fica na tela e vai junto no "Salvar
+    // programação", que é quando o item passa a existir no banco.
+    if (vazio(pagamento.id)) {
+      setPagamentos((itens) => itens.map((item) => (item === pagamento ? { ...item, nome_exibicao_programacao: nome } : item)));
+      setNomeExibicaoEditando(null);
+      return;
+    }
+
+    setSalvando(true);
+    setErro("");
+    setMensagem("");
+    try {
+      const resposta = await definirNomeExibicaoDoPagamento({
+        pagamentoId: idInteiro(pagamento.id, "Pagamento"),
+        nome,
+      });
+      setPagamentos((itens) => itens.map((item) => (item === pagamento
+        ? { ...item, nome_exibicao_programacao: resposta?.nome_exibicao_programacao ?? nome }
+        : item)));
+      setNomeExibicaoEditando(null);
+      setMensagem(nome
+        ? "Nome de exibição salvo nesta programação. O cadastro do fornecedor não foi alterado."
+        : "Nome de exibição removido: o item volta a mostrar o nome do cadastro.");
+    } catch (falha) {
+      if (estruturaDeApelidoAusente(falha)) {
+        setErro(`O nome de exibição por programação ainda não existe neste banco. Execute ${MIGRATION_APELIDO} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página.`);
+      } else {
+        setErro(mensagemAmigavel(falha, "Não foi possível salvar o nome de exibição deste fornecedor."));
+      }
+    } finally {
+      setSalvando(false);
+    }
   }
 
   function editarValor(chave, valor) {
@@ -512,6 +644,9 @@ export default function PagamentosRedesenhado() {
         id: vazio(item.id) ? null : idInteiro(item.id, "Pagamento"),
         fornecedor_id: vazio(item.fornecedor_id) ? null : idInteiro(item.fornecedor_id, "Fornecedor"),
         nome_avulso: typeof item.nome_avulso === "string" ? item.nome_avulso.trim() || null : null,
+        // Nome de exibição do ITEM: rótulo da tela e do papel. Não substitui o
+        // fornecedor_id acima nem altera nada do cadastro.
+        nome_exibicao_programacao: normalizarNomeExibicao(item.nome_exibicao_programacao),
         valor_a_pagar: numero(item.valor_a_pagar),
         cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
       }));
@@ -728,7 +863,9 @@ export default function PagamentosRedesenhado() {
   const totalProgramado = somarPagamentos(pagamentos);
   const restante = calcularRestante(totalDisponivel, totalProgramado);
   const idsSelecionados = new Set(pagamentos.filter((item) => item.fornecedor_id).map((item) => String(item.fornecedor_id)));
-  const fornecedoresFiltrados = fornecedores.filter((item) => item.razao_social.toLocaleLowerCase("pt-BR").includes(buscaFornecedor.trim().toLocaleLowerCase("pt-BR")));
+  // A busca considera razão social, nome, nome fantasia, APELIDO e CPF/CNPJ --
+  // a mesma regra da tela de Baixas. Digitar "Zé" encontra "Zé Alimentos".
+  const fornecedoresFiltrados = filtrarFornecedoresPorTermo(fornecedores, buscaFornecedor);
   const todasVisiveisMarcadas = contasFiltradas.length > 0 && contasFiltradas.every((conta) => contasSelecionadas.has(conta.id));
   const nomeSecretariaSelecionada = secretarias.find((item) => String(item.id) === String(secretariaId))?.nome || "--";
   const emEtapaDeExecucao = emExecucao(programacao);
@@ -737,6 +874,61 @@ export default function PagamentosRedesenhado() {
   const impedimentosDaAprovacao = impedimentosParaAprovar({ programacao, contasSelecionadas: contasSelecionadasComSaldo, pagamentos });
   const fase2Indisponivel = estruturaFase2 != null && estruturaFase2.ok === false;
   const nomeDaConta = (id) => [...contas, ...contasTransferencia].find((item) => String(item.id) === String(id))?.nome_conta || `Conta ${id ?? "--"}`;
+
+  /**
+   * O nome do item na lista de escolhidos: em destaque o nome mostrado (nome de
+   * exibição da programação -> apelido -> razão social), embaixo a razão social
+   * quando ela não é a que está em destaque, e ao lado o lápis que renomeia a
+   * exibição sem sair da tela.
+   *
+   * É função, não componente, para o campo de edição não perder o foco a cada
+   * tecla digitada.
+   */
+  function nomeDoItem(pagamento, indice) {
+    const chave = chaveDoPagamento(pagamento, indice);
+
+    if (nomeExibicaoEditando?.chave === chave) {
+      return (
+        <>
+        {/* Imprimir com a edição aberta não pode sair sem nome: o papel leva o
+            nome que está gravado. */}
+        <strong className="hidden text-[#17352F] print:block">{nomePagamento(pagamento)}</strong>
+        <div className="flex flex-wrap items-center gap-1.5 print:hidden">
+          <input
+            autoFocus
+            value={nomeExibicaoEditando.texto}
+            onChange={(evento) => setNomeExibicaoEditando((atual) => ({ ...atual, texto: evento.target.value }))}
+            onKeyDown={(evento) => { if (evento.key === "Escape") setNomeExibicaoEditando(null); }}
+            maxLength={LIMITE_NOME_EXIBICAO}
+            placeholder="Ex.: Zé Alimentos — Merenda"
+            aria-label={`Nome mostrado de ${nomePagamento(pagamento)} nesta programação`}
+            className="min-w-[12rem] flex-1 rounded-lg border border-black/10 px-2 py-1 text-[13px]"
+          />
+          <button onClick={() => salvarNomeExibicao(pagamento, indice)} disabled={salvando} className="rounded-lg bg-[#17352F] px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50">Salvar nome</button>
+          <button onClick={() => setNomeExibicaoEditando(null)} className="rounded-lg border border-black/15 px-2 py-1 text-[11px] font-semibold text-[#17352F]">Cancelar</button>
+        </div>
+        </>
+      );
+    }
+
+    return (
+      <div className="flex items-start gap-1">
+        <strong className="min-w-0 flex-1 text-[#17352F]">
+          <NomeFornecedor pagamento={pagamento} classeSecundaria="text-[#17352F]/60" />
+        </strong>
+        {podeRenomearExibicao && (
+          <button
+            onClick={() => abrirNomeExibicao(pagamento, indice)}
+            title="Editar o nome mostrado nesta programação"
+            aria-label={`Editar o nome mostrado de ${nomePagamento(pagamento)} nesta programação`}
+            className="mt-0.5 shrink-0 rounded p-0.5 text-[#17352F]/35 hover:text-[#17352F] print:hidden"
+          >
+            <Pencil size={13} />
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
@@ -858,15 +1050,15 @@ export default function PagamentosRedesenhado() {
                     <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">2.</span> Proposta</h2>
                     <span className="text-[10px] text-[#17352F]/45 print:hidden">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Maior valor em aberto primeiro"}</span>
                   </div>
-                  {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar fornecedor" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
+                  {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar por nome, apelido, razão social ou CNPJ/CPF" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
                 </div>
 
                 {/* Lista completa, na ordem do maior valor em aberto para o menor. */}
-                {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[1.6rem_1fr_auto] items-center gap-2 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-3.5 w-3.5 accent-[#17352F]"/><span className="truncate font-medium text-[#17352F]">{fornecedor.razao_social}</span><span className={fornecedor.valor_em_aberto > 0 ? "font-bold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)}</span></label>; })}</div>}
+                {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[1.6rem_1fr_auto] items-center gap-2 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-3.5 w-3.5 accent-[#17352F]"/><span className="min-w-0 font-medium text-[#17352F]"><NomeFornecedor fornecedor={fornecedor} classeSecundaria="text-[#17352F]/60"/></span><span className={fornecedor.valor_em_aberto > 0 ? "font-bold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)}</span></label>; })}</div>}
 
                 {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
                 <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
-                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0"><strong className="block truncate text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
+                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
                   <div className="bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
                 </div>
 
@@ -882,7 +1074,7 @@ export default function PagamentosRedesenhado() {
                 próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
             {!fornecedoresConfirmados && <section className="mt-3 overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm print:hidden">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[#17352F]/45">Valor editável, pode ser menor que o aberto</span></div>
-              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0"><strong className="block truncate text-[#17352F]">{nomePagamento(pagamento)}</strong>{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
+              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
             </section>}
 
             {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma

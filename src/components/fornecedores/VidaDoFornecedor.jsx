@@ -121,6 +121,7 @@ export default function VidaDoFornecedor({
           <Campo rotulo="Nome" valor={fornecedor.razao_social || fornecedor.nome_fantasia} />
           <Campo rotulo="Razão social" valor={fornecedor.razao_social} />
           <Campo rotulo="Nome fantasia" valor={fornecedor.nome_fantasia} />
+          <Campo rotulo="Apelido / Nome de exibição" valor={fornecedor.apelido} />
           <Campo rotulo="CNPJ/CPF" valor={fornecedor.cpf_cnpj} />
           <Campo rotulo="Secretaria" valor={secretariaNome} />
           <Campo rotulo="Tipo" valor={tipo} />

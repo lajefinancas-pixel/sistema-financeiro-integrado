@@ -10,6 +10,7 @@ import { carregarSaldosDasContas } from "./saldosContasDados";
 import { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 import { classificarFalhaFase1 } from "./estruturaPagamentosFase1.js";
 import { erroAmigavel } from "./erros";
+import { normalizarNomeExibicao } from "./nomesFornecedor.js";
 
 export { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 
@@ -142,6 +143,26 @@ export async function definirContaDePagamentos({ programacaoId, pagamentoIds, co
     p_programacao_id: programacaoId,
     p_pagamento_ids: pagamentoIds,
     p_conta_id: contaId ?? null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Grava o nome de exibição do fornecedor NAQUELE item da programação.
+ *
+ * É só rótulo de tela e de papel: a função do banco altera uma única coluna
+ * (`pagamentos.nome_exibicao_programacao`) e não toca razão social, nome
+ * fantasia, apelido do cadastro, CNPJ/CPF, dados bancários, NFs, processos nem
+ * histórico. O VÍNCULO CONTINUA PELO `fornecedor_id` -- por isso a resposta
+ * devolve o fornecedor_id do item, como prova de que ele não mudou.
+ *
+ * Nome vazio devolve o item ao nome de sempre (apelido, senão razão social).
+ */
+export async function definirNomeExibicaoDoPagamento({ pagamentoId, nome }) {
+  const { data, error } = await supabase.rpc("definir_nome_exibicao_programacao", {
+    p_pagamento_id: pagamentoId,
+    p_nome: normalizarNomeExibicao(nome),
   });
   if (error) throw error;
   return data;

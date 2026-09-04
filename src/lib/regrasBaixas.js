@@ -1,4 +1,9 @@
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
+import {
+  filtrarFornecedoresPorTermo,
+  fornecedorAtendeBusca,
+  nomeOficialDoFornecedor,
+} from "./nomesFornecedor.js";
 
 /**
  * Regras da BAIXA DE PAGAMENTO, sem banco e sem tela.
@@ -365,48 +370,37 @@ export function resolverPermissoesBaixas({ baixas, pagamentos, especiais } = {})
  * Escolha do fornecedor e recorte da listagem
  * ---------------------------------------------------------------------- */
 
+/** Acento e caixa fora, para a busca de notas comparar texto com texto. */
 function semAcento(texto) {
   return String(texto ?? "")
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
 }
 
-function somenteDigitos(texto) {
-  return String(texto ?? "").replace(/\D+/g, "");
-}
-
-/** Nome do fornecedor como a tela o mostra. */
+/**
+ * Nome do fornecedor como os DOCUMENTOS o mostram: a razão social.
+ *
+ * Continua exatamente como era -- o apelido não entra aqui de propósito, porque
+ * é este nome que vai para o recibo, o relatório e o arquivo exportado. Quem
+ * quer o nome de exibição da tela usa `nomeExibicaoDoFornecedor`.
+ */
 export function nomeDoFornecedor(fornecedor) {
-  return (
-    String(fornecedor?.razao_social ?? "").trim() ||
-    String(fornecedor?.nome_fantasia ?? "").trim() ||
-    String(fornecedor?.nome ?? "").trim() ||
-    "Fornecedor sem nome"
-  );
+  return nomeOficialDoFornecedor(fornecedor);
 }
 
 /**
- * Busca do fornecedor por nome, razão social, nome fantasia e CNPJ/CPF.
- * Acento e pontuação não importam: "jose", "José" e "12.345" encontram o mesmo
- * cadastro que "JOSÉ" e "12345".
+ * Busca do fornecedor por nome, razão social, nome fantasia, APELIDO e
+ * CNPJ/CPF. A regra mora em lib/nomesFornecedor.js, para que a busca da tela de
+ * Baixas, a da Programação Diária e a do cadastro sejam a mesma busca.
  */
 export function fornecedorCombina(fornecedor, termo) {
-  const busca = String(termo ?? "").trim();
-  if (busca === "") return true;
-
-  const digitos = somenteDigitos(busca);
-  if (digitos.length >= 3 && somenteDigitos(fornecedor?.cpf_cnpj).includes(digitos)) return true;
-
-  const alvo = semAcento(busca);
-  return [fornecedor?.nome, fornecedor?.razao_social, fornecedor?.nome_fantasia]
-    .map(semAcento)
-    .some((campo) => campo !== "" && campo.includes(alvo));
+  return fornecedorAtendeBusca(fornecedor, termo);
 }
 
 export function filtrarFornecedores(fornecedores = [], termo = "") {
-  return fornecedores.filter((fornecedor) => fornecedorCombina(fornecedor, termo));
+  return filtrarFornecedoresPorTermo(fornecedores, termo);
 }
 
 /** Notas em aberto primeiro pelo vencimento mais antigo, depois pelo número. */

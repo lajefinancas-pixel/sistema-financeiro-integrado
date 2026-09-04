@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { estruturaDeApelidoAusente } from "./nomesFornecedor.js";
 import { erroAmigavel } from "./erros";
 import { excluirRegistro, filtroVigentes } from "./exclusaoRegistros";
 import { SITUACOES_MANUAIS, situacaoPorData } from "./certidoesRegras";
@@ -162,11 +163,21 @@ export async function atualizarTipo(id, campos) {
 // Fornecedores (somente leitura — o cadastro continua na tela de Fornecedores)
 // ---------------------------------------------------------------------------
 
+const COLUNAS_IDENTIFICACAO = "id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, ativo";
+
 export async function listarFornecedores() {
-  const { data, error } = await supabase
-    .from("fornecedores_identificacao")
-    .select("id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id, ativo")
-    .order("razao_social", { nullsFirst: false });
+  // O apelido entra na consulta para a busca de fornecedor encontrá-lo também
+  // aqui. Enquanto a migration do apelido não rodar, a lista vem como sempre.
+  const consultar = (colunas) =>
+    supabase
+      .from("fornecedores_identificacao")
+      .select(colunas)
+      .order("razao_social", { nullsFirst: false });
+
+  let { data, error } = await consultar(`${COLUNAS_IDENTIFICACAO}, apelido`);
+  if (error && estruturaDeApelidoAusente(error)) {
+    ({ data, error } = await consultar(COLUNAS_IDENTIFICACAO));
+  }
   if (error) throw error;
 
   const fornecedores = data ?? [];
