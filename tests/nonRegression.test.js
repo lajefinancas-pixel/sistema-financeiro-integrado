@@ -269,7 +269,9 @@ test("impressão da página não leva listas completas nem controles de interfac
   const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
   // Busca, seleção em massa, chips, avisos e barras de botão ficam fora do papel.
   for (const trecho of [
-    /placeholder="Buscar banco, conta ou nome" className="w-full/,
+    // A busca de conta é a do seletor compartilhado ("Buscar conta..."), e a
+    // lista inteira de contas continua fora do papel.
+    /<SeletorContas/,
     /placeholder="Buscar fornecedor"/,
     /Selecionar todas/,
     /Adicionar fornecedor avulso/,

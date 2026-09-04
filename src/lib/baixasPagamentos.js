@@ -1,7 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { paraNumeroMoeda } from "./moeda";
 import { filtroVigentes } from "./exclusaoRegistros";
-import { buscarPaginado } from "./saldosContasDados";
+import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
 export {
   resumoBaixas,
   situacaoPagamento,
@@ -100,15 +100,43 @@ export async function carregarFornecedoresDaBaixa() {
   return data ?? [];
 }
 
-/** Contas bancárias disponíveis para informar em qual conta o pagamento saiu. */
+const COLUNAS_CONTA_BAIXA = "id,nome_conta,numero_conta,banco_id,secretaria_id,bancos(nome),secretarias(nome)";
+
+/**
+ * Contas bancárias disponíveis para informar em qual conta o pagamento saiu.
+ *
+ * Volta com banco, secretaria e saldo já resolvidos, porque é assim que a lista
+ * de contas mostra e busca cada conta (banco, número, nome, agência e
+ * secretaria). A agência entra quando a coluna já existe no banco.
+ *
+ * O saldo aqui é INFORMATIVO. A baixa não debita o saldo da conta: ela registra
+ * o pagamento (valor, data e conta utilizada) e abate o valor em aberto da nota.
+ * A conta é o registro de qual conta pagou, não movimentação de saldo.
+ */
 export async function carregarContasDaBaixa() {
-  const { data, error } = await supabase
-    .from("contas_bancarias")
-    .select("id,nome_conta,numero_conta,banco_id,secretaria_id,bancos(nome),secretarias(nome)")
-    .eq("ativo", true)
-    .order("nome_conta");
-  if (error) throw error;
-  return data ?? [];
+  const consultar = (colunas) =>
+    supabase.from("contas_bancarias").select(colunas).eq("ativo", true).order("nome_conta");
+
+  let resposta = await consultar(`${COLUNAS_CONTA_BAIXA},agencia`);
+  // Coluna de agência ainda não criada neste banco: segue sem ela.
+  if (resposta.error) resposta = await consultar(COLUNAS_CONTA_BAIXA);
+  if (resposta.error) throw resposta.error;
+
+  const contas = (resposta.data ?? []).map((conta) => ({
+    ...conta,
+    banco: conta.bancos?.nome ?? "",
+    secretaria: conta.secretarias?.nome ?? "",
+    agencia: conta.agencia ?? "",
+  }));
+
+  // O saldo é só exibição: se a consulta de saldos falhar, a lista de contas
+  // continua servindo para registrar a baixa.
+  try {
+    const { contas: comSaldo } = await carregarSaldosDasContas({ contas, comReservas: false });
+    return comSaldo;
+  } catch {
+    return contas;
+  }
 }
 
 /** Nome de quem registrou cada baixa, para o histórico da nota. */

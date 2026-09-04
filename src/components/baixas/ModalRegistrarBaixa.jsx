@@ -2,6 +2,7 @@ import React from "react";
 import { AlertTriangle, CheckCircle2, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
 import { formatBRL, paraNumeroMoeda } from "../../lib/moeda";
+import SeletorContas from "../comuns/SeletorContas";
 import { mensagemAmigavel } from "../../lib/erros";
 import { registrarBaixaDeNota } from "../../lib/baixasPagamentos";
 import {
@@ -68,6 +69,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
   const restante = Math.max(0, resumo.valorEmAberto - valor);
   const quita = valor > 0 && situacaoAposBaixa(nota, valor) === "pago";
   const conferencia = validarBaixaDeNota({ nota, valor, dataPagamento: form.dataPagamento, contaId: form.contaId });
+  const contaEscolhida = contas.find((conta) => String(conta.id) === String(form.contaId)) ?? null;
 
   function alterar(campo, valorNovo) {
     setErro(null);
@@ -172,23 +174,28 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
             />
           </label>
 
-          <label className="text-xs font-medium text-[#0F2A44]/70 sm:col-span-2">
+          <div className="text-xs font-medium text-[#0F2A44]/70 sm:col-span-2">
             Conta bancária de onde o pagamento saiu
-            <select
-              value={form.contaId}
-              onChange={(e) => alterar("contaId", e.target.value)}
-              className="mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm"
-            >
-              <option value="">Selecione...</option>
-              {contas.map((conta) => (
-                <option key={conta.id} value={conta.id}>
-                  {conta.nome_conta}
-                  {conta.bancos?.nome ? ` · ${conta.bancos.nome}` : ""}
-                  {conta.numero_conta ? ` · ${conta.numero_conta}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+            {/* Contas já cadastradas, agrupadas por Secretaria, com busca por
+                número, nome, banco, agência ou secretaria. Escolher a conta aqui
+                registra de onde o dinheiro saiu — não debita o saldo dela. Não
+                existe cadastro de conta neste passo. */}
+            <SeletorContas
+              className="mt-1"
+              contas={contas}
+              modo="unica"
+              valor={form.contaId}
+              onEscolher={(conta) => alterar("contaId", String(conta.id))}
+              altura="max-h-[260px]"
+              vazio="Nenhuma conta bancária cadastrada e ativa."
+            />
+            {contaEscolhida && (
+              <p className="mt-1.5 text-[11px] font-normal text-[#0F2A44]/55">
+                Conta escolhida: {contaEscolhida.nome_conta} · {contaEscolhida.numero_conta || "sem número"} ·{" "}
+                {contaEscolhida.secretaria || contaEscolhida.secretarias?.nome || "--"}
+              </p>
+            )}
+          </div>
 
           <label className="text-xs font-medium text-[#0F2A44]/70 sm:col-span-2">
             Observação <span className="font-normal text-[#0F2A44]/40">(opcional)</span>

@@ -35,12 +35,20 @@ export async function carregarContasParaTransferencia({ secretariaId, secretaria
   const atual = secretarias.find((item) => String(item.id) === String(secretariaId)) ?? { id: secretariaId, nome: "" };
   const idsSecretarias = secretariasRelacionadas(atual, secretarias);
 
-  const { data: brutas, error } = await supabase
-    .from("contas_bancarias")
-    .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)")
-    .in("secretaria_id", idsSecretarias)
-    .eq("ativo", true)
-    .order("nome_conta");
+  const colunasBase = "id, nome_conta, numero_conta, secretaria_id, bancos(nome)";
+  const consultar = (colunas) =>
+    supabase
+      .from("contas_bancarias")
+      .select(colunas)
+      .in("secretaria_id", idsSecretarias)
+      .eq("ativo", true)
+      .order("nome_conta");
+
+  // A agência entra quando a coluna já existe no banco; sem ela, a lista vem
+  // igual, só sem a busca por agência.
+  let resposta = await consultar(`${colunasBase}, agencia`);
+  if (resposta.error) resposta = await consultar(colunasBase);
+  const { data: brutas, error } = resposta;
   if (error) throw error;
 
   const nomePorSecretaria = new Map(secretarias.map((item) => [String(item.id), item.nome]));
@@ -49,6 +57,7 @@ export async function carregarContasParaTransferencia({ secretariaId, secretaria
       id: conta.id,
       nome_conta: conta.nome_conta,
       numero_conta: conta.numero_conta,
+      agencia: conta.agencia ?? "",
       banco: conta.bancos?.nome || "--",
       secretaria_id: conta.secretaria_id,
       secretaria: nomePorSecretaria.get(String(conta.secretaria_id)) || "--",

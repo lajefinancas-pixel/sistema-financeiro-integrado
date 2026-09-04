@@ -1,7 +1,7 @@
 import React from "react";
 import {
   Plus, X, Pencil, Save, Trash2, Printer, FileText, FileSpreadsheet, Upload,
-  ChevronLeft, ChevronRight, GripVertical, Archive, Eraser, Settings2,
+  ChevronDown, ChevronLeft, ChevronRight, GripVertical, Archive, Eraser, Search, Settings2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
@@ -23,8 +23,16 @@ import {
   alteracoesDoCadastro, atualizarContaBancaria, carregarContasDoCadastro, carregarFontesRecurso,
   contaDuplicada, criarContaBancaria, criarFonteRecurso, definirSituacaoConta, mensagemDuplicidade,
   programacoesEmElaboracaoComConta, retratoDasAlteracoes, retratoDoCadastro, saldoInicialInformado,
+  contaTemPix,
   tipoContaLabel,
 } from "../lib/contasBancarias";
+import {
+  MENSAGEM_SEM_RESULTADO,
+  alternarGrupo,
+  filtrarContasCadastradas,
+  grupoRecolhido,
+  rotuloDoGrupo,
+} from "../lib/contasBancariasBusca";
 import ModalContaBancaria from "../components/saldos/ModalContaBancaria";
 import ModalSituacaoConta from "../components/saldos/ModalSituacaoConta";
 import ModalLimparCampos from "../components/saldos/ModalLimparCampos";
@@ -103,6 +111,21 @@ function centavos(valor) {
   return Math.round(paraNumeroMoeda(valor) * 100);
 }
 
+/**
+ * Dados de PIX do jeito que a auditoria compara antes/depois. Sem PIX, os
+ * campos ficam vazios — o dicionário da auditoria traduz cada chave.
+ */
+function dadosPixParaAuditoria(conta) {
+  const temPix = contaTemPix(conta?.possui_pix);
+  return {
+    possui_pix: temPix,
+    pix_tipo_chave: temPix ? String(conta?.pix_tipo_chave ?? "") : "",
+    pix_chave: temPix ? String(conta?.pix_chave ?? "") : "",
+    pix_titular: temPix ? String(conta?.pix_titular ?? "") : "",
+    pix_documento_titular: temPix ? String(conta?.pix_documento_titular ?? "") : "",
+  };
+}
+
 /** Como a conta aparece na trilha de auditoria: "Secretaria — Banco · Conta". */
 function rotuloDaConta(conta, secretaria) {
   const identificacao = [conta?.banco, conta?.nome_conta].filter(Boolean).join(" · ");
@@ -134,6 +157,12 @@ export default function Saldos() {
   // tela esconde o campo em vez de mostrar erro.
   const [fontes, setFontes] = React.useState(null);
   const [comFonteRecurso, setComFonteRecurso] = React.useState(false);
+  // Agência e PIX só aparecem quando as colunas existem neste banco.
+  const [comPix, setComPix] = React.useState(false);
+  // Busca e recolhimento são só apresentação: nenhum saldo e nenhum cadastro
+  // muda por causa deles.
+  const [buscaConta, setBuscaConta] = React.useState("");
+  const [gruposRecolhidos, setGruposRecolhidos] = React.useState(() => new Set());
 
   const [mostrarImportar, setMostrarImportar] = React.useState(false);
   const [textoImportar, setTextoImportar] = React.useState("");
@@ -204,9 +233,11 @@ export default function Saldos() {
       // Cadastro inteiro, ativas e desativadas: as ativas montam o painel do
       // dia; as desativadas alimentam a seção "Contas desativadas", que existe
       // justamente para mostrar que o histórico delas continua no banco.
-      const { contas, comFonteRecurso: temColunaFonte } = await carregarContasDoCadastro({
-        situacao: "todas",
-      });
+      const {
+        contas,
+        comFonteRecurso: temColunaFonte,
+        comPix: temColunasPix,
+      } = await carregarContasDoCadastro({ situacao: "todas" });
       const fontesRecurso = await carregarFontesRecurso();
 
       const nomeDaSecretaria = new Map((secs ?? []).map((sec) => [String(sec.id), sec.nome]));
@@ -221,6 +252,12 @@ export default function Saldos() {
         banco: c.bancos?.nome ?? nomeDoBanco.get(String(c.banco_id)) ?? "--",
         nome_conta: c.nome_conta,
         numero_conta: c.numero_conta,
+        agencia: c.agencia ?? "",
+        possui_pix: c.possui_pix ?? false,
+        pix_tipo_chave: c.pix_tipo_chave ?? "",
+        pix_chave: c.pix_chave ?? "",
+        pix_titular: c.pix_titular ?? "",
+        pix_documento_titular: c.pix_documento_titular ?? "",
         tipo_conta: c.tipo_conta ?? "",
         fonte_recurso_id: c.fonte_recurso_id ?? null,
         fonte_recurso: nomeDaFonte.get(String(c.fonte_recurso_id)) ?? null,
@@ -246,6 +283,7 @@ export default function Saldos() {
       setBancos(bcs ?? []);
       setFontes(fontesRecurso);
       setComFonteRecurso(temColunaFonte);
+      setComPix(temColunasPix);
       setTodasAsContas(contasComSaldo);
       setContasInativas(
         contasComSaldo
@@ -674,25 +712,32 @@ export default function Saldos() {
       numeroConta: dados.numero_conta,
       tipoConta: dados.tipo_conta,
       fonteRecursoId: fonte.id,
+      // Agência e PIX vão no MESMO envio do cadastro da conta.
+      agencia: dados.agencia,
+      pix: dados,
     };
 
     const depois = {
       secretaria: secretaria.nome,
       banco: banco.nome,
+      agencia: String(dados.agencia ?? "").trim(),
       numero_conta: String(dados.numero_conta).trim(),
       nome_conta: String(dados.nome_conta).trim(),
       tipo_conta: dados.tipo_conta,
       fonte_recurso: fonte.nome,
+      ...(comPix ? dadosPixParaAuditoria(dados) : {}),
     };
 
     if (edicao) {
       const antes = {
         secretaria: contaAtual.secretaria,
         banco: contaAtual.banco,
+        agencia: contaAtual.agencia ?? "",
         numero_conta: contaAtual.numero_conta,
         nome_conta: contaAtual.nome_conta,
         tipo_conta: contaAtual.tipo_conta,
         fonte_recurso: contaAtual.fonte_recurso,
+        ...(comPix ? dadosPixParaAuditoria(contaAtual) : {}),
       };
       const { alterados, houveMudanca, resumo } = alteracoesDoCadastro(antes, depois);
       if (!houveMudanca) {
@@ -701,7 +746,7 @@ export default function Saldos() {
         return;
       }
 
-      await atualizarContaBancaria(contaAtual.id, payload, { comFonteRecurso });
+      await atualizarContaBancaria(contaAtual.id, payload, { comFonteRecurso, comPix });
 
       const { anterior, novo } = retratoDasAlteracoes(alterados);
       await registrarEvento({
@@ -721,7 +766,7 @@ export default function Saldos() {
       return;
     }
 
-    const criada = await criarContaBancaria(payload, { comFonteRecurso });
+    const criada = await criarContaBancaria(payload, { comFonteRecurso, comPix });
 
     // Saldo inicial é opcional. Informado, vai para saldos_historico na data do
     // cadastro pela MESMA rotina do lançamento diário. Em branco, a conta nasce
@@ -1115,6 +1160,20 @@ export default function Saldos() {
   const dataSelecionadaCurtaBR = new Date(dataSelecionada + "T00:00:00").toLocaleDateString("pt-BR");
   const totalGeralHistorico = somar(contasPorSecretariaNaData.map((s) => s.total));
 
+  // Busca GLOBAL: procura em todas as contas ativas, de todas as secretarias,
+  // independentemente de qual grupo está aberto. Encontrar conta não cria conta:
+  // o que não está cadastrado não aparece aqui.
+  const buscandoConta = buscaConta.trim() !== "";
+  const contasEncontradas = React.useMemo(
+    () => filtrarContasCadastradas(todasAsContas.filter((c) => c.ativo), buscaConta),
+    [todasAsContas, buscaConta],
+  );
+
+  // Recolher/abrir mexe só no conjunto de grupos recolhidos.
+  function alternarSecretaria(secretariaId) {
+    setGruposRecolhidos((atual) => alternarGrupo(atual, String(secretariaId)));
+  }
+
   const secretariasAtual = React.useMemo(
     () => ordenarPorPreferencia(contasPorSecretaria, ordemSecretarias),
     [contasPorSecretaria, ordemSecretarias]
@@ -1251,12 +1310,45 @@ export default function Saldos() {
             <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
           ) : (
             <div className="space-y-4">
-              <p className="text-xs text-[#0F2A44]/45 print:hidden">
-                Arraste os cards pela alça <GripVertical size={11} className="inline align-[-2px]" /> para definir a
-                ordem das secretarias. A ordem fica salva na sua conta.
-              </p>
+              <div className="flex flex-col gap-2 print:hidden sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[#0F2A44]/45">
+                  Arraste os cards pela alça <GripVertical size={11} className="inline align-[-2px]" /> para definir a
+                  ordem das secretarias. A ordem fica salva na sua conta.
+                </p>
+                <div className="relative w-full sm:w-72">
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#0F2A44]/35" />
+                  <input
+                    type="search"
+                    value={buscaConta}
+                    onChange={(e) => setBuscaConta(e.target.value)}
+                    placeholder="Buscar conta..."
+                    aria-label="Buscar conta"
+                    className="w-full rounded-lg border border-black/10 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-black/25"
+                  />
+                </div>
+              </div>
+              {buscandoConta && (
+                <p className="text-xs text-[#0F2A44]/50 print:hidden">
+                  Busca em todas as secretarias · {contasEncontradas.length}{" "}
+                  {contasEncontradas.length === 1 ? "conta encontrada" : "contas encontradas"} por número, nome, banco,
+                  agência ou secretaria.
+                </p>
+              )}
+              {buscandoConta && contasEncontradas.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-black/10 bg-white p-10 text-center text-sm text-[#0F2A44]/50">
+                  {MENSAGEM_SEM_RESULTADO}
+                </div>
+              )}
               {secretariasAtual.map((sec) => {
                 const emLote = editandoSecretariaId === sec.id;
+                // Durante a edição de saldos em lote o card não é filtrado nem
+                // recolhido: os campos digitados ficam todos à vista.
+                const contasVisiveis = emLote ? sec.contas : filtrarContasCadastradas(sec.contas, buscaConta);
+                const recolhido =
+                  !emLote && !buscandoConta && grupoRecolhido(gruposRecolhidos, String(sec.id));
+                // Na busca, a secretaria sem conta encontrada sai da tela; o
+                // vínculo das contas com ela continua igual no cadastro.
+                if (buscandoConta && !emLote && contasVisiveis.length === 0) return null;
                 return (
                   <div
                     key={sec.id}
@@ -1277,7 +1369,21 @@ export default function Saldos() {
                         >
                           <GripVertical size={15} />
                         </span>
-                        {sec.nome.toUpperCase()}
+                        <button
+                          type="button"
+                          onClick={() => alternarSecretaria(sec.id)}
+                          aria-expanded={!recolhido}
+                          disabled={emLote || buscandoConta}
+                          className="flex items-center gap-1.5 text-left disabled:cursor-default"
+                          title={recolhido ? `Abrir ${sec.nome}` : `Recolher ${sec.nome}`}
+                        >
+                          <span className="print:hidden">
+                            {recolhido ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                          </span>
+                          {/* Contagem no cabeçalho do grupo; recolher não desmarca
+                              nem altera conta alguma. */}
+                          {rotuloDoGrupo({ nome: sec.nome, quantidade: sec.contas.length })}
+                        </button>
                       </span>
                       {/* A secretaria é só o agrupador visual das contas: o cabeçalho
                           não exibe subtotal. O total continua sendo calculado para a
@@ -1350,14 +1456,21 @@ export default function Saldos() {
                       </div>
                     </div>
 
-                    {sec.contas.length === 0 ? (
+                    {recolhido ? null : sec.contas.length === 0 ? (
                       <div className="px-4 py-6 text-center text-sm text-[#0F2A44]/40">
                         Nenhuma conta cadastrada nesta secretaria.
                       </div>
+                    ) : contasVisiveis.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-sm text-[#0F2A44]/50">
+                        {MENSAGEM_SEM_RESULTADO}
+                      </div>
                     ) : (
-                      <div className="overflow-x-auto print:overflow-visible">
+                      // Altura máxima com rolagem interna: a lista rola dentro do
+                      // card e a página continua rolando normalmente, do celular
+                      // ao computador. Na impressão a lista sai inteira.
+                      <div className="max-h-[60vh] overflow-y-auto overflow-x-auto overscroll-contain print:max-h-none print:overflow-visible">
                       <table className="w-full text-sm">
-                        <thead>
+                        <thead className="sticky top-0 z-10 bg-white">
                           <tr className="text-left text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
                             <th className="px-4 py-2 font-medium whitespace-nowrap">Banco</th>
                             <th className="px-4 py-2 font-medium whitespace-nowrap">Número da Conta</th>
@@ -1367,7 +1480,7 @@ export default function Saldos() {
                           </tr>
                         </thead>
                         <tbody>
-                          {sec.contas.map((c) => (
+                          {contasVisiveis.map((c) => (
                             <tr key={c.id} className="border-t border-black/5">
                               <td className={`px-4 py-2.5 whitespace-nowrap ${classeTextoLongo(c.banco)}`}>{c.banco}</td>
                               <td className="px-4 py-2.5 whitespace-nowrap text-[#0F2A44]/60">{c.numero_conta || "--"}</td>
@@ -1644,6 +1757,7 @@ export default function Saldos() {
           secretarias={secretarias}
           bancos={bancos}
           fontes={comFonteRecurso ? fontes : null}
+          comPix={comPix}
           onCancelar={() => setModalConta(null)}
           onSalvar={salvarConta}
         />

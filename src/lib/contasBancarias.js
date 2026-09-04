@@ -18,13 +18,20 @@
 // a versão sem fonte de recurso em vez de derrubar a tela.
 
 import { supabase } from "./supabaseClient";
+import { dadosPixParaGravar } from "./contasBancariasRegras";
 
 // Todas as regras puras do cadastro (validação, duplicidade, comparação
 // antes/depois) ficam em ./contasBancariasRegras.js e são reexportadas aqui.
 export {
   TIPOS_CONTA,
+  TIPOS_CHAVE_PIX,
   ROTULOS_CONTA,
   tipoContaLabel,
+  tipoChavePixLabel,
+  contaTemPix,
+  documentoDoTitularObrigatorio,
+  validarPixDaConta,
+  dadosPixParaGravar,
   chaveDoNumero,
   validarCadastroConta,
   saldoInicialInformado,
@@ -51,14 +58,32 @@ export function estruturaDeFonteAusente(erro) {
 }
 
 const COLUNAS_BASE = "id, nome_conta, numero_conta, tipo_conta, secretaria_id, banco_id, ativo, bancos(nome)";
-const COLUNAS_COM_FONTE = `${COLUNAS_BASE}, fonte_recurso_id`;
+const COLUNAS_FONTE = "fonte_recurso_id";
+// Agência e PIX moram no MESMO registro da conta (migration 20260904120000):
+// não existe tabela, aba nem cadastro separado de PIX.
+export const COLUNAS_PIX =
+  "agencia, possui_pix, pix_tipo_chave, pix_chave, pix_titular, pix_documento_titular";
+
+/**
+ * Falhas que significam "as colunas de agência e PIX ainda não existem neste
+ * banco" (migration 20260904120000 não rodada). Mesmo critério da fonte de
+ * recurso: estrutura ausente não é erro de uso.
+ */
+export const estruturaDePixAusente = estruturaDeFonteAusente;
+
+function colunasDoCadastro({ comFonteRecurso, comPix }) {
+  return [COLUNAS_BASE, comFonteRecurso ? COLUNAS_FONTE : null, comPix ? COLUNAS_PIX : null]
+    .filter(Boolean)
+    .join(", ");
+}
 
 /**
  * Contas do cadastro. `situacao` é "ativas" (padrão), "inativas" ou "todas".
  *
- * Tenta trazer a fonte de recurso; se a coluna ainda não existe, repete a
- * consulta sem ela e avisa em `comFonteRecurso: false` — a tela então esconde o
- * campo em vez de mostrar erro.
+ * Tenta trazer a fonte de recurso e os campos de agência/PIX; quando alguma
+ * dessas colunas ainda não existe, repete a consulta sem ela e avisa em
+ * `comFonteRecurso` / `comPix` — a tela então esconde os campos correspondentes
+ * em vez de mostrar erro. Nenhum saldo é lido aqui.
  */
 export async function carregarContasDoCadastro({ situacao = "ativas" } = {}) {
   async function consultar(colunas) {
@@ -70,12 +95,25 @@ export async function carregarContasDoCadastro({ situacao = "ativas" } = {}) {
     return data ?? [];
   }
 
-  try {
-    return { contas: await consultar(COLUNAS_COM_FONTE), comFonteRecurso: true };
-  } catch (e) {
-    if (!estruturaDeFonteAusente(e)) throw e;
-    return { contas: await consultar(COLUNAS_BASE), comFonteRecurso: false };
+  // Da consulta mais completa para a mais enxuta: a primeira que o banco aceita
+  // é a que vale, e as capacidades voltam junto para a tela.
+  const tentativas = [
+    { comFonteRecurso: true, comPix: true },
+    { comFonteRecurso: true, comPix: false },
+    { comFonteRecurso: false, comPix: true },
+    { comFonteRecurso: false, comPix: false },
+  ];
+
+  let ultimaFalha = null;
+  for (const capacidades of tentativas) {
+    try {
+      return { contas: await consultar(colunasDoCadastro(capacidades)), ...capacidades };
+    } catch (e) {
+      if (!estruturaDeFonteAusente(e)) throw e;
+      ultimaFalha = e;
+    }
   }
+  throw ultimaFalha;
 }
 
 /** Catálogo de fontes de recurso; `null` quando a tabela ainda não existe. */
@@ -105,7 +143,10 @@ export async function criarFonteRecurso(nome) {
 }
 
 /** Payload do cadastro, sem nenhum campo de saldo. */
-function payloadDoCadastro({ secretariaId, bancoId, nomeConta, numeroConta, tipoConta, fonteRecursoId }, { comFonteRecurso }) {
+function payloadDoCadastro(
+  { secretariaId, bancoId, nomeConta, numeroConta, tipoConta, fonteRecursoId, agencia, pix },
+  { comFonteRecurso, comPix = true },
+) {
   const payload = {
     secretaria_id: secretariaId,
     banco_id: bancoId,
@@ -116,6 +157,12 @@ function payloadDoCadastro({ secretariaId, bancoId, nomeConta, numeroConta, tipo
   if (comFonteRecurso) {
     payload.fonte_recurso_id = fonteRecursoId === "" || fonteRecursoId == null ? null : Number(fonteRecursoId);
   }
+  // Agência e PIX entram no mesmo UPDATE/INSERT da conta. Sem as colunas no
+  // banco, ficam de fora e o resto do cadastro salva igual.
+  if (comPix) {
+    payload.agencia = String(agencia ?? "").trim() || null;
+    Object.assign(payload, dadosPixParaGravar(pix ?? {}));
+  }
   return payload;
 }
 
@@ -123,10 +170,10 @@ function payloadDoCadastro({ secretariaId, bancoId, nomeConta, numeroConta, tipo
  * Cria a conta. O saldo inicial NÃO entra aqui: quem o grava é
  * `lancarSaldoDaConta`, a mesma rotina do lançamento diário.
  */
-export async function criarContaBancaria(dados, { comFonteRecurso = true } = {}) {
+export async function criarContaBancaria(dados, { comFonteRecurso = true, comPix = true } = {}) {
   const { data, error } = await supabase
     .from("contas_bancarias")
-    .insert(payloadDoCadastro(dados, { comFonteRecurso }))
+    .insert(payloadDoCadastro(dados, { comFonteRecurso, comPix }))
     .select("id")
     .single();
   if (error) throw error;
@@ -134,10 +181,10 @@ export async function criarContaBancaria(dados, { comFonteRecurso = true } = {})
 }
 
 /** Atualiza só o cadastro. Nenhum saldo e nenhum histórico é tocado. */
-export async function atualizarContaBancaria(id, dados, { comFonteRecurso = true } = {}) {
+export async function atualizarContaBancaria(id, dados, { comFonteRecurso = true, comPix = true } = {}) {
   const { error } = await supabase
     .from("contas_bancarias")
-    .update(payloadDoCadastro(dados, { comFonteRecurso }))
+    .update(payloadDoCadastro(dados, { comFonteRecurso, comPix }))
     .eq("id", id);
   if (error) throw error;
 }
