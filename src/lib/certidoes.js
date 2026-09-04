@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { erroAmigavel } from "./erros";
 import { excluirRegistro, filtroVigentes } from "./exclusaoRegistros";
+import { SITUACOES_MANUAIS, situacaoPorData } from "./certidoesRegras";
 
 /**
  * Camada de dados da página "Certidões".
@@ -16,14 +17,15 @@ import { excluirRegistro, filtroVigentes } from "./exclusaoRegistros";
  * A situação é gravada no cadastro, mas a tela reavalia pelas datas na hora de
  * exibir: uma certidão salva como "válida" não pode continuar válida depois de
  * a data de vencimento passar. Ver `situacaoEfetiva`.
+ *
+ * As regras de situação e de vigência ("quem vale por tipo") moram em
+ * lib/certidoesRegras.js, um módulo puro compartilhado por todas as telas. Elas
+ * são reexportadas aqui para que quem já importava daqui continue funcionando.
  */
 
 export const MODULO = "certidoes";
 
 export const BUCKET_ANEXOS = "certidoes-anexos";
-
-/** Dias antes do vencimento em que a certidão passa a ser exibida como "a vencer". */
-export const DIAS_ALERTA_VENCIMENTO = 30;
 
 export const SITUACOES = {
   valida: { label: "Válida", cor: "#15803D", bg: "#EAFBF0", ponto: "#16A34A" },
@@ -32,13 +34,6 @@ export const SITUACOES = {
   sem_vencimento: { label: "Sem vencimento", cor: "#475569", bg: "#F1F5F9", ponto: "#94A3B8" },
   em_renovacao: { label: "Em renovação", cor: "#2563EB", bg: "#EAF1FF", ponto: "#2563EB" },
 };
-
-/**
- * Situações que a pessoa escolhe e o sistema respeita como estão. As demais
- * (válida, a vencer, vencida, sem vencimento) são consequência das datas e a
- * tela recalcula sozinha.
- */
-const SITUACOES_MANUAIS = ["em_renovacao"];
 
 /**
  * Situação usada só na exibição: o fornecedor que ainda não tem nenhuma
@@ -71,12 +66,24 @@ export const OPCOES_SITUACAO = Object.entries(SITUACOES).map(([id, info]) => ({ 
 // Datas
 // ---------------------------------------------------------------------------
 
-/** Hoje no formato ISO (aaaa-mm-dd), no fuso local — o mesmo que o input date usa. */
-export function hojeISO() {
-  const agora = new Date();
-  const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
-}
+/**
+ * Datas, situação por data e vigência por tipo vêm do módulo puro de regras.
+ * Reexportadas para não mudar nenhum import existente.
+ */
+export {
+  DIAS_ALERTA_VENCIMENTO,
+  anotarVigencia,
+  chaveDoDocumento,
+  contarRegularidade,
+  diasAte,
+  ehVigenteNoTipo,
+  hojeISO,
+  situacaoEfetiva,
+  situacaoPorData,
+  somenteAnteriores,
+  somenteVigentes,
+  temVencimento,
+} from "./certidoesRegras";
 
 /** Data ISO exibida como dd/mm/aaaa. Datas vazias viram "--". */
 export function formatarData(iso) {
@@ -84,16 +91,6 @@ export function formatarData(iso) {
   const [ano, mes, dia] = String(iso).slice(0, 10).split("-");
   if (!ano || !mes || !dia) return "--";
   return `${dia}/${mes}/${ano}`;
-}
-
-/** Diferença em dias entre hoje e a data informada (negativo = já passou). */
-export function diasAte(iso) {
-  if (!iso) return null;
-  const umDia = 24 * 60 * 60 * 1000;
-  const alvo = Date.parse(`${String(iso).slice(0, 10)}T00:00:00`);
-  const hoje = Date.parse(`${hojeISO()}T00:00:00`);
-  if (Number.isNaN(alvo) || Number.isNaN(hoje)) return null;
-  return Math.round((alvo - hoje) / umDia);
 }
 
 /** Emissão + prazo padrão do tipo = vencimento sugerido no cadastro. */
@@ -107,25 +104,6 @@ export function vencimentoSugerido(dataEmissao, prazoDias) {
   const mes = String(base.getMonth() + 1).padStart(2, "0");
   const dia = String(base.getDate()).padStart(2, "0");
   return `${base.getFullYear()}-${mes}-${dia}`;
-}
-
-/**
- * Situação que decorre das datas: sem vencimento quando o tipo não vence,
- * vencida quando a data já passou, a vencer na reta final e válida no resto.
- */
-export function situacaoPorData(dataVencimento) {
-  if (!dataVencimento) return "sem_vencimento";
-  const dias = diasAte(dataVencimento);
-  if (dias === null) return "sem_vencimento";
-  if (dias < 0) return "vencida";
-  if (dias <= DIAS_ALERTA_VENCIMENTO) return "a_vencer";
-  return "valida";
-}
-
-/** Situação exibida na lista: a manual prevalece; o resto vem das datas. */
-export function situacaoEfetiva(certidao) {
-  if (SITUACOES_MANUAIS.includes(certidao?.situacao)) return certidao.situacao;
-  return situacaoPorData(certidao?.data_vencimento);
 }
 
 // ---------------------------------------------------------------------------

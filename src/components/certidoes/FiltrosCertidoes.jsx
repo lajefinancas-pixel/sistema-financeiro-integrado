@@ -13,6 +13,10 @@ import PainelFiltros from "../comuns/PainelFiltros";
  * Todos os filtros somam entre si (E): fornecedor + tipo + período de
  * vencimento devolvem as certidões que atendem às três condições.
  *
+ * Os recortes de regularidade (Situação e atalhos de prazo) olham só a certidão
+ * mais recente de cada tipo, como o indicador do fornecedor e os alertas — há
+ * uma linha de apoio embaixo dos atalhos dizendo isso.
+ *
  * A área fica dentro do PainelFiltros compartilhado: abre e fecha sem perder
  * nada do formulário, e com o painel fechado os filtros aplicados aparecem em
  * chips removíveis.
@@ -254,6 +258,10 @@ export default function FiltrosCertidoes({
               );
             })}
           </div>
+          <p className="text-[11px] text-[#0F2A44]/50 mt-2">
+            Situação e atalhos de prazo consideram apenas a certidão mais recente de cada tipo — a
+            emissão já substituída continua cadastrada e aparece na listagem sem filtro.
+          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-4 pt-4 border-t border-black/5">

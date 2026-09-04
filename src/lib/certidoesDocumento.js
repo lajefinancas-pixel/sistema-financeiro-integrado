@@ -3,6 +3,7 @@ import { montarCabecalho, resumoDeFiltros, textoPeriodo } from "./relatoriosCabe
 import { agoraBR } from "./saldosDocumento";
 import { formatarData, hojeISO, nomeFornecedor, nomeSecretaria, situacaoInfo } from "./certidoes";
 import { ATALHOS, situacaoDaLinha } from "./filtrosCertidoes";
+import { ehVigenteNoTipo, temEmissoesConcorrentes } from "./certidoesRegras";
 
 // Impressão, PDF e planilha da tela de Certidões.
 //
@@ -15,6 +16,10 @@ import { ATALHOS, situacaoDaLinha } from "./filtrosCertidoes";
 // O documento sai sempre com o recorte que está na tela: os filtros aplicados no
 // momento definem tanto as linhas quanto o título e o resumo do topo. Um recorte de
 // "Vencendo em 30 dias" gera "Certidões vencendo nos próximos 30 dias".
+//
+// A regularidade impressa é a mesma da tela: quando o fornecedor tem mais de uma
+// emissão do mesmo tipo, a coluna Situação marca qual é a vigente e qual é anterior
+// (regra única em lib/certidoesRegras.js). Nenhuma certidão é omitida do documento.
 
 export const TITULO_PADRAO = "Certidões";
 
@@ -54,6 +59,18 @@ function textoDoDocumento(certidao) {
   return numero ? `${tipo} — nº ${numero}` : tipo;
 }
 
+/**
+ * Situação impressa. Havendo mais de uma emissão do mesmo tipo, o documento diz
+ * qual delas vale: a etiqueta ganha "(vigente)" ou "(anterior)", para que quem
+ * lê o papel chegue à mesma conclusão que a tela — a regularidade é a da emissão
+ * mais recente.
+ */
+function textoDaSituacao(certidao) {
+  const label = situacaoInfo(situacaoDaLinha(certidao)).label;
+  if (certidao?.naoCadastrada || !temEmissoesConcorrentes(certidao)) return label;
+  return `${label} (${ehVigenteNoTipo(certidao) ? "vigente" : "anterior"})`;
+}
+
 /** Uma linha de documento por certidão da listagem. */
 export function linhasDeCertidoes(certidoes) {
   return (certidoes ?? []).map((certidao) => ({
@@ -61,7 +78,7 @@ export function linhasDeCertidoes(certidoes) {
     documento: textoDoDocumento(certidao),
     emissao: certidao.data_emissao ? formatarData(certidao.data_emissao) : "--",
     vencimento: certidao.data_vencimento ? formatarData(certidao.data_vencimento) : "--",
-    situacao: situacaoInfo(situacaoDaLinha(certidao)).label,
+    situacao: textoDaSituacao(certidao),
   }));
 }
 

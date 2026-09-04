@@ -180,12 +180,22 @@ function fornecedoresDistintos(resultado) {
 // alertas de vencimento). Os recortes abaixo usam `situacao_prazo` justamente
 // para que uma certidão marcada como "Em renovação" e fora do prazo continue
 // aparecendo entre as vencidas.
+//
+// `vigente` diz se a linha é a emissão mais recente daquele tipo. Os recortes de
+// pendência (vencidas, a vencer) e os contadores olham só as vigentes, como o
+// resto do sistema: um FGTS vencido já substituído por outro em dia não é
+// pendência. As anteriores continuam listadas nos relatórios de conferência,
+// marcadas na coluna "Vigência".
 const COL_CERTIDAO_TIPO = { chave: "tipo", label: "Tipo de certidão", peso: 20 };
 const COL_CERTIDAO_NUMERO = { chave: "numero_documento", label: "Número", peso: 14 };
 const COL_CERTIDAO_EMISSAO = { chave: "data_emissao", label: "Emissão", tipo: "data", peso: 11 };
 const COL_CERTIDAO_VENCIMENTO = { chave: "data_vencimento", label: "Vencimento", tipo: "data", peso: 12 };
 const COL_CERTIDAO_SITUACAO = { ...COL_SITUACAO, peso: 12 };
 const COL_CERTIDAO_PRAZO = { chave: "prazo", label: "Prazo", peso: 15 };
+const COL_CERTIDAO_VIGENCIA = { chave: "vigencia", label: "Vigência", peso: 11 };
+
+/** Só as emissões que contam para a regularidade (a mais recente de cada tipo). */
+const certidoesVigentesDe = (bases) => certidoesDe(bases).filter((c) => c.vigente !== false);
 
 const certidoesDe = (bases) => bases?.certidoes?.certidoes ?? [];
 const documentacaoDe = (bases) => bases?.certidoes?.documentacao ?? [];
@@ -199,11 +209,14 @@ function porVencimento(a, b) {
   );
 }
 
-/** Quantas linhas do resultado estão em cada situação de prazo. */
+/**
+ * Quantas linhas do resultado estão em cada situação de prazo. Só as vigentes
+ * entram: o contador do relatório precisa bater com o alerta da tela.
+ */
 function quantidadePorPrazo(resultado, situacao) {
   return resultado.grupos
     .flatMap((g) => g.linhas)
-    .filter((l) => l.situacao_prazo === situacao).length;
+    .filter((l) => l.vigente !== false && l.situacao_prazo === situacao).length;
 }
 
 // --- Relatórios ---
@@ -645,13 +658,15 @@ export const RELATORIOS = [
     categoria: "certidoes",
     base: "certidoes",
     nome: "Certidões por fornecedor",
-    descricao: "Certidões cadastradas agrupadas por fornecedor, com tipo, emissão, vencimento e situação.",
+    descricao:
+      "Certidões cadastradas agrupadas por fornecedor, com tipo, emissão, vencimento, situação e a vigência de cada emissão.",
     colunas: [
       COL_CERTIDAO_TIPO,
       COL_CERTIDAO_NUMERO,
       COL_CERTIDAO_EMISSAO,
       COL_CERTIDAO_VENCIMENTO,
       COL_CERTIDAO_SITUACAO,
+      COL_CERTIDAO_VIGENCIA,
       COL_CERTIDAO_PRAZO,
     ],
     rotuloGrupo: "Fornecedor",
@@ -666,7 +681,8 @@ export const RELATORIOS = [
     categoria: "certidoes",
     base: "certidoes",
     nome: "Certidões vencidas",
-    descricao: "Certidões cuja data de vencimento já passou, da mais antiga para a mais recente.",
+    descricao:
+      "Certidões vigentes cuja data de vencimento já passou, da mais antiga para a mais recente. Emissões já substituídas por uma mais nova do mesmo tipo não entram.",
     colunas: [
       { ...COL_FORNECEDOR, peso: 24 },
       COL_DOCUMENTO,
@@ -677,7 +693,9 @@ export const RELATORIOS = [
       COL_CERTIDAO_PRAZO,
     ],
     montar: (bases) =>
-      blocoUnico(certidoesDe(bases).filter((c) => c.situacao_prazo === "vencida").sort(porVencimento)),
+      blocoUnico(
+        certidoesVigentesDe(bases).filter((c) => c.situacao_prazo === "vencida").sort(porVencimento),
+      ),
     resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
   },
   {
@@ -686,7 +704,7 @@ export const RELATORIOS = [
     base: "certidoes",
     nome: "Certidões próximas do vencimento",
     descricao:
-      "Certidões dentro da janela de alerta do módulo Certidões -- as que aparecem como \"a vencer\".",
+      "Certidões vigentes dentro da janela de alerta do módulo Certidões -- as que aparecem como \"a vencer\".",
     colunas: [
       { ...COL_FORNECEDOR, peso: 24 },
       COL_DOCUMENTO,
@@ -697,7 +715,9 @@ export const RELATORIOS = [
       COL_CERTIDAO_PRAZO,
     ],
     montar: (bases) =>
-      blocoUnico(certidoesDe(bases).filter((c) => c.situacao_prazo === "a_vencer").sort(porVencimento)),
+      blocoUnico(
+        certidoesVigentesDe(bases).filter((c) => c.situacao_prazo === "a_vencer").sort(porVencimento),
+      ),
     resumo: (resultado) => [{ label: "Fornecedores", valor: fornecedoresDistintos(resultado) }],
   },
   {
@@ -744,6 +764,7 @@ export const RELATORIOS = [
       COL_CERTIDAO_EMISSAO,
       COL_CERTIDAO_VENCIMENTO,
       COL_CERTIDAO_SITUACAO,
+      COL_CERTIDAO_VIGENCIA,
       COL_CERTIDAO_PRAZO,
     ],
     rotuloGrupo: "Secretaria",

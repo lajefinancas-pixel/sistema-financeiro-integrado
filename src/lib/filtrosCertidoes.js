@@ -5,6 +5,7 @@ import {
   nomeFornecedor,
   situacaoEfetiva,
 } from "./certidoes";
+import { anotarVigencia, ehVigenteNoTipo } from "./certidoesRegras";
 
 /**
  * Filtros, ordenação e agrupamento da listagem de certidões.
@@ -19,6 +20,13 @@ import {
  *   * os atalhos de prazo ("Vencidas", "Vencendo em 7 dias"...) olham só a
  *     data, como fazem os alertas — uma certidão marcada como "Em renovação"
  *     continua vencendo e precisa aparecer nesses atalhos.
+ *
+ * Os dois recortes de situação consideram apenas a certidão MAIS RECENTE de
+ * cada tipo (regra única em lib/certidoesRegras.js), para que o filtro
+ * "Vencidas" traga as mesmas certidões que o indicador do fornecedor, o card do
+ * Painel Principal e os alertas apontam. Sem filtro de situação, a listagem
+ * continua mostrando TODAS as certidões — cada linha vem com `vigenteNoTipo`
+ * anotado, e a tela marca as anteriores em vez de esconder.
  */
 
 export const FILTROS_VAZIOS = {
@@ -141,6 +149,10 @@ function combinaAtalho(certidao, atalho) {
   // "Sem documento cadastrado" já definiu quais linhas entram na base.
   if (!atalho || atalho === "sem_documento") return true;
 
+  // Recorte de prazo é leitura de regularidade: a emissão já superada por uma
+  // mais nova do mesmo tipo não é pendência e fica fora.
+  if (!ehVigenteNoTipo(certidao)) return false;
+
   const dias = diasAte(certidao?.data_vencimento);
   if (dias === null) return false;
   if (atalho === "vencidas") return dias < 0;
@@ -165,7 +177,11 @@ export function filtrarCertidoes(certidoes, fornecedores, filtros) {
   const porId = new Map((fornecedores ?? []).map((item) => [String(item.id), item]));
 
   const semCadastro = f.situacao === SITUACAO_NAO_CADASTRADA || f.atalho === "sem_documento";
-  const base = semCadastro ? linhasNaoCadastradas(certidoes, fornecedores) : certidoes ?? [];
+  // A vigência é calculada sobre a lista COMPLETA (antes de qualquer filtro):
+  // quem vale por tipo não pode depender do recorte que está na tela.
+  const base = semCadastro
+    ? linhasNaoCadastradas(certidoes, fornecedores)
+    : anotarVigencia(certidoes ?? []);
 
   const nome = normalizarTexto(f.fornecedor);
   const cnpj = somenteDigitos(f.cnpj);
@@ -177,6 +193,7 @@ export function filtrarCertidoes(certidoes, fornecedores, filtros) {
     if (cnpj && !somenteDigitos(fornecedor?.cpf_cnpj).includes(cnpj)) return false;
     if (f.secretariaId && String(fornecedor?.secretaria_id ?? "") !== String(f.secretariaId)) return false;
     if (f.tipoId && String(certidao.tipo_certidao_id ?? "") !== String(f.tipoId)) return false;
+    if (f.situacao && !ehVigenteNoTipo(certidao)) return false;
     if (f.situacao && situacaoDaLinha(certidao) !== f.situacao) return false;
     if (!dentroDoPeriodo(certidao.data_emissao, f.emissaoInicial, f.emissaoFinal)) return false;
     if (!dentroDoPeriodo(certidao.data_vencimento, f.vencimentoInicial, f.vencimentoFinal)) return false;

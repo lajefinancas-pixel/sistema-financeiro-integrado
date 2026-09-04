@@ -18,6 +18,12 @@
 // Certidões segue a mesma regra: a base reaproveita as consultas do próprio
 // módulo (listarCertidoes, listarTipos e listarFornecedores), então a exclusão
 // lógica e as emissões já renovadas ficam de fora sem nenhum critério novo.
+//
+// A regularidade também não é recalculada aqui: a conta de "quem vale por tipo"
+// vem de lib/certidoesRegras.js, a mesma da tela de Certidões, do indicador de
+// Fornecedores e dos alertas. Cada linha da base leva `vigente` (a certidão mais
+// recente daquele tipo) para que os recortes de vencidas e a vencer apontem
+// exatamente as pendências reais -- sem esconder nenhuma certidão da listagem.
 
 import { supabase } from "./supabaseClient";
 import { buscarPaginado, carregarSaldosDasContas } from "./saldosContasDados";
@@ -37,6 +43,7 @@ import {
   situacaoInfo,
   situacaoPorData,
 } from "./certidoes";
+import { anotarVigencia, ehVigenteNoTipo, somenteVigentes } from "./certidoesRegras";
 import {
   categoriaLabel,
   estaAtrasada,
@@ -475,6 +482,11 @@ function textoDoPrazo(dias) {
  * uma certidão marcada como "Em renovação" que já passou do prazo continua
  * sendo uma pendência para quem confere a documentação.
  *
+ * Quem responde pelo tipo é a certidão MAIS RECENTE dele (somenteVigentes): uma
+ * emissão vencida que já foi substituída por outra em dia não deixa a
+ * documentação incompleta. As anteriores continuam cadastradas e aparecem nos
+ * relatórios de listagem.
+ *
  * Só os fornecedores ativos entram: cobrar documento de cadastro inativo
  * mostraria uma pendência que ninguém precisa resolver.
  */
@@ -482,7 +494,7 @@ function documentacaoDosFornecedores(fornecedores, certidoes, tipos) {
   const obrigatorios = (tipos ?? []).filter((t) => t?.obrigatorio === true && t?.ativo !== false);
 
   const porFornecedor = new Map();
-  (certidoes ?? []).forEach((certidao) => {
+  somenteVigentes(certidoes ?? []).forEach((certidao) => {
     const chave = String(certidao.fornecedor_id);
     if (!porFornecedor.has(chave)) porFornecedor.set(chave, []);
     porFornecedor.get(chave).push(certidao);
@@ -504,7 +516,8 @@ function documentacaoDosFornecedores(fornecedores, certidoes, tipos) {
           faltando.push(tipo.nome);
           return;
         }
-        // Basta uma emissão em dia: é ela que vale como documento do tipo.
+        // Só a emissão vigente do tipo está na lista: é ela que vale como
+        // documento, mesmo que existam emissões anteriores cadastradas.
         if (doTipo.some((c) => situacaoPorData(c.data_vencimento) !== "vencida")) validas += 1;
         else vencidas.push(tipo.nome);
       });
@@ -543,6 +556,12 @@ function documentacaoDosFornecedores(fornecedores, certidoes, tipos) {
  *                      "Em renovação" escolhido à mão;
  *   situacao_prazo  -> a leitura pela data (situacaoPorData), que é a dos
  *                      alertas e a que separa "vencida" de "a vencer".
+ *
+ * E a vigência por tipo, que é o que define regularidade:
+ *   vigente         -> true na certidão mais recente do tipo (a que conta);
+ *   vigencia        -> "Vigente" / "Anterior", para leitura no relatório.
+ * As anteriores continuam na base -- os relatórios de listagem mostram todas --,
+ * mas ficam fora dos recortes de vencidas, a vencer e dos contadores.
  */
 export async function carregarBaseCertidoes() {
   if (!(await podeVisualizarCertidoes())) {
@@ -559,9 +578,10 @@ export async function carregarBaseCertidoes() {
   // passa a existir) coluna de secretaria em certidoes.
   const fornecedorPorId = new Map((fornecedores ?? []).map((f) => [String(f.id), f]));
 
-  const linhas = (certidoes ?? []).map((c) => {
+  const linhas = anotarVigencia(certidoes ?? []).map((c) => {
     const fornecedor = fornecedorPorId.get(String(c.fornecedor_id)) ?? c.fornecedores ?? null;
     const dias = diasAte(c.data_vencimento);
+    const vigente = ehVigenteNoTipo(c);
 
     return {
       id: c.id,
@@ -575,6 +595,8 @@ export async function carregarBaseCertidoes() {
       data_vencimento: soData(c.data_vencimento),
       situacao: situacaoInfo(situacaoEfetiva(c)).label,
       situacao_prazo: situacaoPorData(c.data_vencimento),
+      vigente,
+      vigencia: vigente ? "Vigente" : "Anterior",
       prazo: textoDoPrazo(dias),
     };
   });
