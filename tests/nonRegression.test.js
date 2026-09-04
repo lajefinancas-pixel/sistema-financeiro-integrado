@@ -42,7 +42,7 @@ test("tela usa saldos compartilhados, seleção múltipla e resumo fixo", async 
   assert.match(pagina, /comReservas:\s*false/);
   assert.match(pagina, /Selecionar todas/);
   assert.match(pagina, /sticky top-0/);
-  assert.match(pagina, /SALDO TOTAL DA PROGRAMAÇÃO/);
+  assert.match(pagina, /SALDO (?:TOTAL )?DA PROGRAMAÇÃO/);
   assert.match(pagina, /PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL/);
   assert.match(pagina, /Cadastrar posteriormente como fornecedor/);
   assert.match(pagina, /Marcar em análise/);

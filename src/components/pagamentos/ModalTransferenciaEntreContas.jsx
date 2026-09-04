@@ -2,6 +2,7 @@ import React from "react";
 import { AlertTriangle, ArrowLeftRight, Plus, Trash2, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
 import SeletorContas from "../comuns/SeletorContas";
+import ContaSelecionada from "../comuns/ContaSelecionada";
 import { formatBRL } from "../../lib/moeda";
 import { mensagemAmigavel } from "../../lib/erros";
 import { conferirTransferenciaMultipla, pernasParaEnvio } from "../../lib/regrasTransferencia";
@@ -112,12 +113,14 @@ export default function ModalTransferenciaEntreContas({
               altura="max-h-[220px]"
               vazio="Nenhuma conta disponível para transferência."
             />
-            {destino && (
-              <p className="mt-1.5 text-[11px] font-normal text-[#17352F]/60">
-                Destino: {destino.nome_conta} · {destino.banco} · {destino.numero_conta || "sem número"} ·{" "}
-                {destino.secretaria} · saldo {formatBRL(destino.saldo ?? 0)}
-              </p>
-            )}
+            {/* Escolhida, a conta aparece por extenso: Banco | Conta | Nome da
+                Conta | Secretaria, com o saldo atual ao lado. */}
+            <ContaSelecionada
+              className="mt-1.5"
+              conta={destino}
+              rotulo="Conta de destino"
+              complemento={destino ? `Saldo atual: ${formatBRL(destino.saldo ?? 0)}` : null}
+            />
           </div>
 
           <div className="space-y-2">
@@ -166,10 +169,12 @@ export default function ModalTransferenciaEntreContas({
                   </button>
                 </div>
                 {linha.conta && (
-                  <p className="mt-2 text-[11px] text-[#17352F]/60">
-                    Saldo atual {formatBRL(linha.saldoAtual)} · saldo após a transferência{" "}
-                    <strong>{formatBRL(linha.saldoDepois)}</strong>
-                  </p>
+                  <ContaSelecionada
+                    className="mt-2 bg-white"
+                    conta={linha.conta}
+                    rotulo="Conta de origem"
+                    complemento={`Saldo atual ${formatBRL(linha.saldoAtual)} · saldo após a transferência ${formatBRL(linha.saldoDepois)}`}
+                  />
                 )}
                 {linha.erro && <p className="mt-1.5 text-[11px] text-[#8A321C]">{linha.erro}</p>}
               </div>

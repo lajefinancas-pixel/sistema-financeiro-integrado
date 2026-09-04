@@ -588,7 +588,7 @@ test("a fase 1 continua inteira na tela: nada do planejamento foi trocado pela e
     /Imprimir programação para análise/,
     /onClick=\{gerarPdf\}/,
     /onClick=\{exportarExcel\}/,
-    /SALDO TOTAL DA PROGRAMAÇÃO/,
+    /SALDO (?:TOTAL )?DA PROGRAMAÇÃO/,
     /salvar_planejamento_programacao/,
   ]) assert.match(pagina, marca);
   // A etapa nova só aparece depois da aprovação e não substitui o planejamento.

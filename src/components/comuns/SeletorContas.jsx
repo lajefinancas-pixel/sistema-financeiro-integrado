@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
 import {
   MENSAGEM_SEM_RESULTADO,
+  PLACEHOLDER_BUSCA_CONTA,
   agruparContasPorSecretaria,
   alternarGrupo,
   filtrarContasCadastradas,
@@ -25,8 +26,9 @@ import {
  *   RECOLHER -> clicar no cabeçalho abre/fecha SOMENTE aquele grupo. Recolher
  *     não desmarca nada: a seleção fica inteira, e o cabeçalho mostra quantas
  *     contas daquele grupo estão marcadas.
- *   BUSCA -> "Buscar conta..." procura, enquanto a pessoa digita e sem recarregar
- *     a página, entre TODAS as contas recebidas, de todas as secretarias,
+ *   BUSCA -> "Buscar conta por número, nome, banco ou Secretaria..." procura,
+ *     enquanto a pessoa digita e sem recarregar a página, entre TODAS as
+ *     contas recebidas, de todas as secretarias,
  *     independentemente de qual grupo está aberto. O resultado sempre mostra a
  *     Secretaria da conta.
  *
@@ -43,6 +45,8 @@ import {
  * @param onEscolher        (conta) => void — clique na linha
  * @param ordemSecretarias  ids de secretaria na ordem preferida do usuário
  * @param acoes             conteúdo extra do cabeçalho (ex.: selecionar todas)
+ * @param placeholder       texto do campo de busca (o padrão é o mesmo em
+ *                          todas as telas operacionais)
  * @param busca             termo da busca, quando a tela controla o campo
  * @param onBuscaChange     (termo) => void; junto de `busca`, deixa a tela usar
  *                          o mesmo termo em ações próprias (ex.: marcar todas
@@ -57,6 +61,7 @@ export default function SeletorContas({
   onEscolher,
   ordemSecretarias = [],
   acoes = null,
+  placeholder = PLACEHOLDER_BUSCA_CONTA,
   busca: buscaControlada,
   onBuscaChange,
   altura = "max-h-[320px] sm:max-h-[380px]",
@@ -104,8 +109,8 @@ export default function SeletorContas({
             type="search"
             value={busca}
             onChange={(evento) => mudarBusca(evento.target.value)}
-            placeholder="Buscar conta..."
-            aria-label="Buscar conta"
+            placeholder={placeholder}
+            aria-label={placeholder}
             className="w-full rounded-lg border border-black/10 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-black/25"
           />
         </div>

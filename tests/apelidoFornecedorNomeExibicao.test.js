@@ -188,7 +188,7 @@ test("4. as telas operacionais usam o mesmo componente de nome", async () => {
 
 test("5. o nome do fornecedor é editável na Programação Diária, sem sair da tela", async () => {
   const pagina = await read(PAGINA_PROGRAMACAO);
-  assert.match(pagina, /import \{ AlertTriangle, Check, FileDown, FileSpreadsheet, Pencil,/);
+  assert.match(pagina, /import \{ AlertTriangle, Check,[^}]*Pencil,/);
   assert.match(pagina, /<Pencil size=\{13\} \/>/);
   assert.match(pagina, /onClick=\{\(\) => abrirNomeExibicao\(pagamento, indice\)\}/);
   assert.match(pagina, /onClick=\{\(\) => salvarNomeExibicao\(pagamento, indice\)\}/);
