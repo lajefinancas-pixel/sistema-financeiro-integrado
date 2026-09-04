@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import { mensagemAmigavel } from "./erros";
+import { ehRecusaDePermissao, mensagemAmigavel } from "./erros";
 import { diasAte, formatarData, nomeFornecedor } from "./certidoes";
 import { contarRegularidade, somenteVigentes } from "./certidoesRegras";
 import { notificar } from "./notificacoes";
@@ -198,6 +198,39 @@ function erroDeEstrutura(erro) {
   return null;
 }
 
+/**
+ * O que mostrar na tela por uma falha da varredura de alertas.
+ *
+ * A varredura GRAVA em public.notificacoes ao abrir a tela de Certidões. Quando
+ * o banco recusava essa gravação por permissão, quem estava apenas consultando
+ * recebia "Você não tem permissão para fazer isso." logo acima das certidões,
+ * que continuavam carregando e aparecendo normalmente -- um aviso sobre uma ação
+ * que a pessoa nem pediu.
+ *
+ * Três destinos, de propósito diferentes:
+ *   * estrutura ausente  -> aviso na tela: quem administra precisa rodar a migration;
+ *   * recusa de permissão -> SÓ console: avisar é efeito secundário de abrir a
+ *     tela, ninguém pediu a gravação e não há nada que quem consulta possa fazer;
+ *   * qualquer outra falha -> aviso na tela, como antes.
+ */
+export function avisoDaVarredura(erro, mensagemPadrao, chamada) {
+  if (!erro) return null;
+
+  const estrutura = erroDeEstrutura(erro);
+  if (estrutura) return estrutura;
+
+  if (ehRecusaDePermissao(erro)) {
+    console.warn(
+      `[Certidões] O banco recusou por permissão a chamada "${chamada}" da varredura de alertas. ` +
+        "As certidões e a listagem não são afetadas; nenhum aviso é mostrado na tela por isso.",
+      erro,
+    );
+    return null;
+  }
+
+  return mensagemAmigavel(erro, mensagemPadrao);
+}
+
 const COLUNAS_ALERTA =
   "id, certidao_id, certidao_estagio, tipo, mensagem, lida, dispensada_em, criado_em";
 
@@ -225,6 +258,26 @@ export async function dispensarAlerta(alertaId) {
     .update({ dispensada_em: new Date().toISOString(), lida: true })
     .eq("id", alertaId);
   if (error) throw error;
+}
+
+/**
+ * Pendências que continuam valendo depois da varredura.
+ *
+ * O que manda é o cálculo da regra compartilhada (`estagioPorCertidao`, montado
+ * só com as vigentes de cada tipo), e não o que está gravado: se a remoção da
+ * pendência de uma emissão já superada não pôde ser feita — recusa do banco,
+ * queda de rede —, o painel de alertas continua mostrando a mesma coisa que o
+ * indicador do fornecedor e o resumo da ficha, em vez de acusar "1 certidão
+ * vencida" de um documento já renovado. A linha continua no banco; ela apenas
+ * não é exibida.
+ *
+ * Lista de certidões vazia não recorta nada: pode ser só falta de permissão de
+ * leitura no módulo, e nesse caso esconder os avisos seria perder alerta
+ * legítimo — o mesmo critério já usado para não apagar pendência nenhuma.
+ */
+function pendenciasQueAindaValem(alertas, estagioPorCertidao, certidoes) {
+  if ((certidoes ?? []).length === 0) return alertas ?? [];
+  return (alertas ?? []).filter((alerta) => estagioPorCertidao.has(alerta.certidao_id));
 }
 
 /**
@@ -260,9 +313,11 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
   if (error) {
     return {
       alertas: [],
-      erro:
-        erroDeEstrutura(error) ??
-        mensagemAmigavel(error, "Não foi possível verificar os alertas de vencimento."),
+      erro: avisoDaVarredura(
+        error,
+        "Não foi possível verificar os alertas de vencimento.",
+        "leitura das pendências gravadas",
+      ),
     };
   }
 
@@ -309,11 +364,23 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
           .filter((linha) => !estagioPorCertidao.has(linha.certidao_id))
           .map((linha) => linha.id);
 
+  // As gravações são efeito secundário de abrir a tela. Uma recusa de permissão
+  // aqui não vira aviso de tela (só console): a pessoa não pediu esta operação e
+  // a listagem de certidões, que é o que ela abriu, não é afetada.
   const falhas = await Promise.all([
-    novas.length > 0 ? notificar(novas) : null,
+    novas.length > 0
+      ? notificar(novas, {
+          aoFalhar: (falha) =>
+            avisoDaVarredura(falha, "Alguns avisos de certidão não foram gerados agora.", "criação de pendências"),
+        })
+      : null,
     ...atualizacoes.map(async ({ id, ...campos }) => {
       const { error: erroUpdate } = await supabase.from("notificacoes").update(campos).eq("id", id);
-      return erroUpdate ? mensagemAmigavel(erroUpdate, "Alguns alertas de certidão não foram atualizados.") : null;
+      return avisoDaVarredura(
+        erroUpdate,
+        "Alguns alertas de certidão não foram atualizados.",
+        "atualização de pendência",
+      );
     }),
     resolvidas.length > 0
       ? supabase
@@ -321,7 +388,11 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
           .delete()
           .in("id", resolvidas)
           .then(({ error: erroDelete }) =>
-            erroDelete ? mensagemAmigavel(erroDelete, "Alguns alertas já resolvidos continuam na lista.") : null,
+            avisoDaVarredura(
+              erroDelete,
+              "Alguns alertas já resolvidos continuam na lista.",
+              "remoção de pendências já resolvidas",
+            ),
           )
       : null,
   ]);
@@ -329,8 +400,14 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
   const erro = falhas.find(Boolean) ?? null;
 
   try {
-    return { alertas: await listarAlertasCertidoes(usuarioId), erro };
+    const gravadosAgora = await listarAlertasCertidoes(usuarioId);
+    return { alertas: pendenciasQueAindaValem(gravadosAgora, estagioPorCertidao, lista), erro };
   } catch (e) {
-    return { alertas: [], erro: erro ?? mensagemAmigavel(e, "Não foi possível carregar os alertas de vencimento.") };
+    return {
+      alertas: [],
+      erro:
+        erro ??
+        avisoDaVarredura(e, "Não foi possível carregar os alertas de vencimento.", "leitura das pendências ativas"),
+    };
   }
 }

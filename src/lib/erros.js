@@ -175,6 +175,23 @@ export function mensagemAmigavel(erro, mensagemPadrao = MENSAGEM_GENERICA) {
 }
 
 /**
+ * A falha é uma recusa de permissão do banco (42501, 403, RLS)?
+ *
+ * Serve para quem precisa DECIDIR o que fazer com a recusa antes de virar texto
+ * de tela. `mensagemAmigavel` traduz 42501 e 403 para "Você não tem permissão
+ * para fazer isso.", que é o certo quando a pessoa pediu a ação -- e errado
+ * quando a operação recusada foi efeito secundário de abrir uma tela: o aviso
+ * fala de algo que ninguém pediu e não tem relação com a permissão dela no
+ * módulo. Nesses casos quem chamou usa isto para registrar no console em vez de
+ * avisar na tela.
+ */
+export function ehRecusaDePermissao(erro) {
+  const codigo = String(erro?.code ?? erro?.status ?? "");
+  if (codigo === "42501" || codigo === "403") return true;
+  return /row-level security|permission denied|violates row/i.test(String(erro?.message ?? ""));
+}
+
+/**
  * Guarda o erro original no console, para quem for investigar depois.
  *
  * O objeto de erro do Supabase aparece no console como `{}` em alguns

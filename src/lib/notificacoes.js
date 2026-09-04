@@ -119,8 +119,13 @@ export async function marcarTodasComoLidas(usuarioId) {
  * Além dos avisos de tarefa, a mesma função grava os avisos de vencimento de
  * certidão (src/lib/alertasCertidoes.js): nesses casos a linha traz
  * certidao_id/certidao_estagio no lugar de tarefa_id.
+ *
+ * `aoFalhar` permite a quem chamou decidir o que dizer (ou não dizer) diante da
+ * recusa do banco: a varredura de alertas das certidões usa isso para não
+ * transformar uma recusa de permissão em aviso de tela. Sem ele, a mensagem
+ * continua exatamente a de antes.
  */
-export async function notificar(linhas) {
+export async function notificar(linhas, { aoFalhar = null } = {}) {
   const desativados = await tiposDesativados();
   const vistos = new Set();
   const registros = (Array.isArray(linhas) ? linhas : [linhas])
@@ -145,7 +150,9 @@ export async function notificar(linhas) {
   if (registros.length === 0) return null;
 
   const { error } = await supabase.from("notificacoes").insert(registros);
-  return error ? mensagemAmigavel(error, "Alguns avisos da equipe não foram gerados agora.") : null;
+  if (!error) return null;
+  if (typeof aoFalhar === "function") return aoFalhar(error);
+  return mensagemAmigavel(error, "Alguns avisos da equipe não foram gerados agora.");
 }
 
 /** Início do dia de hoje no fuso local, no formato aceito pelo filtro de criado_em. */
