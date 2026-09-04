@@ -113,8 +113,15 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <form onSubmit={confirmar} className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-black/5 px-5 py-4">
+      {/* max-h-full: o modal nunca passa da altura da janela (descontada a
+          margem do fundo). Cabeçalho e rodapé não rolam (shrink-0) e o corpo
+          rola por dentro, então o botão "Confirmar baixa" fica sempre visível,
+          por maior que seja a lista de contas -- notebook, iPad ou celular. */}
+      <form
+        onSubmit={confirmar}
+        className="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="flex shrink-0 items-start justify-between border-b border-black/5 px-5 py-4">
           <div>
             <h2 className="font-semibold text-[#0F2A44]">Registrar baixa da nota {numeroDaNota(nota)}</h2>
             <p className="mt-1 text-xs text-[#0F2A44]/55">
@@ -132,7 +139,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
           </button>
         </div>
 
-        <div className="grid gap-4 px-5 py-4 sm:grid-cols-2">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain px-5 py-4 sm:grid-cols-2">
           <div className="grid grid-cols-3 gap-3 rounded-xl bg-[#F4F7F9] p-3 text-[11px] text-[#0F2A44]/60 sm:col-span-2">
             <div>
               Valor original
@@ -188,7 +195,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
               modo="unica"
               valor={form.contaId}
               onEscolher={(conta) => alterar("contaId", String(conta.id))}
-              altura="max-h-[260px]"
+              altura="max-h-[min(260px,38vh)]"
               vazio="Nenhuma conta bancária cadastrada e ativa."
             />
             {/* Depois de escolhida, a conta aparece por extenso para conferência:
@@ -237,7 +244,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-black/5 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-black/5 bg-white px-5 py-4">
           <button
             type="button"
             onClick={onFechar}
