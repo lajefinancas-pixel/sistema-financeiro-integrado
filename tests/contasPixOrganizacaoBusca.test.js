@@ -250,7 +250,10 @@ test("toda tela que seleciona conta tem o campo Buscar conta...", async () => {
     read("src/components/pagamentos/PainelExecucaoProgramacao.jsx"),
   ]);
 
-  assert.match(seletor, /placeholder="Buscar conta\.\.\."/);
+  // O seletor compartilhado usa o texto único das telas operacionais
+  // ("Buscar conta por número, nome, banco ou Secretaria..."); a tela de Saldos
+  // continua com o campo próprio dela.
+  assert.match(seletor, /placeholder = PLACEHOLDER_BUSCA_CONTA/);
   assert.match(saldos, /placeholder="Buscar conta\.\.\."/);
   for (const tela of [programacao, baixa, transferencia, execucao]) {
     assert.match(tela, /<SeletorContas/);

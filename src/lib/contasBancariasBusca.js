@@ -185,3 +185,29 @@ export function linhaDaConta(conta) {
     saldo: saldoDaConta(conta),
   };
 }
+
+/**
+ * Texto do campo de busca, igual em toda tela operacional: diz onde a busca
+ * procura (número, nome, banco ou Secretaria) e é a mesma frase na Programação,
+ * na Baixa e na Transferência.
+ */
+export const PLACEHOLDER_BUSCA_CONTA = "Buscar conta por número, nome, banco ou Secretaria...";
+
+/**
+ * As contas marcadas, na ordem da lista.
+ *
+ * É o que sustenta "Ver contas selecionadas": a conferência sai da LISTA
+ * COMPLETA de contas, não do que está visível na tela. Por isso recolher um
+ * grupo ou filtrar pela busca não perde seleção nenhuma — os ids marcados
+ * continuam valendo mesmo quando a conta não está à vista.
+ */
+export function contasSelecionadasDaLista(contas, selecionadas) {
+  const marcadas = new Set([...(selecionadas ?? [])].map(String));
+  return (contas ?? []).filter((conta) => marcadas.has(String(conta.id)));
+}
+
+/** "3 CONTAS SELECIONADAS" / "1 CONTA SELECIONADA". */
+export function rotuloContasSelecionadas(quantidade) {
+  const total = Number(quantidade ?? 0);
+  return `${total} ${total === 1 ? "CONTA SELECIONADA" : "CONTAS SELECIONADAS"}`;
+}

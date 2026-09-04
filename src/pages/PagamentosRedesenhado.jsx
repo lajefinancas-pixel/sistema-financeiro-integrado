@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
@@ -18,7 +18,7 @@ import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTran
 import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
 import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
 import SeletorContas from "../components/comuns/SeletorContas";
-import { filtrarContasCadastradas } from "../lib/contasBancariasBusca";
+import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
 import { estruturaDePixAusente } from "../lib/contasBancarias";
 import NomeFornecedor from "../components/comuns/NomeFornecedor";
 import {
@@ -258,6 +258,10 @@ export default function PagamentosRedesenhado() {
   const [contas, setContas] = React.useState([]);
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [buscaConta, setBuscaConta] = React.useState("");
+  // Conferência das contas marcadas, fora da área com rolagem: só mostra ou
+  // esconde a lista do que já está selecionado. Não marca, não desmarca e não
+  // encosta no saldo da programação.
+  const [verSelecionadas, setVerSelecionadas] = React.useState(false);
   const [fornecedores, setFornecedores] = React.useState([]);
   const [buscaFornecedor, setBuscaFornecedor] = React.useState("");
   const [pagamentos, setPagamentos] = React.useState([]);
@@ -858,7 +862,9 @@ export default function PagamentosRedesenhado() {
   }
 
   const contasFiltradas = filtrarContasCadastradas(contas, buscaConta);
-  const contasSelecionadasComSaldo = contas.filter((conta) => contasSelecionadas.has(conta.id));
+  // Da lista completa, não do que está visível: recolher um grupo ou filtrar
+  // pela busca não tira conta nenhuma da seleção nem do saldo.
+  const contasSelecionadasComSaldo = contasSelecionadasDaLista(contas, contasSelecionadas);
   const totalDisponivel = somarContasSelecionadas(contas, contasSelecionadas);
   const totalProgramado = somarPagamentos(pagamentos);
   const restante = calcularRestante(totalDisponivel, totalProgramado);
@@ -1039,7 +1045,31 @@ export default function PagamentosRedesenhado() {
                   {contasSelecionadasComSaldo.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid items-center gap-0.5 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-2 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></div>)}
                 </div>
 
-                <div className="bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{contasSelecionadas.size} {contasSelecionadas.size === 1 ? "CONTA SELECIONADA" : "CONTAS SELECIONADAS"} — SALDO TOTAL DA PROGRAMAÇÃO: {formatBRL(totalDisponivel)}</div>
+                {/* Resumo sempre visível, FORA da área com rolagem: a contagem e o
+                    SALDO DA PROGRAMAÇÃO, que continua sendo a soma exclusiva das
+                    contas selecionadas. Marcar inclui, desmarcar retira; recolher
+                    grupo e filtrar pela busca não mexem em nada disto. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">
+                  <span>{rotuloContasSelecionadas(contasSelecionadas.size)} — SALDO DA PROGRAMAÇÃO: {formatBRL(totalDisponivel)}</span>
+                  <button type="button" onClick={() => setVerSelecionadas((valor) => !valor)} aria-expanded={verSelecionadas} className="inline-flex items-center gap-1 rounded-lg border border-white/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-white hover:bg-white/10 print:hidden">
+                    {verSelecionadas ? <ChevronUp size={12}/> : <ChevronDown size={12}/>} Ver contas selecionadas
+                  </button>
+                </div>
+
+                {/* Conferência do que está marcado, sem procurar na lista: as contas
+                    vêm da seleção inteira, mesmo as de grupo recolhido ou fora do
+                    filtro da busca. É leitura — não desmarca e não altera saldo. */}
+                {verSelecionadas && <div className="border-b border-black/5 bg-[#F5F3EC]/60 px-3 py-2 print:hidden">
+                  {contasSelecionadasComSaldo.length === 0 ? <p className="py-2 text-center text-[12px] text-[#17352F]/55">Nenhuma conta selecionada até agora.</p> : <ul className="max-h-[180px] space-y-1 overflow-y-auto overscroll-contain">
+                    {contasSelecionadasComSaldo.map((conta) => <li key={conta.id} className="grid gap-x-2 gap-y-0.5 rounded-lg bg-white px-2.5 py-1.5 text-[12px] leading-tight text-[#17352F] sm:grid-cols-[1fr_.8fr_1.2fr_1fr_auto] sm:items-center">
+                      <span className="truncate">{conta.banco || "--"}</span>
+                      <span className="truncate tabular-nums">{conta.numero_conta || "--"}</span>
+                      <span className="truncate font-semibold">{conta.nome_conta || "--"}</span>
+                      <span className="truncate text-[11px] text-[#17352F]/55">{conta.secretaria || "--"}</span>
+                      <strong className="tabular-nums sm:justify-self-end">{formatBRL(conta.saldo)}</strong>
+                    </li>)}
+                  </ul>}
+                </div>}
 
                 <div className="flex justify-end border-t border-black/5 px-3 py-2 print:hidden">{contasConfirmadas ? <button onClick={alterarContas} className="rounded-lg border border-[#17352F]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8]">ALTERAR CONTAS</button> : <button onClick={confirmarContas} disabled={contasSelecionadas.size === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white disabled:opacity-40"><Check size={13}/> CONFIRMAR CONTAS</button>}</div>
               </section>

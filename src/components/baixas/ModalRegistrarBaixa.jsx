@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
 import { formatBRL, paraNumeroMoeda } from "../../lib/moeda";
 import SeletorContas from "../comuns/SeletorContas";
+import ContaSelecionada from "../comuns/ContaSelecionada";
 import { mensagemAmigavel } from "../../lib/erros";
 import { registrarBaixaDeNota } from "../../lib/baixasPagamentos";
 import {
@@ -175,11 +176,12 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
           </label>
 
           <div className="text-xs font-medium text-[#0F2A44]/70 sm:col-span-2">
-            Conta bancária de onde o pagamento saiu
-            {/* Contas já cadastradas, agrupadas por Secretaria, com busca por
-                número, nome, banco, agência ou secretaria. Escolher a conta aqui
-                registra de onde o dinheiro saiu — não debita o saldo dela. Não
-                existe cadastro de conta neste passo. */}
+            Conta utilizada no pagamento
+            {/* Digitar localiza entre TODAS as contas cadastradas, de todas as
+                secretarias, e ao abrir a lista as contas vêm organizadas por
+                Secretaria. Escolher a conta aqui registra de onde o dinheiro
+                saiu — não debita o saldo dela. Não existe cadastro de conta
+                neste passo: só se escolhe conta que já existe. */}
             <SeletorContas
               className="mt-1"
               contas={contas}
@@ -189,12 +191,9 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
               altura="max-h-[260px]"
               vazio="Nenhuma conta bancária cadastrada e ativa."
             />
-            {contaEscolhida && (
-              <p className="mt-1.5 text-[11px] font-normal text-[#0F2A44]/55">
-                Conta escolhida: {contaEscolhida.nome_conta} · {contaEscolhida.numero_conta || "sem número"} ·{" "}
-                {contaEscolhida.secretaria || contaEscolhida.secretarias?.nome || "--"}
-              </p>
-            )}
+            {/* Depois de escolhida, a conta aparece por extenso para conferência:
+                Banco | Conta | Nome da Conta | Secretaria. */}
+            <ContaSelecionada className="mt-1.5" conta={contaEscolhida} rotulo="Conta utilizada" />
           </div>
 
           <label className="text-xs font-medium text-[#0F2A44]/70 sm:col-span-2">
