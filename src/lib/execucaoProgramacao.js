@@ -93,12 +93,20 @@ export function impedimentosParaAprovar({ programacao, contasSelecionadas = [], 
  * Só as contas da secretaria da programação E que estão entre as contas de
  * trabalho selecionadas. Não existe conta única obrigatória para a programação
  * inteira: a conta é definida por pagamento.
+ *
+ * A comparação dos ids é feita por TEXTO, como no resto do sistema: o id da
+ * conta chega como número do banco em um caminho e como texto de campo de tela
+ * em outro, e `Set.has` não considera 7 igual a "7". Era isso que podia deixar
+ * a lista de contas atribuíveis vazia com as contas de trabalho selecionadas na
+ * tela -- e, com ela vazia, a atribuição inteira ficava sem oferta de conta.
+ * Nenhuma regra muda aqui: as contas oferecidas são exatamente as mesmas.
  */
 export function contasAtribuiveis({ contas = [], contasSelecionadas, secretariaId } = {}) {
-  const selecionadas =
-    contasSelecionadas instanceof Set ? contasSelecionadas : new Set(contasSelecionadas ?? []);
+  const selecionadas = new Set(
+    [...(contasSelecionadas instanceof Set ? contasSelecionadas : contasSelecionadas ?? [])].map(String)
+  );
   return contas.filter((conta) => {
-    if (!selecionadas.has(conta.id)) return false;
+    if (!selecionadas.has(String(conta.id))) return false;
     if (secretariaId == null) return true;
     return String(conta.secretaria_id ?? secretariaId) === String(secretariaId);
   });
@@ -141,15 +149,21 @@ export function resumoExecucao(pagamentos = [], contas = []) {
 
   const distribuicao = [...porConta.values()].map((item) => {
     const conta = contas.find((c) => String(c.id) === String(item.contaId));
-    const saldo = Number(conta?.saldo ?? conta?.saldoDisponivel ?? 0);
+    // Saldo DESCONHECIDO não é zero. Em programação de data anterior o saldo
+    // exibido é o congelado do dia em que ela foi montada, e conta sem esse
+    // registro aparece como "--": tratá-la como R$ 0,00 faria a tela acusar
+    // "saldo insuficiente" a partir de um valor que ninguém gravou.
+    const bruto = conta?.saldo ?? conta?.saldoDisponivel ?? null;
+    const saldo = bruto == null || bruto === "" || !Number.isFinite(Number(bruto)) ? null : arredondar(Number(bruto));
     return {
       ...item,
       conta: conta ?? null,
       nome: conta?.nome_conta ?? `Conta ${item.contaId}`,
-      saldo: arredondar(saldo),
+      saldo,
+      saldoRegistrado: saldo != null,
       // Só conferência: a conta não é debitada nesta fase.
-      saldoAposPagamentos: arredondar(saldo - item.total),
-      acimaDoSaldo: item.total > saldo,
+      saldoAposPagamentos: saldo == null ? null : arredondar(saldo - item.total),
+      acimaDoSaldo: saldo != null && item.total > saldo,
     };
   });
 
@@ -176,4 +190,68 @@ export function contasQuePrecisamDeReforco(pagamentos = [], contas = []) {
       necessario: item.total,
       falta: arredondar(item.total - item.saldo),
     }));
+}
+
+/**
+ * Por que a atribuição de conta está indisponível -- em palavras, na tela.
+ *
+ * Botão que não faz nada ao ser clicado é o pior estado possível: quem clica
+ * não sabe se o sistema falhou, se falta permissão ou se falta um passo. Estas
+ * funções devolvem a RAZÃO do impedimento, para o botão ficar desabilitado
+ * dizendo o motivo em vez de ficar em silêncio.
+ *
+ * Elas não decidem nada de novo: só nomeiam as condições que a tela e o banco
+ * já exigiam antes. Nenhuma permissão é ampliada e nenhuma trava é removida.
+ */
+export const MOTIVO_SEM_PERMISSAO_CONTA =
+  "Você não tem permissão para definir a conta de pagamento.";
+export const MOTIVO_SEM_PERMISSAO_EXECUCAO =
+  "Você não tem permissão para executar a programação, e é ela que libera a definição da conta de cada pagamento.";
+export const MOTIVO_ESTRUTURA_AUSENTE =
+  "A estrutura da etapa de execução não está disponível no banco desta tela.";
+export const MOTIVO_SEM_CONTAS =
+  "Nenhuma conta de trabalho desta secretaria está disponível para atribuição. Reabra a programação e selecione as contas antes de executar.";
+export const MOTIVO_SEM_FORNECEDORES = "Nenhum fornecedor nesta programação.";
+export const MOTIVO_SEM_CONTA_ESCOLHIDA =
+  'Escolha primeiro a conta em "Conta para atribuição", acima.';
+export const MOTIVO_SEM_MARCADOS = "Marque ao menos um fornecedor na lista abaixo.";
+export const MOTIVO_GRAVANDO = "Aguarde: a alteração anterior ainda está sendo gravada.";
+
+/**
+ * Razão pela qual definir a conta está bloqueado, independente do escopo.
+ * Devolve "" quando não há impedimento nenhum.
+ */
+export function motivoContaIndisponivel({
+  podeDefinirConta = true,
+  podeExecutar = true,
+  estruturaAusente = false,
+  contasDisponiveis = 0,
+  salvando = false,
+} = {}) {
+  if (estruturaAusente) return MOTIVO_ESTRUTURA_AUSENTE;
+  if (podeDefinirConta === false) return MOTIVO_SEM_PERMISSAO_CONTA;
+  if (podeExecutar === false) return MOTIVO_SEM_PERMISSAO_EXECUCAO;
+  if (Number(contasDisponiveis) <= 0) return MOTIVO_SEM_CONTAS;
+  if (salvando) return MOTIVO_GRAVANDO;
+  return "";
+}
+
+/**
+ * Razão pela qual a atribuição em lote está bloqueada.
+ *
+ * `escopo` é "selecionados" (os fornecedores marcados) ou "todos".
+ */
+export function motivoAtribuicaoEmLote({
+  escopo = "selecionados",
+  totalPagamentos = 0,
+  quantidadeMarcada = 0,
+  contaEscolhida = null,
+  ...comum
+} = {}) {
+  const bloqueio = motivoContaIndisponivel(comum);
+  if (bloqueio) return bloqueio;
+  if (Number(totalPagamentos) <= 0) return MOTIVO_SEM_FORNECEDORES;
+  if (contaEscolhida == null || contaEscolhida === "") return MOTIVO_SEM_CONTA_ESCOLHIDA;
+  if (escopo === "selecionados" && Number(quantidadeMarcada) <= 0) return MOTIVO_SEM_MARCADOS;
+  return "";
 }

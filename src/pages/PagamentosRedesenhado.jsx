@@ -812,30 +812,68 @@ export default function PagamentosRedesenhado() {
   // ATRIBUIR CONTA NÃO DEBITA CONTA: o vínculo é o roteiro do pagamento. O
   // mesmo caminho atende um pagamento, os marcados e todos -- e depois de
   // aplicar em lote a troca individual continua possível.
+  // Define a conta dos pagamentos e DEVOLVE a resposta para quem clicou, para o
+  // painel de execução poder mostrá-la ao lado do botão. Antes o resultado só
+  // aparecia no aviso do topo da página -- fora da tela de quem está trabalhando
+  // na seção de execução, o que fazia a recusa parecer "o botão não faz nada".
+  //
+  // DEFINIR CONTA NÃO DEBITA CONTA: aqui só se grava o vínculo. O débito é da
+  // baixa, e nada nesta função escreve saldo.
   async function gravarContaDosPagamentos(ids, contaId) {
-    if (!programacao) return;
+    if (!programacao) {
+      const semProgramacao = "Abra uma programação para definir a conta dos pagamentos.";
+      setErro(semProgramacao);
+      return { ok: false, mensagem: semProgramacao };
+    }
     const alvos = (ids ?? []).filter((id) => id != null).map((id) => idInteiro(id, "Pagamento"));
     if (!alvos.length) {
-      setErro("Salve a programação antes de definir a conta destes pagamentos.");
-      return;
+      const semAlvos = "Salve a programação antes de definir a conta destes pagamentos.";
+      setErro(semAlvos);
+      return { ok: false, mensagem: semAlvos };
     }
     setSalvando(true);
     setErro("");
     setMensagem("");
     try {
       const conta = contaId ? idInteiro(contaId, "Conta") : null;
+      const idProgramacao = idInteiro(programacao.id, "Programação");
       await definirContaDePagamentos({
-        programacaoId: idInteiro(programacao.id, "Programação"),
+        programacaoId: idProgramacao,
         pagamentoIds: alvos,
         contaId: conta,
       });
-      setPagamentos((itens) => aplicarContaEmPagamentos(itens, alvos, conta));
-      setMensagem(alvos.length === 1
-        ? "Conta do pagamento definida. Definir conta não debita conta."
-        : `Conta definida em ${alvos.length} pagamentos. Definir conta não debita conta.`);
+      // Conferência no BANCO, e não só na tela: o que a lista passa a mostrar é
+      // o que ficou gravado em pagamentos.conta_origem_id. Assim o contador
+      // "com conta definida" nunca afirma uma gravação que não aconteceu, e
+      // recarregar a página mostra exatamente o mesmo.
+      const gravadas = await contasDefinidasDosPagamentos(idProgramacao);
+      if (gravadas.size > 0) {
+        setPagamentos((itens) => itens.map((item) => (gravadas.has(String(item.id))
+          ? { ...item, conta_origem_id: gravadas.get(String(item.id)) }
+          : item)));
+      } else {
+        setPagamentos((itens) => aplicarContaEmPagamentos(itens, alvos, conta));
+      }
+      const naoConfirmados = gravadas.size > 0
+        ? alvos.filter((id) => String(gravadas.get(String(id)) ?? "") !== String(conta ?? ""))
+        : [];
+      if (naoConfirmados.length) {
+        const parcial = `O banco não confirmou a conta em ${naoConfirmados.length} de ${alvos.length} pagamentos. Recarregue a página e tente de novo. Nenhum saldo foi movimentado.`;
+        setErro(parcial);
+        return { ok: false, mensagem: parcial };
+      }
+      const feito = conta == null
+        ? `Conta retirada de ${alvos.length} ${alvos.length === 1 ? "pagamento" : "pagamentos"}. Nenhum saldo foi movimentado.`
+        : alvos.length === 1
+          ? "Conta do pagamento definida. Definir conta não debita conta."
+          : `Conta definida em ${alvos.length} pagamentos. Definir conta não debita conta.`;
+      setMensagem(feito);
+      return { ok: true, mensagem: feito };
     } catch (falha) {
       registrarErroFase2("Falha ao definir a conta do pagamento", falha, { programacaoId: programacao.id, pagamentos: alvos });
-      setErro(mensagemFalhaFase2(falha, "Não foi possível definir a conta destes pagamentos."));
+      const recusa = mensagemFalhaFase2(falha, "Não foi possível definir a conta destes pagamentos.");
+      setErro(recusa);
+      return { ok: false, mensagem: recusa };
     } finally {
       setSalvando(false);
     }
@@ -1211,20 +1249,26 @@ export default function PagamentosRedesenhado() {
                 operação daqui movimenta saldo, exceto a transferência entre
                 contas confirmada. */}
             {emEtapaDeExecucao && <div className="mt-3 print:hidden">
-              {/* A etapa de execução confere com o dinheiro de HOJE: é ela que
-                  diz se a conta escolhida cobre os pagamentos atribuídos e se
-                  falta transferência. Por isso ela continua recebendo o saldo
-                  atual das contas, e não o saldo congelado do documento. */}
+              {/* UMA ÚNICA FONTE DE SALDO NA PROGRAMAÇÃO INTEIRA: a etapa de
+                  execução recebe a MESMA lista de contas das contas de
+                  trabalho, do resumo, da impressão e do PDF. Numa programação
+                  de data anterior, aprovada ou fechada, isso significa o saldo
+                  congelado do dia em que ela foi montada -- a mesma conta não
+                  pode aparecer com um valor no topo da tela e outro embaixo.
+                  Definir a conta continua não debitando nada. */}
               <PainelExecucaoProgramacao
                 programacao={programacao}
                 pagamentos={pagamentos}
-                contas={contas}
+                contas={contasDaProgramacao}
                 contasSelecionadas={contasSelecionadas}
                 secretariaId={secretariaId}
                 nomePagamento={nomePagamento}
                 transferencias={transferencias}
                 permissoes={fase2Indisponivel ? { definir_conta_pagamento: false, executar_programacao: false, executar_transferencia: false, estornar_transferencia: false } : (permissoesFase2 ?? {})}
                 salvando={salvando}
+                saldoCongelado={modoSaldoCongelado}
+                dataFormatada={dataBR(programacao.data_programacao)}
+                estruturaAusente={fase2Indisponivel}
                 onDefinirConta={(pagamento, contaId) => gravarContaDosPagamentos([pagamento.id], contaId)}
                 onAtribuirAosSelecionados={(ids, contaId) => gravarContaDosPagamentos(ids, contaId)}
                 onAplicarATodos={(contaId) => gravarContaDosPagamentos(pagamentos.map((item) => item.id), contaId)}
@@ -1242,9 +1286,17 @@ export default function PagamentosRedesenhado() {
           onConfirmar={confirmarAprovacao}
         />}
 
+        {/* A transferência é a ÚNICA operação desta tela que move dinheiro, e
+            por isso ela trabalha com o saldo de HOJE das contas, mesmo quando a
+            programação aberta é um documento de data anterior. O aviso abaixo
+            diz isso na própria janela, para o número dela não ser lido como o
+            saldo congelado que o resto da programação exibe. */}
         {mostrarTransferencia && programacao && <ModalTransferenciaEntreContas
           programacao={programacao}
           contas={contasTransferencia}
+          avisoSaldo={modoSaldoCongelado
+            ? `Esta programação de ${dataBR(programacao.data_programacao)} exibe o saldo considerado quando foi montada. Aqui os saldos são os de HOJE, porque a transferência move dinheiro de verdade agora.`
+            : ""}
           onFechar={() => setMostrarTransferencia(false)}
           onConcluida={() => aposMovimentoDeSaldo("Transferência confirmada. Transferência entre contas próprias não é despesa: o patrimônio total continua igual.")}
         />}
