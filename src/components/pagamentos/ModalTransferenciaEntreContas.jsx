@@ -29,6 +29,7 @@ export default function ModalTransferenciaEntreContas({
   programacao,
   contas = [],
   contaDestinoSugerida = "",
+  avisoSaldo = "",
   onFechar,
   onConcluida,
 }) {
@@ -106,6 +107,12 @@ export default function ModalTransferenciaEntreContas({
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
+          {/* Único lugar da programação onde o saldo mostrado é o de HOJE, e
+              não o saldo considerado quando o documento foi montado: aqui o
+              dinheiro sai de uma conta e entra na outra agora. */}
+          {avisoSaldo ? <p className="rounded-lg border border-[#B8860B]/25 bg-[#FFF8E1] px-3 py-2 text-xs text-[#7A5B00]">
+            {avisoSaldo}
+          </p> : null}
           <div className="block text-xs font-medium text-[#17352F]/70">
             Conta de destino
             {/* Contas já cadastradas, agrupadas por Secretaria e com busca por

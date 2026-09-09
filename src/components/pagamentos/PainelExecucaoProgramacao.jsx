@@ -1,8 +1,13 @@
 import React from "react";
 import { AlertTriangle, ArrowLeftRight, Check, ChevronDown, ChevronUp, RotateCcw, Wallet } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
-import { contasAtribuiveis, resumoExecucao } from "../../lib/execucaoProgramacao";
+import { contasAtribuiveis, motivoAtribuicaoEmLote, motivoContaIndisponivel, resumoExecucao } from "../../lib/execucaoProgramacao";
+import { TEXTO_SEM_REGISTRO } from "../../lib/saldoCongeladoProgramacao";
 import SeletorContas from "../comuns/SeletorContas";
+import ContaSelecionada from "../comuns/ContaSelecionada";
+
+/** Saldo exibido: "--" quando não existe valor gravado para aquele dia. */
+const textoSaldo = (valor) => (valor == null ? TEXTO_SEM_REGISTRO : formatBRL(valor));
 
 /**
  * Etapa de execução da programação aprovada.
@@ -17,6 +22,19 @@ import SeletorContas from "../comuns/SeletorContas";
  * ATRIBUIR CONTA NÃO DEBITA CONTA: o vínculo é só o roteiro do pagamento. O
  * débito acontece na baixa. A única operação desta etapa que movimenta saldo é a
  * transferência entre contas confirmada.
+ *
+ * O SALDO MOSTRADO AQUI É O MESMO DO RESTO DA PROGRAMAÇÃO. A lista de contas
+ * chega já pronta da tela (uma única fonte), então numa programação de data
+ * anterior, aprovada ou fechada o saldo do seletor de atribuição, da coluna
+ * "Conta do pagamento" e do resumo por conta é o saldo congelado do dia em que
+ * a programação foi montada -- nunca o saldo de hoje ao lado do congelado.
+ * Conta sem esse registro aparece como "--" e não é acusada de saldo
+ * insuficiente, porque não há valor gravado para comparar.
+ *
+ * NENHUM BOTÃO DESTA SEÇÃO FICA EM SILÊNCIO. Quando a atribuição não pode ser
+ * aplicada, o botão fica desabilitado com a RAZÃO escrita ao lado (falta
+ * escolher a conta, falta marcar fornecedor, falta permissão), e a resposta de
+ * cada gravação aparece aqui dentro, junto do botão que foi clicado.
  *
  * As duas seções abrem RECOLHIDAS: a programação diária começa pela conferência
  * dos fornecedores e dos valores, e estas duas etapas só entram depois. Recolher
@@ -34,6 +52,9 @@ export default function PainelExecucaoProgramacao({
   transferencias = [],
   permissoes = {},
   salvando = false,
+  saldoCongelado = false,
+  dataFormatada = "",
+  estruturaAusente = false,
   onDefinirConta,
   onAplicarATodos,
   onAtribuirAosSelecionados,
@@ -44,10 +65,39 @@ export default function PainelExecucaoProgramacao({
   const [contaEmLote, setContaEmLote] = React.useState("");
   const [execucaoAberta, setExecucaoAberta] = React.useState(false);
   const [transferenciasAbertas, setTransferenciasAbertas] = React.useState(false);
+  // Resposta da última atribuição, mostrada AQUI DENTRO. O aviso do topo da
+  // página fica fora da tela quando se está trabalhando nesta seção: sem
+  // resposta ao lado do botão, uma recusa do banco parece "o botão não faz nada".
+  const [resposta, setResposta] = React.useState(null);
 
   const disponiveis = contasAtribuiveis({ contas, contasSelecionadas, secretariaId });
   const resumo = resumoExecucao(pagamentos, disponiveis);
   const podeDefinir = permissoes.definir_conta_pagamento !== false && permissoes.executar_programacao !== false;
+  // A conta do lote é conferida contra a lista realmente atribuível: escolha
+  // que não está mais na lista não passa por escolha feita.
+  const contaEscolhida = disponiveis.find((conta) => String(conta.id) === String(contaEmLote)) ?? null;
+  const bloqueio = {
+    podeDefinirConta: permissoes.definir_conta_pagamento !== false,
+    podeExecutar: permissoes.executar_programacao !== false,
+    estruturaAusente,
+    contasDisponiveis: disponiveis.length,
+    salvando,
+  };
+  // A razão de cada botão desabilitado, escrita para quem está usando a tela.
+  const motivoIndividual = motivoContaIndisponivel(bloqueio);
+  const motivoSelecionados = motivoAtribuicaoEmLote({
+    ...bloqueio,
+    escopo: "selecionados",
+    totalPagamentos: pagamentos.length,
+    quantidadeMarcada: marcados.size,
+    contaEscolhida: contaEscolhida?.id ?? null,
+  });
+  const motivoTodos = motivoAtribuicaoEmLote({
+    ...bloqueio,
+    escopo: "todos",
+    totalPagamentos: pagamentos.length,
+    contaEscolhida: contaEscolhida?.id ?? null,
+  });
   const nomeDaConta = React.useCallback(
     (contaId) => contas.find((conta) => String(conta.id) === String(contaId))?.nome_conta || `Conta ${contaId ?? "--"}`,
     [contas]
@@ -60,6 +110,13 @@ export default function PainelExecucaoProgramacao({
       else proximo.add(id);
       return proximo;
     });
+  }
+
+  /** Guarda a resposta da gravação e, quando ela deu certo, limpa a marcação. */
+  function aoConcluir(resultado, depois) {
+    const dado = resultado && typeof resultado === "object" ? resultado : null;
+    setResposta(dado);
+    if (!dado || dado.ok !== false) depois?.();
   }
 
   return (
@@ -82,41 +139,103 @@ export default function PainelExecucaoProgramacao({
             </p>
           )}
 
+          {/* O saldo desta seção é o MESMO do resto da programação: numa
+              programação já registrada, o saldo do dia em que ela foi montada.
+              O aviso diz isso em palavras, para ninguém ler os valores do
+              seletor como se fossem os saldos de hoje. */}
+          {saldoCongelado && (
+            <p className="mx-4 mt-3 rounded-lg border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[11px] leading-snug text-[#17352F]">
+              Os saldos mostrados nesta seção são os mesmos do restante desta programação
+              {dataFormatada ? ` de ${dataFormatada}` : ""}: os que foram considerados quando ela foi montada, não os saldos
+              de hoje. Conta sem esse valor gravado aparece como "{TEXTO_SEM_REGISTRO}". Definir a conta continua não
+              debitando nada.
+            </p>
+          )}
+
           {/* Atribuição em lote: marcar vários e aplicar de uma vez, ou aplicar a
               todos. Depois disso a troca individual continua possível. */}
-          <div className="flex flex-wrap items-end gap-2 px-4 py-3">
-            <div className="min-w-[220px] flex-1 text-[11px] font-medium text-[#17352F]/60">
-              Conta para atribuição
-              {/* Contas de trabalho já confirmadas, com busca e agrupadas por
-                  Secretaria. Atribuir conta ao pagamento é registro de qual conta
-                  paga: não debita, não reserva e não altera saldo. */}
-              <SeletorContas
-                className="mt-1"
-                contas={disponiveis}
-                modo="unica"
-                valor={contaEmLote}
-                onEscolher={(conta) => setContaEmLote(String(conta.id))}
-                desabilitado={!podeDefinir}
-                altura="max-h-[200px]"
-                vazio="Nenhuma conta de trabalho confirmada para esta programação."
-              />
+          <div className="px-4 py-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[220px] flex-1 text-[11px] font-medium text-[#17352F]/60">
+                Conta para atribuição
+                {/* Contas de trabalho já confirmadas, com busca e agrupadas por
+                    Secretaria. Atribuir conta ao pagamento é registro de qual conta
+                    paga: não debita, não reserva e não altera saldo. */}
+                <SeletorContas
+                  className="mt-1"
+                  contas={disponiveis}
+                  modo="unica"
+                  valor={contaEmLote}
+                  onEscolher={(conta) => setContaEmLote(String(conta.id))}
+                  desabilitado={!podeDefinir}
+                  altura="max-h-[200px]"
+                  vazio="Nenhuma conta de trabalho confirmada para esta programação."
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => onAtribuirAosSelecionados?.([...marcados], Number(contaEmLote)).then((resultado) => aoConcluir(resultado, () => setMarcados(new Set())))}
+                disabled={motivoSelecionados !== ""}
+                title={motivoSelecionados || "Atribuir a conta escolhida aos fornecedores marcados. Não debita nada."}
+                aria-describedby="motivo-atribuir-selecionados"
+                className="rounded-lg bg-[#17352F] px-3 py-2 text-xs font-medium text-white hover:bg-[#17352F]/90 disabled:opacity-40"
+              >
+                Atribuir conta aos selecionados ({marcados.size})
+              </button>
+              <button
+                type="button"
+                onClick={() => Promise.resolve(onAplicarATodos?.(Number(contaEmLote))).then(aoConcluir)}
+                disabled={motivoTodos !== ""}
+                title={motivoTodos || "Atribuir a conta escolhida a todos os fornecedores desta programação. Não debita nada."}
+                aria-describedby="motivo-aplicar-a-todos"
+                className="rounded-lg border border-[#17352F]/15 px-3 py-2 text-xs font-medium text-[#17352F] hover:bg-[#E5EFEA] disabled:opacity-40"
+              >
+                Aplicar conta a todos
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => onAtribuirAosSelecionados?.([...marcados], Number(contaEmLote)).then(() => setMarcados(new Set()))}
-              disabled={!podeDefinir || salvando || !contaEmLote || marcados.size === 0}
-              className="rounded-lg bg-[#17352F] px-3 py-2 text-xs font-medium text-white hover:bg-[#17352F]/90 disabled:opacity-40"
-            >
-              Atribuir conta aos selecionados ({marcados.size})
-            </button>
-            <button
-              type="button"
-              onClick={() => onAplicarATodos?.(Number(contaEmLote))}
-              disabled={!podeDefinir || salvando || !contaEmLote || pagamentos.length === 0}
-              className="rounded-lg border border-[#17352F]/15 px-3 py-2 text-xs font-medium text-[#17352F] hover:bg-[#E5EFEA] disabled:opacity-40"
-            >
-              Aplicar conta a todos
-            </button>
+
+            {/* A conta escolhida, por extenso: sem isto não havia como conferir
+                na tela o que a lista acima registrou -- e era isso que fazia o
+                botão parecer não fazer nada, quando o que faltava era a escolha. */}
+            {contaEscolhida ? (
+              <ContaSelecionada
+                className="mt-2"
+                conta={contaEscolhida}
+                rotulo="Conta escolhida para atribuição"
+                complemento={`Saldo ${
+                  saldoCongelado ? "considerado na programação" : "atual"
+                }: ${textoSaldo(contaEscolhida.saldo ?? null)} · atribuir esta conta não debita nada`}
+              />
+            ) : (
+              disponiveis.length > 0 && (
+                <p className="mt-2 rounded-lg border border-dashed border-[#B98C55]/50 bg-[#FBF3EA] px-3 py-2 text-[11px] text-[#17352F]/80">
+                  Nenhuma conta escolhida ainda. Clique na conta na lista acima: sem essa escolha, os dois botões de
+                  atribuição em lote ficam desabilitados.
+                </p>
+              )
+            )}
+
+            {/* A razão de cada botão desabilitado, visível na tela e não só no
+                título: botão que não responde e não explica é o defeito, não o
+                impedimento em si. */}
+            <p id="motivo-atribuir-selecionados" role="status" className="mt-1.5 text-[11px] text-[#8A321C] empty:hidden">
+              {motivoSelecionados && `Atribuir aos selecionados: ${motivoSelecionados}`}
+            </p>
+            <p id="motivo-aplicar-a-todos" role="status" className="text-[11px] text-[#8A321C] empty:hidden">
+              {motivoTodos && motivoTodos !== motivoSelecionados && `Aplicar a todos: ${motivoTodos}`}
+            </p>
+
+            {/* Resposta da última gravação, ao lado do botão que foi clicado. */}
+            {resposta?.mensagem && (
+              <p
+                role="status"
+                className={`mt-1.5 rounded-lg px-3 py-2 text-[11px] ${
+                  resposta.ok === false ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"
+                }`}
+              >
+                {resposta.mensagem}
+              </p>
+            )}
           </div>
 
           <div className="max-h-[420px] overflow-y-auto border-t border-black/5">
@@ -154,10 +273,15 @@ export default function PainelExecucaoProgramacao({
                       {formatBRL(pagamento.valor_a_pagar)}
                     </td>
                     <td className="px-3 py-2">
+                      {/* A escolha individual não depende do seletor de lote:
+                          ela grava direto a conta daquele fornecedor. Quando
+                          está indisponível, o motivo vai no título do campo. */}
                       <select
                         value={pagamento.conta_origem_id ?? ""}
-                        onChange={(e) => onDefinirConta?.(pagamento, e.target.value ? Number(e.target.value) : null)}
-                        disabled={!podeDefinir || salvando || disponiveis.length === 0}
+                        onChange={(e) => Promise.resolve(onDefinirConta?.(pagamento, e.target.value ? Number(e.target.value) : null)).then(aoConcluir)}
+                        disabled={motivoIndividual !== ""}
+                        title={motivoIndividual || "Definir a conta deste pagamento. Não debita nada."}
+                        aria-label={`Conta do pagamento de ${nomePagamento?.(pagamento) ?? "fornecedor"}`}
                         className={`w-full rounded-lg border px-2.5 py-1.5 text-xs disabled:bg-black/[0.03] ${
                           pagamento.conta_origem_id ? "border-black/10 bg-white" : "border-[#B98C55]/50 bg-[#F5F3EC]"
                         }`}
@@ -165,7 +289,7 @@ export default function PainelExecucaoProgramacao({
                         <option value="">Definir conta...</option>
                         {disponiveis.map((conta) => (
                           <option key={conta.id} value={conta.id}>
-                            {conta.nome_conta} · saldo {formatBRL(conta.saldo ?? 0)}
+                            {conta.nome_conta} · saldo {textoSaldo(conta.saldo ?? null)}
                           </option>
                         ))}
                       </select>
@@ -182,6 +306,12 @@ export default function PainelExecucaoProgramacao({
               </tbody>
             </table>
           </div>
+
+          {motivoIndividual && (
+            <p className="mx-4 mb-3 rounded-lg border border-[#B06A3C]/30 bg-[#FBE9DF] px-3 py-2 text-[11px] text-[#8A321C]">
+              A conta de cada pagamento não pode ser definida agora: {motivoIndividual}
+            </p>
+          )}
 
           <div className="grid gap-3 border-t border-black/5 px-4 py-3 sm:grid-cols-3">
             <Tile rotulo="Com conta definida" valor={`${resumo.comConta} de ${pagamentos.length}`} />
@@ -202,7 +332,7 @@ export default function PainelExecucaoProgramacao({
                     {item.nome} · {item.quantidade} pagamento{item.quantidade === 1 ? "" : "s"}
                   </span>
                   <span className="shrink-0">
-                    {formatBRL(item.total)} de {formatBRL(item.saldo)}
+                    {formatBRL(item.total)} de {textoSaldo(item.saldo)}
                     {item.acimaDoSaldo && " · saldo insuficiente"}
                   </span>
                 </li>
