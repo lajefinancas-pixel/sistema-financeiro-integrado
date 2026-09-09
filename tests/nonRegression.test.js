@@ -345,7 +345,9 @@ test("as chaves enviadas pela tela são as que o documento imprime", async () =>
   // A tela renomeia os campos do banco para os nomes que o documento espera. Se
   // um lado mudar sozinho, o papel sai com "--" no lugar do dado e ninguém erra
   // em voz alta: o número da conta simplesmente desaparece do que vai ao gestor.
-  assert.match(pagina, /banco: conta\.banco, conta: conta\.numero_conta, saldo: conta\.saldo, nome: conta\.nome_conta/);
+  // O saldo vai como está na tela, inclusive ausente (`null`): programação
+  // antiga sem saldo gravado imprime "--", e não o saldo de hoje.
+  assert.match(pagina, /banco: conta\.banco, conta: conta\.numero_conta, saldo: conta\.saldo \?\? null, nome: conta\.nome_conta/);
 
   const { htmlProgramacao } = await import("../src/lib/programacaoDocumento.js");
   const documento = htmlProgramacao({
@@ -376,7 +378,8 @@ test("tela do módulo é densa: linhas baixas, blocos discretos e sem textos lon
   assert.doesNotMatch(pagina, /O valor é totalmente editável e pode ser menor que o total em aberto/);
   // Linhas de tabela compactas e valores monetários ainda em negrito.
   assert.doesNotMatch(pagina, /border-b border-black\/5 px-4 py-3/);
-  assert.match(pagina, /<strong className="tabular-nums">\{formatBRL\(conta\.saldo\)\}<\/strong>/);
+  assert.match(pagina, /<strong className="tabular-nums">\{saldoDaLinha\(conta\)\}<\/strong>/);
+  assert.match(pagina, /const saldoDaLinha = \(conta\) => \(conta\.saldo == null \? TEXTO_SEM_REGISTRO : formatBRL\(conta\.saldo\)\);/);
 });
 
 test("saldo das contas sai centralizado e em negrito, na impressão e no PDF", async () => {
@@ -384,7 +387,10 @@ test("saldo das contas sai centralizado e em negrito, na impressão e no PDF", a
   // CSS da impressão: a coluna SALDO é centralizada e continua em negrito.
   assert.match(documento, /\.saldo \{ text-align: center;/);
   assert.match(documento, /td\.saldo \{ font-weight: bold; \}/);
-  assert.match(documento, /<td class="saldo">\$\{escapar\(formatBRL\(conta\.saldo\)\)\}/);
+  // moeda() é formatBRL quando existe valor e "--" quando o saldo daquele dia
+  // não foi gravado -- o mesmo texto da tela, na mesma célula em negrito.
+  assert.match(documento, /<td class="saldo">\$\{escapar\(moeda\(conta\.saldo\)\)\}/);
+  assert.match(documento, /return valor == null \? SEM_REGISTRO : formatBRL\(valor\);/);
   assert.match(documento, /<th class="saldo">\$\{COLUNAS_CONTAS\[2\]\}/);
   // PDF: mesma coluna, mesmo alinhamento.
   assert.match(documento, /cellWidth: util \* 0\.22, halign: "center", fontStyle: "bold"/);

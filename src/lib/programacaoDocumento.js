@@ -20,6 +20,9 @@ import { ALTURA, PAGINA, alturaDoSaldoRestante, montarPaginas } from "./programa
 // nada é cortado.
 
 export const COLUNAS_CONTAS = ["BANCO", "Nº DA CONTA", "SALDO", "NOME DA CONTA"];
+
+/** O que o papel mostra onde não existe valor gravado. O mesmo texto da tela. */
+export const SEM_REGISTRO = "--";
 export const COLUNAS_PAGAMENTOS = ["FORNECEDOR", "VALOR"];
 
 /**
@@ -64,6 +67,30 @@ function numero(valor) {
   return Number.isFinite(convertido) ? convertido : 0;
 }
 
+/**
+ * Valor de dinheiro que pode ESTAR AUSENTE.
+ *
+ * A programação de data anterior mostra o saldo congelado no dia em que foi
+ * montada. Programação antiga, montada antes de o saldo passar a ser gravado,
+ * não tem esse valor -- e o papel diz isso, com "--", exatamente como a tela.
+ * Nunca com zero e nunca com o saldo de hoje, que não é o daquele dia.
+ */
+function numeroOuAusente(valor) {
+  if (valor == null || valor === "") return null;
+  const convertido = Number(valor);
+  return Number.isFinite(convertido) ? convertido : null;
+}
+
+/** "R$ 1.234,56" quando existe valor; "--" quando não existe registro. */
+function moeda(valor) {
+  return valor == null ? SEM_REGISTRO : formatBRL(valor);
+}
+
+/** A mesma coisa, na variação usada no PDF e na planilha. */
+function moedaSimples(valor) {
+  return valor == null ? SEM_REGISTRO : formatBRLSimples(valor);
+}
+
 function escapar(valor) {
   return String(valor ?? "").replace(/[&<>'"]/g, (caractere) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[caractere]));
 }
@@ -81,11 +108,11 @@ function normalizar(dados) {
     data: bruto.data || "--",
     emissao: bruto.emissao || agoraBR(),
     responsavel: bruto.responsavel || "--",
-    contas: (bruto.contas ?? []).map((conta) => ({ banco: conta.banco || "--", conta: conta.conta || "--", saldo: numero(conta.saldo), nome: conta.nome || "--" })),
+    contas: (bruto.contas ?? []).map((conta) => ({ banco: conta.banco || "--", conta: conta.conta || "--", saldo: numeroOuAusente(conta.saldo), nome: conta.nome || "--" })),
     pagamentos: (bruto.pagamentos ?? []).map((item) => ({ fornecedor: item.fornecedor || "--", valor: numero(item.valor) })),
-    totalContas: numero(bruto.totalContas),
+    totalContas: numeroOuAusente(bruto.totalContas),
     totalProgramado: numero(bruto.totalProgramado),
-    restante: numero(bruto.restante),
+    restante: numeroOuAusente(bruto.restante),
   };
 }
 
@@ -233,7 +260,7 @@ function tituloBloco(tipo, continuacao) {
 
 function tabelaContasHtml(bloco) {
   const linhas = bloco.linhas.length
-    ? bloco.linhas.map((conta) => `<tr><td>${escapar(conta.banco)}</td><td>${escapar(conta.conta)}</td><td class="saldo">${escapar(formatBRL(conta.saldo))}</td><td>${escapar(conta.nome)}</td></tr>`).join("")
+    ? bloco.linhas.map((conta) => `<tr><td>${escapar(conta.banco)}</td><td>${escapar(conta.conta)}</td><td class="saldo">${escapar(moeda(conta.saldo))}</td><td>${escapar(conta.nome)}</td></tr>`).join("")
     : '<tr><td class="vazia" colspan="4">Nenhuma conta selecionada.</td></tr>';
   return `<table class="contas"><colgroup><col style="width:26%"><col style="width:19%"><col style="width:22%"><col style="width:33%"></colgroup>`
     + `<thead><tr><th>${COLUNAS_CONTAS[0]}</th><th>${COLUNAS_CONTAS[1]}</th><th class="saldo">${COLUNAS_CONTAS[2]}</th><th>${COLUNAS_CONTAS[3]}</th></tr></thead>`
@@ -261,18 +288,18 @@ function somatorioHtml(dados) {
 // Programado acima do disponível: só a diferença, em texto normal. Nenhum
 // destaque de alerta -- a decisão é do gestor, o documento apenas informa.
 function saldoRestanteHtml(dados) {
-  const diferenca = dados.restante < 0
+  const diferenca = dados.restante != null && dados.restante < 0
     ? `<tr><td class="diferenca" colspan="2">Diferença de ${escapar(formatBRL(Math.abs(dados.restante)))} acima do saldo das contas selecionadas.</td></tr>`
     : "";
   return `<table class="destaque">${COLGROUP_PAGAMENTOS}<tbody>`
-    + `<tr><td class="rotulo">SALDO RESTANTE:</td><td class="valor">${escapar(formatBRL(dados.restante))}</td></tr>`
+    + `<tr><td class="rotulo">SALDO RESTANTE:</td><td class="valor">${escapar(moeda(dados.restante))}</td></tr>`
     + `${diferenca}</tbody></table>`;
 }
 
 function blocoHtml(bloco, dados) {
   if (bloco.tipo === "contas") return tituloBloco("contas", bloco.continuacao) + tabelaContasHtml(bloco);
   if (bloco.tipo === "pagamentos") return tituloBloco("pagamentos", bloco.continuacao) + tabelaPagamentosHtml(bloco);
-  if (bloco.tipo === "totalContas") return `<div class="total-contas"><span>TOTAL DAS CONTAS:</span><span>${escapar(formatBRL(dados.totalContas))}</span></div>`;
+  if (bloco.tipo === "totalContas") return `<div class="total-contas"><span>TOTAL DAS CONTAS:</span><span>${escapar(moeda(dados.totalContas))}</span></div>`;
   if (bloco.tipo === "totalProgramado") return somatorioHtml(dados);
   return saldoRestanteHtml(dados);
 }
@@ -404,7 +431,7 @@ export function gerarPdfProgramacao(entrada) {
     startY: y,
     head: [COLUNAS_CONTAS],
     body: dados.contas.length
-      ? dados.contas.map((conta) => [texto(conta.banco), texto(conta.conta), formatBRLSimples(conta.saldo), texto(conta.nome)])
+      ? dados.contas.map((conta) => [texto(conta.banco), texto(conta.conta), moedaSimples(conta.saldo), texto(conta.nome)])
       : [[{ content: "Nenhuma conta selecionada.", colSpan: 4, styles: { halign: "center", textColor: TINTA.apoio } }]],
     columnStyles: {
       0: { cellWidth: util * 0.26 },
@@ -423,7 +450,7 @@ export function gerarPdfProgramacao(entrada) {
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(8);
   pdf.setTextColor(...TINTA.verde);
-  pdf.text(`TOTAL DAS CONTAS: ${formatBRLSimples(dados.totalContas)}`, largura - margem - 2, y + 4.4, { align: "right" });
+  pdf.text(`TOTAL DAS CONTAS: ${moedaSimples(dados.totalContas)}`, largura - margem - 2, y + 4.4, { align: "right" });
   y += ALTURA.totalContas;
 
   y = espacoOuPagina(y, ALTURA.tituloBloco + ALTURA.linhaCabecalho + ALTURA.linhaPagamento);
@@ -466,8 +493,8 @@ export function gerarPdfProgramacao(entrada) {
   pdf.setTextColor(...TINTA.branco);
   pdf.text("SALDO RESTANTE:", inicioValor - 2, y + 8.4, { align: "right" });
   pdf.setFontSize(15);
-  pdf.text(formatBRLSimples(dados.restante), largura - margem - 1.6, y + 9, { align: "right" });
-  if (dados.restante < 0) {
+  pdf.text(moedaSimples(dados.restante), largura - margem - 1.6, y + 9, { align: "right" });
+  if (dados.restante != null && dados.restante < 0) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(7.5);
     pdf.text(`Diferença de ${formatBRLSimples(Math.abs(dados.restante))} acima do saldo das contas selecionadas.`, largura - margem - 1.6, y + alturaSaldo - 2, { align: "right" });
@@ -534,18 +561,24 @@ export function montarPlanilhaProgramacao(entrada) {
   linhas.push(["CONTAS UTILIZADAS"]);
   linhas.push(["Banco", "Nº da Conta", "Saldo", "Nome da Conta"]);
   const primeiraConta = linhas.length;
+  // Saldo sem registro sai como "--" na célula, e não como número: a planilha
+  // não pode somar um valor que ninguém gravou, e a soma continua conferindo
+  // sozinha as contas que têm saldo gravado.
   dados.contas.forEach((conta) => {
-    linhas.push([conta.banco, conta.conta, conta.saldo, conta.nome]);
-    moeda.push({ linha: linhas.length - 1, coluna: 2 });
+    linhas.push([conta.banco, conta.conta, conta.saldo == null ? SEM_REGISTRO : conta.saldo, conta.nome]);
+    if (conta.saldo != null) moeda.push({ linha: linhas.length - 1, coluna: 2 });
   });
   const ultimaConta = linhas.length - 1;
-  linhas.push(["TOTAL DAS CONTAS", "", dados.totalContas, ""]);
+  const contasComSaldo = dados.contas.filter((conta) => conta.saldo != null).length;
+  linhas.push(["TOTAL DAS CONTAS", "", dados.totalContas == null ? SEM_REGISTRO : dados.totalContas, ""]);
   const linhaTotalContas = linhas.length - 1;
-  moeda.push({
-    linha: linhaTotalContas,
-    coluna: 2,
-    formula: dados.contas.length ? `SUM(C${primeiraConta + 1}:C${ultimaConta + 1})` : null,
-  });
+  if (dados.totalContas != null) {
+    moeda.push({
+      linha: linhaTotalContas,
+      coluna: 2,
+      formula: contasComSaldo ? `SUM(C${primeiraConta + 1}:C${ultimaConta + 1})` : null,
+    });
+  }
   linhas.push([]);
 
   linhas.push(["PAGAMENTOS PROPOSTOS"]);
@@ -565,12 +598,15 @@ export function montarPlanilhaProgramacao(entrada) {
   });
   linhas.push([]);
 
-  linhas.push(["SALDO RESTANTE", dados.restante]);
-  moeda.push({
-    linha: linhas.length - 1,
-    coluna: 1,
-    formula: `C${linhaTotalContas + 1}-B${linhaTotalProgramado + 1}`,
-  });
+  linhas.push(["SALDO RESTANTE", dados.restante == null ? SEM_REGISTRO : dados.restante]);
+  if (dados.restante != null) {
+    moeda.push({
+      linha: linhas.length - 1,
+      coluna: 1,
+      // Sem total das contas não há subtração que feche: o valor sai como está.
+      formula: dados.totalContas == null ? null : `C${linhaTotalContas + 1}-B${linhaTotalProgramado + 1}`,
+    });
+  }
 
   const planilha = XLSX.utils.aoa_to_sheet(linhas, { cellDates: true });
 

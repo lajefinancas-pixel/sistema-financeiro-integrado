@@ -9,6 +9,17 @@ import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { agoraBR, exportarExcelProgramacao, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
 import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
+import {
+  TEXTO_SEM_REGISTRO,
+  aplicarSaldosCongelados,
+  avisoSaldoCongelado,
+  contasSemSaldoCongelado,
+  mapaSaldosCongelados,
+  saldoParaGravar,
+  semRegistroDeSaldoCongelado,
+  somarSaldosCongelados,
+  usaSaldoCongelado,
+} from "../lib/saldoCongeladoProgramacao";
 import { FUNCOES_FASE_1, classificarFalhaFase1, detalheDoBanco, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 import { verificarEstruturaFase2 } from "../lib/estruturaPagamentosFase2";
 import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
@@ -99,6 +110,27 @@ async function itensDaProgramacao(programacaoId) {
   if (!comApelido.error) return comApelido;
   if (!estruturaDeApelidoAusente(comApelido.error)) return comApelido;
   return consultar(`${COLUNAS_PAGAMENTO_PROGRAMACAO}, fornecedores(razao_social)`);
+}
+
+const COLUNAS_PROGRAMACAO = "id, nome_programacao, data_programacao, status, fechado, responsavel_id";
+
+/**
+ * Cabeçalho da programação, com o SALDO CONSIDERADO que ficou gravado nela.
+ *
+ * É o total que estava na mesa no dia em que a programação foi montada. Vem na
+ * consulta para a tela poder afirmar que uma programação antiga tem (ou não
+ * tem) o saldo daquele dia registrado -- e nunca para recalcular valor nenhum.
+ * Enquanto a coluna não existir no banco, a programação abre igual, só sem essa
+ * informação.
+ */
+async function cabecalhoDaProgramacao(programacaoId) {
+  const consultar = (colunas) =>
+    supabase.from("programacoes_pagamento").select(colunas).eq("id", programacaoId).single();
+
+  const comSaldo = await consultar(`${COLUNAS_PROGRAMACAO}, saldo_considerado`);
+  if (!comSaldo.error) return comSaldo;
+  if (classificarFalhaFase1(comSaldo.error).tipo !== "estrutura") return comSaldo;
+  return consultar(COLUNAS_PROGRAMACAO);
 }
 
 const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pagamentos_diarios.sql";
@@ -258,6 +290,12 @@ export default function PagamentosRedesenhado() {
   const [contas, setContas] = React.useState([]);
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [buscaConta, setBuscaConta] = React.useState("");
+  // Saldo CONGELADO da programação aberta: o valor que cada conta tinha quando
+  // a programação foi montada, lido de programacao_contas.saldo_considerado.
+  // Programação de data anterior, aprovada ou fechada é documento -- mostra
+  // estes valores, e não o saldo de hoje.
+  const [saldosCongelados, setSaldosCongelados] = React.useState(() => new Map());
+  const [semRegistroCongelado, setSemRegistroCongelado] = React.useState(false);
   // Conferência das contas marcadas, fora da área com rolagem: só mostra ou
   // esconde a lista do que já está selecionado. Não marca, não desmarca e não
   // encosta no saldo da programação.
@@ -422,6 +460,8 @@ export default function PagamentosRedesenhado() {
   function limparEdicao() {
     setProgramacao(null);
     setTransferencias([]);
+    setSaldosCongelados(new Map());
+    setSemRegistroCongelado(false);
     setContasSelecionadas(new Set());
     setPagamentos([]);
     setContasConfirmadas(false);
@@ -433,7 +473,7 @@ export default function PagamentosRedesenhado() {
     try {
       const idProgramacao = idInteiro(id, "Programação");
       const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, { data: itens, error: erroPagamentos }] = await Promise.all([
-        supabase.from("programacoes_pagamento").select("id, nome_programacao, data_programacao, status, fechado, responsavel_id").eq("id", idProgramacao).single(),
+        cabecalhoDaProgramacao(idProgramacao),
         supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", idProgramacao).eq("ativa", true).order("ordem"),
         itensDaProgramacao(idProgramacao),
       ]);
@@ -445,6 +485,13 @@ export default function PagamentosRedesenhado() {
         : { data: null };
       const contaPorPagamento = await contasDefinidasDosPagamentos(idProgramacao);
       setProgramacao({ ...programa, responsavel });
+      // O saldo congelado é apenas LIDO daqui para a frente: a tela passa a
+      // exibir o que está gravado, sem consultar saldo atual e sem recalcular.
+      setSaldosCongelados(mapaSaldosCongelados(vinculadas));
+      setSemRegistroCongelado(semRegistroDeSaldoCongelado({
+        linhas: vinculadas,
+        saldoCabecalho: programa?.saldo_considerado,
+      }));
       setContasSelecionadas(new Set((vinculadas ?? []).map((item) => item.conta_id)));
       setPagamentos((itens ?? []).map((item) => ({
         ...item,
@@ -634,12 +681,21 @@ export default function PagamentosRedesenhado() {
       const { data: auth, error: erroAuth } = await supabase.auth.getUser();
       if (erroAuth) throw erroAuth;
       if (!auth.user?.id) throw new Error("Usuário não autenticado.");
-      const selecionadas = contas.filter((conta) => contasSelecionadas.has(conta.id));
+      const selecionadas = contasDaProgramacao.filter((conta) => contasSelecionadas.has(conta.id));
+      // O saldo considerado de cada conta: o saldo atual enquanto a programação
+      // está sendo montada hoje, e o MESMO valor já gravado quando ela é
+      // documento -- salvar uma programação antiga não troca os saldos dela
+      // pelos de hoje. Conta acrescentada agora, que ainda não tem registro,
+      // grava o saldo considerado no momento em que entrou.
       const payloadContas = selecionadas.map((conta, indice) => ({
         conta_id: idInteiro(conta.id, "Conta"),
-        saldo_considerado: numero(conta.saldo),
+        saldo_considerado: numero(saldoParaGravar({ conta, modoCongelado: modoSaldoCongelado })),
         ordem: indice + 1,
       }));
+      // Cabeçalho igual à soma das contas gravadas, sempre.
+      const saldoConsideradoDoCabecalho = modoSaldoCongelado
+        ? numero(payloadContas.reduce((total, conta) => total + numero(conta.saldo_considerado), 0))
+        : totalDisponivel;
       // Fornecedor avulso não tem fornecedor_id: o campo vai NULO e o nome vai
       // em nome_avulso. Campo vazio ou zero é ausência de fornecedor, não id --
       // mandá-lo como id faria o banco recusar o vínculo (23503). O que sai daqui
@@ -659,7 +715,7 @@ export default function PagamentosRedesenhado() {
         p_programacao_id: programacaoIdInteiro,
         p_contas: payloadContas,
         p_pagamentos: payloadPagamentos,
-        p_saldo_considerado: totalDisponivel,
+        p_saldo_considerado: saldoConsideradoDoCabecalho,
         p_total_programado: totalProgramado,
         p_restante: restante,
       };
@@ -834,11 +890,14 @@ export default function PagamentosRedesenhado() {
       emissao: agoraBR(),
       nome: programacao.nome_programacao,
       responsavel: programacao.responsavel?.nome_completo || usuario?.nome || usuario?.email || "--",
-      contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo, nome: conta.nome_conta })),
+      // Os MESMOS valores da tela, inclusive a ausência: conta sem saldo
+      // congelado gravado vai com saldo nulo e o papel imprime "--", nunca o
+      // saldo de hoje e nunca zero no lugar do que não foi gravado.
+      contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo ?? null, nome: conta.nome_conta })),
       pagamentos: pagamentos.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
-      totalContas: totalDisponivel,
+      totalContas: saldoDaProgramacaoIndisponivel ? null : totalDisponivel,
       totalProgramado,
-      restante,
+      restante: saldoDaProgramacaoIndisponivel ? null : restante,
     };
   }
 
@@ -861,13 +920,49 @@ export default function PagamentosRedesenhado() {
     exportarExcelProgramacao(dadosDocumento());
   }
 
-  const contasFiltradas = filtrarContasCadastradas(contas, buscaConta);
+  // PROGRAMAÇÃO É DOCUMENTO: de data anterior, aprovada ou fechada, ela mostra o
+  // saldo CONGELADO -- o que foi considerado quando ela foi montada, gravado em
+  // programacao_contas.saldo_considerado. Programação do dia, ainda em
+  // elaboração, continua com o saldo atual, porque está sendo montada agora.
+  const modoSaldoCongelado = usaSaldoCongelado({ programacao, hoje: hojeISO() });
+  const contasDaProgramacao = React.useMemo(
+    () => (modoSaldoCongelado
+      ? aplicarSaldosCongelados(contas, { saldos: saldosCongelados, semRegistro: semRegistroCongelado })
+      : contas),
+    [modoSaldoCongelado, contas, saldosCongelados, semRegistroCongelado],
+  );
+  const contasFiltradas = filtrarContasCadastradas(contasDaProgramacao, buscaConta);
   // Da lista completa, não do que está visível: recolher um grupo ou filtrar
   // pela busca não tira conta nenhuma da seleção nem do saldo.
-  const contasSelecionadasComSaldo = contasSelecionadasDaLista(contas, contasSelecionadas);
-  const totalDisponivel = somarContasSelecionadas(contas, contasSelecionadas);
+  const contasSelecionadasComSaldo = contasSelecionadasDaLista(contasDaProgramacao, contasSelecionadas);
+  // O Saldo da Programação é sempre a soma do que está exibido: no documento, a
+  // soma dos saldos congelados das contas mostradas; na programação do dia, a
+  // soma dos saldos atuais das contas marcadas.
+  const totalDisponivel = modoSaldoCongelado
+    ? somarSaldosCongelados(contasSelecionadasComSaldo)
+    : somarContasSelecionadas(contas, contasSelecionadas);
+  // Conta sem saldo congelado gravado aparece como "--" e não entra na soma:
+  // nada é recalculado e nada é inventado no lugar do valor que falta.
+  const contasSemCongelado = modoSaldoCongelado ? contasSemSaldoCongelado(contasSelecionadasComSaldo) : 0;
+  const avisoCongelado = modoSaldoCongelado
+    ? avisoSaldoCongelado({
+      dataFormatada: dataBR(programacao.data_programacao),
+      semRegistro: semRegistroCongelado,
+      quantidadeSemRegistro: contasSemCongelado,
+    })
+    : "";
   const totalProgramado = somarPagamentos(pagamentos);
   const restante = calcularRestante(totalDisponivel, totalProgramado);
+  // "--" onde o saldo daquele dia não foi gravado. A tela não põe o saldo de
+  // hoje no lugar do valor que falta, e não estima nada.
+  const saldoDaLinha = (conta) => (conta.saldo == null ? TEXTO_SEM_REGISTRO : formatBRL(conta.saldo));
+  // Programação antiga sem registro nenhum de saldo congelado: o Saldo da
+  // Programação também é desconhecido, então sai "--" em vez de R$ 0,00 -- e o
+  // aviso de "acima do saldo" não aparece, porque não há saldo para comparar.
+  const saldoDaProgramacaoIndisponivel = modoSaldoCongelado && semRegistroCongelado && contasSelecionadas.size > 0;
+  const textoSaldoDaProgramacao = saldoDaProgramacaoIndisponivel ? TEXTO_SEM_REGISTRO : formatBRL(totalDisponivel);
+  const textoRestante = saldoDaProgramacaoIndisponivel ? TEXTO_SEM_REGISTRO : formatBRL(restante);
+  const acimaDoSaldo = !saldoDaProgramacaoIndisponivel && restante < 0;
   const idsSelecionados = new Set(pagamentos.filter((item) => item.fornecedor_id).map((item) => String(item.fornecedor_id)));
   // A busca considera razão social, nome, nome fantasia, APELIDO e CPF/CNPJ --
   // a mesma regra da tela de Baixas. Digitar "Zé" encontra "Zé Alimentos".
@@ -945,9 +1040,9 @@ export default function PagamentosRedesenhado() {
         <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[#17352F]/10 bg-[#F5F3EC]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
             <div className="grid min-w-[20rem] flex-1 gap-1.5 sm:grid-cols-3">
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[#17352F]">{formatBRL(totalDisponivel)}</strong></div>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[#17352F]">{textoSaldoDaProgramacao}</strong></div>
               <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/55">Total programado</span><strong className="text-[15px] font-bold tabular-nums text-[#17352F]">{formatBRL(totalProgramado)}</strong></div>
-              <div className={`flex items-baseline justify-between gap-2 rounded-lg px-2.5 py-1 ${restante < 0 ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"}`}><span className="text-[9px] font-semibold uppercase tracking-[0.1em] opacity-70">Restante</span><strong className="text-[15px] font-bold tabular-nums">{formatBRL(restante)}</strong></div>
+              <div className={`flex items-baseline justify-between gap-2 rounded-lg px-2.5 py-1 ${acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"}`}><span className="text-[9px] font-semibold uppercase tracking-[0.1em] opacity-70">Restante</span><strong className="text-[15px] font-bold tabular-nums">{textoRestante}</strong></div>
             </div>
             {programacao && <div className="flex gap-1.5 print:hidden">
               <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[#0F2823]"><Printer size={14}/> Imprimir programação para análise</button>
@@ -955,7 +1050,7 @@ export default function PagamentosRedesenhado() {
               <button onClick={exportarExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F] hover:bg-[#F2F0E8]"><FileSpreadsheet size={14}/> Excel</button>
             </div>}
           </div>
-          {restante < 0 && <p className="mx-auto mt-1.5 max-w-[1500px] rounded-md bg-[#8A321C] px-2.5 py-1 text-center text-[11px] font-semibold text-white"><AlertTriangle size={12} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
+          {acimaDoSaldo && <p className="mx-auto mt-1.5 max-w-[1500px] rounded-md bg-[#8A321C] px-2.5 py-1 text-center text-[11px] font-semibold text-white"><AlertTriangle size={12} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
         </div>
 
         <div className="mb-3 grid gap-2 rounded-xl border border-[#17352F]/10 bg-white p-2.5 shadow-sm print:hidden lg:grid-cols-[1fr_12rem_auto] lg:items-end">
@@ -1013,6 +1108,11 @@ export default function PagamentosRedesenhado() {
                     <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">1.</span> Contas de trabalho</h2>
                     <span className="text-[10px] text-[#17352F]/45 print:hidden">{contasConfirmadas ? "Confirmadas — seleção não movimenta saldo" : "Selecionar não movimenta saldo"}</span>
                   </div>
+                  {/* A programação é documento: reaberta em outro dia, ela mostra
+                      o saldo que estava na mesa quando foi montada. Este aviso
+                      diz isso em palavras, para ninguém ler os valores como se
+                      fossem os saldos de hoje. */}
+                  {avisoCongelado && <p className="mt-2 rounded-lg border border-[#B98C55]/40 bg-[#FBF3EA] px-2.5 py-1.5 text-[11px] leading-snug text-[#17352F]">{avisoCongelado}</p>}
                 </div>
 
                 {/* Lista completa: só enquanto a seleção não foi confirmada, e nunca no papel.
@@ -1023,7 +1123,7 @@ export default function PagamentosRedesenhado() {
                     existe aqui criar conta — só se escolhe conta já cadastrada. */}
                 {!contasConfirmadas && <div className="print:hidden">
                   <SeletorContas
-                    contas={contas}
+                    contas={contasDaProgramacao}
                     modo="multipla"
                     selecionadas={[...contasSelecionadas]}
                     onEscolher={(conta) => alternarConta(conta.id)}
@@ -1042,7 +1142,7 @@ export default function PagamentosRedesenhado() {
                 {/* Resumo do que foi escolhido: na tela quando confirmado, na impressão sempre. */}
                 <div className={contasConfirmadas ? "" : "hidden print:block"}>
                   <div className="hidden grid-cols-[1.1fr_1fr_1fr_1.2fr] gap-2 border-b border-black/5 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[#17352F]/45 md:grid print:grid"><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>
-                  {contasSelecionadasComSaldo.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid items-center gap-0.5 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-2 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{formatBRL(conta.saldo)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></div>)}
+                  {contasSelecionadasComSaldo.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid items-center gap-0.5 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-2 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{saldoDaLinha(conta)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></div>)}
                 </div>
 
                 {/* Resumo sempre visível, FORA da área com rolagem: a contagem e o
@@ -1050,7 +1150,7 @@ export default function PagamentosRedesenhado() {
                     contas selecionadas. Marcar inclui, desmarcar retira; recolher
                     grupo e filtrar pela busca não mexem em nada disto. */}
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">
-                  <span>{rotuloContasSelecionadas(contasSelecionadas.size)} — SALDO DA PROGRAMAÇÃO: {formatBRL(totalDisponivel)}</span>
+                  <span>{rotuloContasSelecionadas(contasSelecionadas.size)} — SALDO DA PROGRAMAÇÃO: {textoSaldoDaProgramacao}</span>
                   <button type="button" onClick={() => setVerSelecionadas((valor) => !valor)} aria-expanded={verSelecionadas} className="inline-flex items-center gap-1 rounded-lg border border-white/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-white hover:bg-white/10 print:hidden">
                     {verSelecionadas ? <ChevronUp size={12}/> : <ChevronDown size={12}/>} Ver contas selecionadas
                   </button>
@@ -1066,7 +1166,7 @@ export default function PagamentosRedesenhado() {
                       <span className="truncate tabular-nums">{conta.numero_conta || "--"}</span>
                       <span className="truncate font-semibold">{conta.nome_conta || "--"}</span>
                       <span className="truncate text-[11px] text-[#17352F]/55">{conta.secretaria || "--"}</span>
-                      <strong className="tabular-nums sm:justify-self-end">{formatBRL(conta.saldo)}</strong>
+                      <strong className="tabular-nums sm:justify-self-end">{saldoDaLinha(conta)}</strong>
                     </li>)}
                   </ul>}
                 </div>}
@@ -1111,6 +1211,10 @@ export default function PagamentosRedesenhado() {
                 operação daqui movimenta saldo, exceto a transferência entre
                 contas confirmada. */}
             {emEtapaDeExecucao && <div className="mt-3 print:hidden">
+              {/* A etapa de execução confere com o dinheiro de HOJE: é ela que
+                  diz se a conta escolhida cobre os pagamentos atribuídos e se
+                  falta transferência. Por isso ela continua recebendo o saldo
+                  atual das contas, e não o saldo congelado do documento. */}
               <PainelExecucaoProgramacao
                 programacao={programacao}
                 pagamentos={pagamentos}
