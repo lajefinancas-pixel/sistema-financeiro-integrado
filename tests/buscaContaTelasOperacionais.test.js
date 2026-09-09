@@ -179,9 +179,14 @@ test("5. o resumo fica sempre visível, fora da área com rolagem", async () => 
   assert.equal(rotuloContasSelecionadas(1), "1 CONTA SELECIONADA");
   assert.equal(rotuloContasSelecionadas(4), "4 CONTAS SELECIONADAS");
 
-  // Contagem e saldo no mesmo resumo, com o cálculo intocado.
-  assert.match(programacao, /rotuloContasSelecionadas\(contasSelecionadas\.size\)\} — SALDO DA PROGRAMAÇÃO: \{formatBRL\(totalDisponivel\)\}/);
-  assert.match(programacao, /const totalDisponivel = somarContasSelecionadas\(contas, contasSelecionadas\);/);
+  // Contagem e saldo no mesmo resumo, com o cálculo intocado. O texto do saldo
+  // passou por uma variável porque a programação de data anterior mostra o
+  // saldo congelado, e a antiga sem registro mostra "--"; na programação do dia
+  // ele continua sendo formatBRL(totalDisponivel) e a soma continua sendo a das
+  // contas marcadas.
+  assert.match(programacao, /rotuloContasSelecionadas\(contasSelecionadas\.size\)\} — SALDO DA PROGRAMAÇÃO: \{textoSaldoDaProgramacao\}/);
+  assert.match(programacao, /const textoSaldoDaProgramacao = saldoDaProgramacaoIndisponivel \? TEXTO_SEM_REGISTRO : formatBRL\(totalDisponivel\);/);
+  assert.match(programacao, /: somarContasSelecionadas\(contas, contasSelecionadas\);/);
 
   // O resumo está depois do seletor, isto é, fora da caixa que rola.
   assert.ok(programacao.indexOf("<SeletorContas") < programacao.indexOf("SALDO DA PROGRAMAÇÃO"));
@@ -189,7 +194,10 @@ test("5. o resumo fica sempre visível, fora da área com rolagem", async () => 
   // "Ver contas selecionadas" lista o que está marcado, sem procurar na lista.
   assert.match(programacao, /Ver contas selecionadas/);
   assert.match(programacao, /setVerSelecionadas\(\(valor\) => !valor\)/);
-  assert.match(programacao, /const contasSelecionadasComSaldo = contasSelecionadasDaLista\(contas, contasSelecionadas\);/);
+  assert.match(programacao, /const contasSelecionadasComSaldo = contasSelecionadasDaLista\(contasDaProgramacao, contasSelecionadas\);/);
+  // contasDaProgramacao é a lista de contas da tela: as mesmas contas, com o
+  // saldo do dia da programação quando ela já é documento.
+  assert.match(programacao, /const contasDaProgramacao = React\.useMemo\(/);
 });
 
 // ---------------------------------------------------------------------------
@@ -206,7 +214,13 @@ test("6. salvar, marcar em análise e aprovar continuam na tela, como estavam", 
     /APROVAR PROGRAMAÇÃO/,
     /CONFIRMAR CONTAS/,
     /ALTERAR CONTAS/,
-    /p_saldo_considerado: totalDisponivel/,
+    // O saldo considerado continua sendo gravado no cabeçalho. Na programação
+    // do dia ele é o totalDisponivel; na de data anterior é a soma dos saldos
+    // congelados regravados, para que salvar não troque o documento pelos
+    // números de hoje.
+    /p_saldo_considerado: saldoConsideradoDoCabecalho/,
+    /const saldoConsideradoDoCabecalho = modoSaldoCongelado/,
+    /: totalDisponivel;/,
   ]) assert.match(programacao, marca);
 });
 
