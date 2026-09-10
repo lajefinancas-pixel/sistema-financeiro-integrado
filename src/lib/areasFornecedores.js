@@ -22,7 +22,7 @@
 // na listagem, na busca, no formulário e no teste automatizado. A camada de
 // dados está em lib/areasFornecedoresDados.js.
 
-import { centavos, valorBaixadoDaNota, valorDaNota } from "./regrasBaixas.js";
+import { centavos, situacaoPagamento, valorBaixadoDaNota, valorDaNota } from "./regrasBaixas.js";
 import {
   apelidoDoFornecedor,
   nomeExibicaoDoFornecedor,
@@ -123,6 +123,7 @@ export const AREAS = [
       { chave: "pago", rotulo: "Pago", numerico: true },
       { chave: "saldo", rotulo: "Saldo", numerico: true },
       { chave: "situacao", rotulo: "Situação" },
+      { chave: "situacaoPagamento", rotulo: "Pagamento" },
       { chave: "acoes", rotulo: "Ações" },
     ],
     camposDeBusca: ["fornecedor", "apelido", "nome", "evento", "secretaria"],
@@ -186,6 +187,7 @@ export const AREAS = [
       { chave: "pago", rotulo: "Pago", numerico: true },
       { chave: "saldo", rotulo: "Saldo", numerico: true },
       { chave: "situacao", rotulo: "Situação" },
+      { chave: "situacaoPagamento", rotulo: "Pagamento" },
       { chave: "acoes", rotulo: "Ações" },
     ],
     camposDeBusca: ["fornecedor", "apelido", "descricao", "objeto", "secretaria"],
@@ -248,6 +250,7 @@ export const AREAS = [
       { chave: "pago", rotulo: "Pago", numerico: true },
       { chave: "saldo", rotulo: "Saldo", numerico: true },
       { chave: "situacao", rotulo: "Situação" },
+      { chave: "situacaoPagamento", rotulo: "Pagamento" },
       { chave: "acoes", rotulo: "Ações" },
     ],
     camposDeBusca: ["banda", "fornecedor", "apelido", "evento", "secretaria"],
@@ -379,6 +382,51 @@ export function totaisDaLista(registros = []) {
       };
     },
     { registros: 0, valor: 0, pago: 0, saldo: 0 },
+  );
+}
+
+/* -------------------------------------------------------------------------
+ * Situação do registro diante das baixas -- CALCULADA, nunca gravada
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Em aberto, parcialmente pago, pago e cancelado. Não é a mesma coisa que a
+ * `situacao` do registro (previsto, vigente, concluído, suspenso, cancelado),
+ * que é o ANDAMENTO dele: aqui é o que as BAIXAS mostram.
+ */
+export const SITUACOES_PAGAMENTO_REGISTRO = [
+  { value: "em_aberto", label: "Em aberto", cor: "#EA9A1E", bg: "#FFF6E5" },
+  { value: "parcialmente_pago", label: "Parcialmente pago", cor: "#2563EB", bg: "#EAF1FF" },
+  { value: "pago", label: "Pago", cor: "#16A34A", bg: "#EAFBF0" },
+  { value: "cancelado", label: "Cancelado", cor: "#DC2626", bg: "#FEF2F2" },
+];
+
+/**
+ * A situação do registro diante das baixas, CALCULADA na hora de mostrar.
+ *
+ * Sai da MESMA origem de Pago e Saldo (as baixas das NFs vinculadas) e pela
+ * MESMA função que a aba de Baixas usa na linha da nota (`situacaoPagamento`),
+ * de forma que os dois não possam divergir. Nenhuma coluna guarda isto, e não é
+ * esquecimento: um segundo controle divergiria do primeiro no primeiro estorno.
+ *
+ * Registro cancelado é a única exceção: cancelamento é decisão de quem cadastra,
+ * não consequência de baixa, então ele vem da `situacao` do próprio registro.
+ */
+export function situacaoPagamentoDoRegistro(registro) {
+  const cancelado = String(registro?.situacao ?? "") === "cancelado";
+  if (cancelado) return situacaoPagamentoInfo("cancelado");
+  const { valor, pago } = resumoFinanceiroDoRegistro(registro);
+  return situacaoPagamentoInfo(situacaoPagamento(valor, pago));
+}
+
+export function situacaoPagamentoInfo(valor) {
+  return (
+    SITUACOES_PAGAMENTO_REGISTRO.find((s) => s.value === valor) ?? {
+      value: valor,
+      label: valor ?? "--",
+      cor: "#64748B",
+      bg: "#F1F5F9",
+    }
   );
 }
 

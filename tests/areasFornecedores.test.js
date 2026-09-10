@@ -118,7 +118,19 @@ test("cada área tem o botão, os campos e as colunas que o comando pede", () =>
   );
   assert.deepEqual(
     patrocinios.colunas.map((c) => c.chave),
-    ["fornecedor", "apelido", "nome", "secretaria", "valor", "pago", "saldo", "situacao", "acoes"],
+    [
+      "fornecedor",
+      "apelido",
+      "nome",
+      "secretaria",
+      "valor",
+      "pago",
+      "saldo",
+      "situacao",
+      // Situação do PAGAMENTO, calculada das baixas das NFs vinculadas (Parte 2).
+      "situacaoPagamento",
+      "acoes",
+    ],
   );
 
   assert.equal(alugueis.rotuloNovo, "Novo Aluguel");
@@ -147,6 +159,7 @@ test("cada área tem o botão, os campos e as colunas que o comando pede", () =>
       "pago",
       "saldo",
       "situacao",
+      "situacaoPagamento",
       "acoes",
     ],
   );
@@ -175,6 +188,7 @@ test("cada área tem o botão, os campos e as colunas que o comando pede", () =>
       "pago",
       "saldo",
       "situacao",
+      "situacaoPagamento",
       "acoes",
     ],
   );
@@ -603,7 +617,10 @@ test("cada gravação nas áreas registra auditoria com antes e depois", () => {
   // reativar), vincular NF e desvincular NF. "alterou" e
   // "alterou_valor_situacao" saem da mesma chamada, como "inativou" e
   // "reativou" -- é a mesma gravação, com a ação escolhida pelo que mudou.
-  assert.equal((fonte.match(/registrarEvento\(\{/g) ?? []).length, 5);
+  // A sexta é o envio do registro para a Programação Diária (Parte 2): não
+  // grava nada no registro, e por isso audita sem valor anterior.
+  assert.equal((fonte.match(/registrarEvento\(\{/g) ?? []).length, 6);
+  assert.ok(fonte.includes('"enviou_para_programacao"'), "o envio para a programação é auditado");
 });
 
 /* -------------------------------------------------------------------------

@@ -358,3 +358,84 @@ export async function desvincularNota(areaId, registro, nota) {
     usuarioId: autor,
   });
 }
+
+/* -------------------------------------------------------------------------
+ * Vínculos específicos do fornecedor
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Quantos registros de cada área o fornecedor tem: `{ patrocinios: 2, ... }`.
+ *
+ * Uma contagem por área, só nas áreas que a pessoa pode VISUALIZAR — quem não
+ * pode ver uma área não recebe (e não vê) o número dela. Nenhuma linha de
+ * registro é lida: `head: true` traz apenas a contagem.
+ *
+ * Área cuja tabela ainda não existe neste banco (migration não rodada) fica
+ * fora do resultado, e a ficha do fornecedor continua abrindo igual.
+ */
+export async function contagensDasAreasDoFornecedor(fornecedorId, { permissoes = {} } = {}) {
+  const vazio = { contagens: {}, faltaMigration: false };
+  if (!fornecedorId) return vazio;
+
+  const permitidas = AREAS.filter((area) => permissoes?.[area.id]?.visualizar === true);
+  if (!permitidas.length) return vazio;
+
+  const respostas = await Promise.all(
+    permitidas.map(async (area) => {
+      const { count, error } = await supabase
+        .from(area.tabela)
+        .select("id", { count: "exact", head: true })
+        .eq("fornecedor_id", fornecedorId)
+        .eq("ativo", true);
+      return { area, count, error };
+    }),
+  );
+
+  const contagens = {};
+  let faltaMigration = false;
+  respostas.forEach(({ area, count, error }) => {
+    if (error) {
+      if (estruturaDeAreasAusente(error)) faltaMigration = true;
+      // Recusa de permissão do banco (RLS) some com o número, e é o correto:
+      // quem não pode ver a área não vê a contagem dela.
+      return;
+    }
+    contagens[area.id] = Number(count ?? 0);
+  });
+  return { contagens, faltaMigration };
+}
+
+/* -------------------------------------------------------------------------
+ * Envio para a Programação Diária
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Registra na auditoria que o registro foi mandado para a Programação Diária:
+ * quem mandou, quando, qual registro, qual fornecedor e qual valor.
+ *
+ * Isto é TRILHA, não pagamento. Nada é gravado no registro da área (que
+ * continua sem coluna de valor pago), nenhuma nota recebe baixa e nenhum saldo
+ * de conta é tocado: programado ≠ pago. Quem inclui o item na proposta é a
+ * própria tela de Programação Diária, com a gravação que ela já tem.
+ *
+ * Falha de auditoria não derruba o envio — a função nunca lança.
+ */
+export async function registrarEnvioParaProgramacao(areaId, registro, envio) {
+  const area = AREAS.find((a) => a.id === areaId);
+  if (!area) return;
+  const autor = await usuarioAtualId().catch(() => null);
+  await registrarEvento({
+    modulo: area.modulo,
+    acao: "enviou_para_programacao",
+    registroAfetado: identificacaoDoRegistro(area, registro),
+    valorNovo: {
+      fornecedor_id: envio?.fornecedor_id ?? null,
+      valor_a_programar: envio?.valor_a_pagar ?? null,
+      nome_exibicao_programacao: envio?.nome_exibicao_programacao ?? null,
+      origem_tipo: envio?.origem_tipo ?? null,
+      origem_id: envio?.origem_id ?? null,
+      secretaria_id: envio?.secretaria_id ?? null,
+    },
+    usuarioId: autor,
+  });
+}

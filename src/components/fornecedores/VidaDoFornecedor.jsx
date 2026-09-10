@@ -23,6 +23,7 @@ import { resumoDocumental } from "../../lib/certidoesFornecedor";
 import NotasDoFornecedor from "./NotasDoFornecedor";
 import DadosParaPagamento from "./DadosParaPagamento";
 import { Bloco, Campo, Indicador, Vazio, textoOuTraco } from "./blocos";
+import VinculosEspecificos from "./VinculosEspecificos.jsx";
 
 /**
  * "Vida do fornecedor": o que a listagem mostra quando um cadastro é aberto.
@@ -322,6 +323,10 @@ export default function VidaDoFornecedor({
           onNovaCertidao={onNovaCertidao}
         />
       )}
+
+      {/* Registros deste fornecedor nas áreas operacionais. A seção se esconde
+          sozinha quando não há nenhum, e respeita quem pode ver cada área. */}
+      <VinculosEspecificos fornecedorId={fornecedor.id} />
 
       {/* Atalho discreto para a trilha deste cadastro: abre as
           movimentações do fornecedor sem sair da tela. */}
