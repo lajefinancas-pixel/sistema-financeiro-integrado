@@ -415,10 +415,10 @@ const FORM_VALOR_VAZIO = {
   data_vencimento: "",
 };
 
-// `subabas` é o único acréscimo desta tela: a faixa de subabas do módulo
-// (Todos | Patrocínios | Aluguéis | Bandas), renderizada no topo. Sem a prop, a
-// página é exatamente a de antes -- nada mais aqui foi alterado.
-export default function Fornecedores({ subabas = null }) {
+// A página de Fornecedores, aberta por "Todos os Fornecedores" no submenu de
+// Fornecedores do menu lateral. Ela não tem (e nunca teve) navegação própria
+// entre as áreas: quem navega é o menu lateral.
+export default function Fornecedores() {
   // Estado da sessão anterior desta aba (filtros, ordenação e fornecedor aberto).
   const salvoNaSessao = React.useMemo(lerEstadoSalvo, []);
 
@@ -1485,7 +1485,6 @@ export default function Fornecedores({ subabas = null }) {
   return (
     <Layout>
       <div className="px-8 py-7 print:px-0 print:py-0">
-        {subabas}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6 print:mb-4 print:flex-row">
           <div>
             <h1 className="text-2xl font-semibold text-[#0F2A44]">Fornecedores</h1>

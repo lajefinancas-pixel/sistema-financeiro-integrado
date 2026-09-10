@@ -35,9 +35,9 @@ export const MIGRATION_AREAS =
   "20260910140000_areas_fornecedores_patrocinios_alugueis_bandas.sql";
 
 /**
- * Recado de quando a migration ainda não foi rodada neste banco. A aba "Todos"
- * e todo o resto do sistema continuam funcionando igual; só as três subabas
- * novas dependem das tabelas criadas por ela.
+ * Recado de quando a migration ainda não foi rodada neste banco. A página
+ * "Todos os Fornecedores" e todo o resto do sistema continuam funcionando
+ * igual; só as três áreas dependem das tabelas criadas por ela.
  */
 export const AVISO_MIGRATION_AREAS =
   "As tabelas destas áreas ainda não existem neste banco. Rode a migration " +
@@ -263,10 +263,10 @@ export const AREAS = [
   },
 ];
 
-/** Os módulos de permissão das áreas, na ordem das subabas. */
+/** Os módulos de permissão das áreas, na ordem em que aparecem no submenu. */
 export const MODULOS_AREAS = AREAS.map((area) => area.modulo);
 
-/** A área da rota (`/fornecedores/bandas`), ou null para a aba "Todos". */
+/** A área da rota (`/fornecedores/bandas`), ou null para "Todos os Fornecedores". */
 export function areaPorRota(rota) {
   const alvo = String(rota ?? "").trim().toLowerCase();
   if (alvo === "") return null;
@@ -690,7 +690,7 @@ export function resolverPermissoesAreas({ linhas = [] } = {}) {
   return resultado;
 }
 
-/** As subabas que a pessoa pode ver — quem não tem visualizar não vê a subaba. */
+/** As áreas que a pessoa pode ver — quem não tem visualizar não vê o item dela. */
 export function areasVisiveis(permissoes = {}) {
   return AREAS.filter((area) => permissoes?.[area.id]?.visualizar === true);
 }

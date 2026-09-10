@@ -3,14 +3,19 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   Home, Landmark, Users, Calendar, History, BarChart2, Settings, ReceiptText,
   LogOut, ShieldCheck, ClipboardList, FileCheck2, Menu, X, PanelLeftClose,
+  ChevronDown, ChevronRight,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { CATEGORIAS } from "../lib/configuracoesSistema";
+import { useAreasVisiveisNoMenu } from "../lib/permissoesAreasFornecedores";
 
 const navItems = [
   { to: "/", label: "Painel Principal", icon: Home, end: true },
   { to: "/saldos", label: "Saldos das Contas", icon: Landmark },
-  { to: "/fornecedores", label: "Fornecedores", icon: Users },
+  // Fornecedores é o único item com submenu: dentro dele ficam a página de
+  // sempre ("Todos os Fornecedores") e as áreas operacionais. As áreas NÃO são
+  // itens principais do menu — vivem recuadas aqui dentro.
+  { to: "/fornecedores", label: "Fornecedores", icon: Users, expansivel: true },
   { to: "/certidoes", label: "Certidões", icon: FileCheck2 },
   { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
   { to: "/baixas", label: "Baixas de Pagamentos", icon: ReceiptText },
@@ -24,6 +29,10 @@ const navItems = [
 // Cada tela monta o seu próprio Layout, então a preferência de menu recolhido
 // vive no localStorage: é ela que mantém o estado ao navegar entre páginas.
 const CHAVE_MENU_RECOLHIDO = "sfi.menuLateral.recolhido";
+
+// O submenu de Fornecedores também precisa sobreviver à troca de página: sem
+// isto ele recolheria a cada navegação, porque a tela nova monta um Layout novo.
+const CHAVE_FORNECEDORES_ABERTO = "sfi.menuLateral.fornecedoresAberto";
 
 // Abaixo de 768px (celular) o menu vira gaveta sobreposta; de tablet para cima
 // o usuário escolhe entre menu aberto e faixa de ícones.
@@ -40,6 +49,22 @@ function lerPreferenciaRecolhido() {
 function gravarPreferenciaRecolhido(recolhido) {
   try {
     window.localStorage.setItem(CHAVE_MENU_RECOLHIDO, recolhido ? "1" : "0");
+  } catch {
+    /* navegador sem armazenamento local: a preferência vale só para esta tela */
+  }
+}
+
+function lerPreferenciaFornecedores() {
+  try {
+    return window.localStorage.getItem(CHAVE_FORNECEDORES_ABERTO) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function gravarPreferenciaFornecedores(aberto) {
+  try {
+    window.localStorage.setItem(CHAVE_FORNECEDORES_ABERTO, aberto ? "1" : "0");
   } catch {
     /* navegador sem armazenamento local: a preferência vale só para esta tela */
   }
@@ -134,12 +159,141 @@ function ConfiguracoesCompacto({ item, ativo, aberto, onAlternar, onEscolher, cl
   );
 }
 
+/**
+ * Fornecedores no menu lateral: item expansível, com a página de sempre e as
+ * áreas operacionais recuadas dentro dele.
+ *
+ *   Recolhido:  Fornecedores  ›
+ *   Expandido:  Fornecedores  ˅
+ *                 Todos os Fornecedores
+ *                 Patrocínios
+ *                 Aluguéis
+ *                 Bandas
+ *
+ * "Todos os Fornecedores" é a página de Fornecedores que já existe, inteira e
+ * inalterada. As três áreas também já existem: o que muda aqui é apenas ONDE se
+ * chega nelas — antes por subabas no topo da página, agora só por este submenu.
+ *
+ * Um TOQUE na linha de Fornecedores expande o submenu e abre "Todos"; tocando
+ * de novo, já em Todos, ela recolhe. Nada depende de hover, e cada opção tem
+ * área de toque folgada, para funcionar de dedo no iPad.
+ *
+ * Quem não pode visualizar uma área não recebe o item dela.
+ */
+function ItemFornecedores({
+  item,
+  areas,
+  expandido,
+  onAlternar,
+  onNavegar,
+  classeItem,
+  compacto,
+  pathname,
+}) {
+  const emFornecedores = pathname === item.to || pathname.startsWith(`${item.to}/`);
+  const emTodos = pathname === item.to;
+
+  // Faixa de ícones: só o ícone de Fornecedores, identificado pelo balão no
+  // ponteiro e pelo nome acessível no toque. O submenu volta ao reabrir o menu.
+  if (compacto) {
+    return (
+      <NavLink
+        to={item.to}
+        onClick={() => {
+          onAlternar(true);
+          onNavegar();
+        }}
+        className={classeItem(emFornecedores)}
+        aria-label={item.label}
+        title={item.label}
+      >
+        <item.icon size={18} className="shrink-0" />
+        <Balao>{item.label}</Balao>
+      </NavLink>
+    );
+  }
+
+  function aoClicar(evento) {
+    // Já expandido e já em "Todos": o mesmo toque recolhe, sem renavegar.
+    if (expandido && emTodos) {
+      evento.preventDefault();
+      onAlternar(false);
+      return;
+    }
+    onAlternar(true);
+    onNavegar();
+  }
+
+  // O destaque forte fica na opção selecionada do submenu. Com o submenu
+  // aberto, a linha de Fornecedores apenas marca a seção, com um fundo discreto;
+  // recolhido, é ela que mostra em que seção a pessoa está.
+  const classeLinha = [
+    classeItem(emFornecedores && !expandido),
+    expandido && emFornecedores ? "bg-white/10" : "",
+  ].join(" ");
+
+  const classeSub = ({ isActive }) =>
+    [
+      // Fonte um pouco menor e espaçamento compacto, mas com altura de toque
+      // confortável para dedo em tablet.
+      "flex min-h-[2.5rem] items-center rounded-lg px-3 py-2 text-[13px] transition-colors",
+      "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]",
+      isActive ? "bg-white font-medium text-[#0F2A44]" : "text-white/70 hover:bg-white/10",
+    ].join(" ");
+
+  return (
+    <div>
+      <NavLink
+        to={item.to}
+        onClick={aoClicar}
+        className={() => classeLinha}
+        aria-expanded={expandido}
+        aria-controls="submenu-fornecedores"
+      >
+        <item.icon size={18} className="shrink-0" />
+        <span className="truncate">{item.label}</span>
+        {expandido ? (
+          <ChevronDown size={16} className="ml-auto shrink-0 text-white/50" />
+        ) : (
+          <ChevronRight size={16} className="ml-auto shrink-0 text-white/50" />
+        )}
+      </NavLink>
+
+      {expandido && (
+        <div
+          id="submenu-fornecedores"
+          // Recuo à esquerda com um fio de hierarquia: as opções ficam
+          // visivelmente dentro de Fornecedores, nunca no nível dos itens
+          // principais do menu.
+          className="mt-1 ml-[1.6rem] space-y-0.5 border-l border-white/15 pl-2"
+        >
+          <NavLink to={item.to} end onClick={onNavegar} className={classeSub}>
+            Todos os Fornecedores
+          </NavLink>
+          {areas.map((area) => (
+            <NavLink
+              key={area.id}
+              to={`${item.to}/${area.rota}`}
+              onClick={onNavegar}
+              className={classeSub}
+            >
+              {area.rotulo}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Layout({ children, usuario }) {
   const localizacao = useLocation();
   const telaEstreita = usarTelaEstreita();
   const [recolhido, definirRecolhido] = React.useState(lerPreferenciaRecolhido);
   const [gavetaAberta, definirGavetaAberta] = React.useState(false);
   const [submenuAberto, definirSubmenuAberto] = React.useState(false);
+  const [fornecedoresAberto, definirFornecedoresAberto] = React.useState(lerPreferenciaFornecedores);
+  const areasDeFornecedores = useAreasVisiveisNoMenu();
   const botaoFecharRef = React.useRef(null);
 
   // Faixa de ícones só existe de tablet para cima: no celular o menu, quando
@@ -161,10 +315,25 @@ export default function Layout({ children, usuario }) {
     });
   }
 
+  function alternarFornecedores(aberto) {
+    definirFornecedoresAberto(aberto);
+    gravarPreferenciaFornecedores(aberto);
+  }
+
   function fecharGaveta() {
     definirGavetaAberta(false);
     definirSubmenuAberto(false);
   }
+
+  // Estando dentro de Fornecedores, o submenu aparece aberto — e continua
+  // aberto ao trocar de área, porque cada página monta um Layout novo e é este
+  // efeito (mais a preferência gravada) que o restaura.
+  const emFornecedores =
+    localizacao.pathname === "/fornecedores" || localizacao.pathname.startsWith("/fornecedores/");
+
+  React.useEffect(() => {
+    if (emFornecedores) definirFornecedoresAberto(true);
+  }, [emFornecedores]);
 
   // Sai do modo compacto (ou vira celular): o painel flutuante perde o sentido.
   React.useEffect(() => {
@@ -285,7 +454,19 @@ export default function Layout({ children, usuario }) {
           }`}
         >
           {navItems.map((item) =>
-            compacto && item.to === "/configuracoes" ? (
+            item.expansivel ? (
+              <ItemFornecedores
+                key={item.to}
+                item={item}
+                areas={areasDeFornecedores}
+                expandido={fornecedoresAberto}
+                onAlternar={alternarFornecedores}
+                onNavegar={fecharGaveta}
+                classeItem={classeItem}
+                compacto={compacto}
+                pathname={localizacao.pathname}
+              />
+            ) : compacto && item.to === "/configuracoes" ? (
               <ConfiguracoesCompacto
                 key={item.to}
                 item={item}

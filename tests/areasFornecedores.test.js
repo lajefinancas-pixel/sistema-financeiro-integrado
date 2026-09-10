@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -36,8 +36,9 @@ import { valorBaixadoDaNota, valorEmAbertoDaNota } from "../src/lib/regrasBaixas
  *   2. Pago e Saldo são CALCULADOS a partir das baixas das NFs vinculadas, com
  *      a mesma função que a aba de Baixas usa, e não existe coluna de valor
  *      pago em lugar nenhum destas áreas;
- *   3. a aba "Todos" (a página de Fornecedores) continua idêntica: o único
- *      acréscimo nela é a prop `subabas`.
+ *   3. "Todos os Fornecedores" (a página de Fornecedores) continua idêntica, sem
+ *      navegação própria: quem navega entre as áreas é o submenu do menu
+ *      lateral, e a faixa de subabas do topo não existe mais.
  */
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -48,7 +49,7 @@ const ler = (caminho) => readFileSync(join(RAIZ, caminho), "utf8");
  * O código sem os comentários.
  *
  * Vários comentários deste envio existem justamente para explicar o que NÃO foi
- * feito ("não há coluna de valor pago", "as subabas são Patrocínios, Aluguéis e
+ * feito ("não há coluna de valor pago", "as áreas são Patrocínios, Aluguéis e
  * Bandas"). Uma verificação de ausência tem de olhar o código, não a explicação.
  */
 function semComentarios(fonte) {
@@ -478,7 +479,7 @@ test("a auditoria guarda só o que mudou, com antes e depois", () => {
  * Permissões
  * ---------------------------------------------------------------------- */
 
-test("quem não tem visualizar na área não vê a subaba dela", () => {
+test("quem não tem visualizar na área não vê o item dela no submenu", () => {
   const permissoes = resolverPermissoesAreas({
     linhas: [
       { modulo: "patrocinios", pode_visualizar: true, pode_cadastrar: true, pode_editar: false, pode_excluir: false },
@@ -606,18 +607,23 @@ test("cada gravação nas áreas registra auditoria com antes e depois", () => {
 });
 
 /* -------------------------------------------------------------------------
- * Não regressão: a aba "Todos" e o cadastro do fornecedor
+ * Não regressão: "Todos os Fornecedores" e o cadastro do fornecedor
  * ---------------------------------------------------------------------- */
 
-test("a página de Fornecedores só ganhou a prop subabas", () => {
+test("a página de Fornecedores é a de sempre, sem navegação própria", () => {
   const fonte = ler("src/pages/Fornecedores.jsx");
 
-  assert.match(fonte, /export default function Fornecedores\(\{ subabas = null \}\)/);
-  // A prop é opcional: sem ela a página é a de antes.
-  assert.match(fonte, /\{subabas\}/);
-  assert.equal((fonte.match(/\{subabas\}/g) ?? []).length, 1, "a faixa aparece uma única vez");
+  // Nenhuma prop de navegação: a página voltou à assinatura original, e a faixa
+  // de subabas do topo não existe mais em lugar nenhum.
+  assert.match(fonte, /export default function Fornecedores\(\) \{/);
+  assert.ok(!fonte.includes("subabas"), "a faixa de subabas do topo foi removida");
+  assert.equal(
+    existsSync(join(RAIZ, "src/components/fornecedores/areas/SubabasFornecedores.jsx")),
+    false,
+    "o componente das subabas do topo não deve mais existir",
+  );
 
-  // Tudo o que a aba tinha continua lá.
+  // Tudo o que a página tinha continua lá.
   for (const trecho of [
     "Total em aberto",
     "Novo Valor em Aberto",
@@ -632,14 +638,14 @@ test("a página de Fornecedores só ganhou a prop subabas", () => {
     assert.ok(fonte.includes(trecho), `a aba Todos precisa continuar com: ${trecho}`);
   }
 
-  // A página de Fornecedores não conhece as áreas: quem monta as subabas é o
-  // módulo, por fora dela.
+  // A página de Fornecedores não conhece as áreas: quem navega entre elas é o
+  // menu lateral, por fora dela.
   const codigo = semComentarios(fonte).toLowerCase();
   for (const termo of ["patrocin", "alugue", "banda"]) {
     assert.ok(!codigo.includes(termo), `o código da aba Todos não deveria mencionar ${termo}`);
   }
-  // E ela não importa nada das áreas: quem monta a faixa é o módulo, por fora.
-  assert.ok(!fonte.includes("areasFornecedores"), "a aba Todos não conhece as áreas");
+  // E ela não importa nada das áreas.
+  assert.ok(!fonte.includes("areasFornecedores"), "a página de Fornecedores não conhece as áreas");
 });
 
 test("nenhum campo de categoria ou tipo foi criado no cadastro do fornecedor", () => {
@@ -674,15 +680,37 @@ test("nenhum campo de categoria ou tipo foi criado no cadastro do fornecedor", (
   );
 });
 
-test("nenhum item novo entra no menu lateral", () => {
+test("as áreas ficam no submenu de Fornecedores, nunca como item principal", () => {
   const layout = ler("src/components/Layout.jsx");
+
+  // A lista de itens principais do menu não pode ganhar linha nenhuma: as áreas
+  // não ficam no nível de Saldos das Contas, Certidões, Pagamentos Diários,
+  // Baixas de Pagamentos, Tarefas, Histórico, Relatórios, Auditoria e
+  // Configurações.
+  const itensPrincipais = layout.slice(
+    layout.indexOf("const navItems = ["),
+    layout.indexOf("];", layout.indexOf("const navItems = [")),
+  );
   for (const termo of ["patrocinios", "alugueis", "bandas", "Patrocínios", "Aluguéis", "Bandas"]) {
-    assert.ok(!layout.includes(termo), `o menu lateral não pode ganhar ${termo}`);
+    assert.ok(!itensPrincipais.includes(termo), `os itens principais não podem ganhar ${termo}`);
   }
-  // As subabas navegam por rota, dentro da própria página de Fornecedores.
-  const rotas = ler("src/App.jsx");
-  assert.match(rotas, /path="\/fornecedores"/);
-  assert.match(rotas, /path="\/fornecedores\/:area"/);
+  const rotas = [...itensPrincipais.matchAll(/to: "([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(rotas.filter((rota) => rota.startsWith("/fornecedores")), ["/fornecedores"]);
+
+  // O item de Fornecedores é expansível, e o submenu sai das áreas liberadas
+  // pela permissão de cada uma -- quem não pode ver não recebe o item.
+  assert.match(layout, /expansivel: true/);
+  assert.ok(layout.includes("useAreasVisiveisNoMenu"), "o submenu respeita as permissões das áreas");
+  assert.ok(layout.includes("Todos os Fornecedores"), "o submenu abre a página de Fornecedores");
+  assert.ok(layout.includes("areas.map"), "as três áreas entram como opções do submenu");
+  // Expande e recolhe, com o estado guardado para sobreviver à navegação.
+  assert.ok(layout.includes("aria-expanded={expandido}"));
+  assert.ok(layout.includes("CHAVE_FORNECEDORES_ABERTO"));
+
+  // A navegação continua sendo por rota, as mesmas de antes.
+  const app = ler("src/App.jsx");
+  assert.match(app, /path="\/fornecedores"/);
+  assert.match(app, /path="\/fornecedores\/:area"/);
 });
 
 test("as áreas não criam lógica de baixa nem tocam em saldo", () => {
