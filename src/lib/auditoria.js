@@ -87,6 +87,11 @@ const ACOES = {
   // em aberto e preserva o registro original, por isso é nível crítico.
   registrou_baixa: "Registrou baixa",
   estornou_baixa: "Estornou baixa",
+  // Pagamentos Diários: desfazer a APROVAÇÃO de uma programação para poder
+  // ajustá-la. É ação de exceção e nível crítico -- e não desfaz dado nenhum,
+  // por isso fica separada da aprovação, que continua registrada como fato
+  // ocorrido.
+  reabriu_programacao: "Reabriu programação",
 };
 
 export function acaoLabel(valor) {

@@ -48,6 +48,112 @@ export function emRevisaoPosAnalise(programacao) {
   return programacao?.status === STATUS_EM_ANALISE && programacao?.fechado !== true;
 }
 
+// ---------------------------------------------------------------------------
+// Reabrir a programação: desfazer a APROVAÇÃO, nunca os dados
+// ---------------------------------------------------------------------------
+//
+// Aprovada trava a proposta -- e até aqui não havia caminho de volta. Reabrir é
+// a ação de EXCEÇÃO que devolve a programação para "em elaboração" quando o
+// gestor pede um ajuste depois de aprovar.
+//
+// REABRIR NÃO DESFAZ DADOS. Ela troca o status e limpa os campos da aprovação.
+// Contas de trabalho, fornecedores, valores, conta de cada pagamento, saldos
+// congelados, baixas, transferências e saldos reais das contas continuam
+// exatamente como estão -- desfazer cada uma dessas coisas tem caminho próprio,
+// com registro próprio.
+
+/** Mínimo de caracteres da justificativa da reabertura. */
+export const JUSTIFICATIVA_MINIMA_REABERTURA = 10;
+
+/**
+ * A programação pode ser reaberta?
+ *
+ * Só a aprovada. Fechada é histórico: continua sem poder ser alterada, e isso
+ * não muda com permissão nenhuma.
+ */
+export function podeReabrirProgramacao(programacao) {
+  if (!programacao) return false;
+  if (programacao.fechado === true) return false;
+  return programacao.status === STATUS_APROVADA;
+}
+
+/** A justificativa informada satisfaz o mínimo exigido? */
+export function justificativaReaberturaValida(texto) {
+  return String(texto ?? "").trim().length >= JUSTIFICATIVA_MINIMA_REABERTURA;
+}
+
+export const MOTIVO_REABERTURA_SEM_PERMISSAO =
+  "Você não tem permissão para reabrir programações aprovadas.";
+export const MOTIVO_REABERTURA_STATUS =
+  "Somente uma programação aprovada pode ser reaberta.";
+export const MOTIVO_REABERTURA_FECHADA =
+  "Programações históricas fechadas não podem ser reabertas.";
+export const MOTIVO_REABERTURA_ESTRUTURA =
+  "A função de reabertura ainda não está disponível no banco desta tela.";
+export const MOTIVO_REABERTURA_JUSTIFICATIVA =
+  `Escreva a justificativa da reabertura, com pelo menos ${JUSTIFICATIVA_MINIMA_REABERTURA} caracteres.`;
+
+/**
+ * Impedimentos para reabrir. Lista vazia significa que pode reabrir.
+ *
+ * Nada aqui é decidido de novo: são as mesmas condições que o banco exige,
+ * nomeadas para a tela poder dizer o motivo em vez de ficar em silêncio.
+ */
+export function impedimentosParaReabrir({
+  programacao,
+  podeReabrir = true,
+  estruturaAusente = false,
+  justificativa = null,
+} = {}) {
+  const impedimentos = [];
+  if (!programacao) impedimentos.push("Abra uma programação para reabrir.");
+  if (programacao?.fechado === true) impedimentos.push(MOTIVO_REABERTURA_FECHADA);
+  else if (programacao && programacao.status !== STATUS_APROVADA) impedimentos.push(MOTIVO_REABERTURA_STATUS);
+  if (podeReabrir === false) impedimentos.push(MOTIVO_REABERTURA_SEM_PERMISSAO);
+  if (estruturaAusente) impedimentos.push(MOTIVO_REABERTURA_ESTRUTURA);
+  if (justificativa !== null && !justificativaReaberturaValida(justificativa)) {
+    impedimentos.push(MOTIVO_REABERTURA_JUSTIFICATIVA);
+  }
+  return impedimentos;
+}
+
+function plural(quantidade, singular, pluralizado) {
+  return Number(quantidade) === 1 ? singular : pluralizado;
+}
+
+/**
+ * Avisos mostrados antes de confirmar a reabertura.
+ *
+ * Baixa registrada e transferência vinculada NÃO são desfeitas por reabrir --
+ * e quem confirma precisa saber disso antes, não depois. O aviso não bloqueia:
+ * cada uma delas tem estorno próprio, e é lá que se desfaz.
+ *
+ * Contagem desconhecida (`null`) não é zero: quando não deu para conferir, o
+ * aviso diz que não deu, em vez de afirmar que não existe nada.
+ */
+export function avisosDaReabertura({ baixas = 0, transferencias = 0 } = {}) {
+  const avisos = [];
+  const numeroBaixas = baixas == null ? null : Number(baixas);
+  const numeroTransferencias = transferencias == null ? null : Number(transferencias);
+
+  if (numeroBaixas == null || numeroTransferencias == null) {
+    avisos.push(
+      "Não foi possível conferir as baixas e as transferências desta programação. Reabrir não desfaz nenhuma delas — confira na aba de Baixas e no painel de execução antes de confirmar."
+    );
+  }
+  if (numeroBaixas > 0) {
+    avisos.push(
+      `Esta programação tem ${numeroBaixas} ${plural(numeroBaixas, "baixa registrada", "baixas registradas")}. Reabrir NÃO desfaz baixa nenhuma: o pagamento continua registrado e o valor em aberto da nota fica como está. Para desfazer uma baixa, use o estorno na aba de Baixas.`
+    );
+  }
+  if (numeroTransferencias > 0) {
+    avisos.push(
+      `Esta programação tem ${numeroTransferencias} ${plural(numeroTransferencias, "transferência vinculada", "transferências vinculadas")}. Reabrir NÃO desfaz transferência nenhuma: os saldos das contas continuam como estão. Para desfazer uma transferência, use o estorno no painel de execução.`
+    );
+  }
+  return avisos;
+}
+
 function arredondar(valor) {
   return Math.round((Number(valor) || 0) * 100) / 100;
 }
