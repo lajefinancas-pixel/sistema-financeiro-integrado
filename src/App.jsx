@@ -37,8 +37,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RotaProtegida><Dashboard /></RotaProtegida>} />
       <Route path="/saldos" element={<RotaProtegida><Saldos /></RotaProtegida>} />
-      {/* Fornecedores e as suas subabas (Todos | Patrocínios | Aluguéis | Bandas).
-          A rota sem área é a aba "Todos", a página de Fornecedores de sempre. */}
+      {/* Fornecedores e as suas áreas (Patrocínios, Aluguéis e Bandas), abertas
+          pelo submenu de Fornecedores no menu lateral. A rota sem área é
+          "Todos os Fornecedores", a página de Fornecedores de sempre. */}
       <Route path="/fornecedores" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       <Route path="/fornecedores/:area" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />

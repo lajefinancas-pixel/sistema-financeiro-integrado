@@ -5,6 +5,7 @@ import {
   AREAS,
   MODULOS_AREAS,
   PERMISSOES_AREA_NENHUMA,
+  areasVisiveis,
   resolverPermissoesAreas,
 } from "./areasFornecedores.js";
 
@@ -30,7 +31,7 @@ const NENHUMA = Object.freeze(
 );
 
 /**
- * Hook das subabas: `{ carregando, usuario, permissoes, erro }`.
+ * Hook da página de área: `{ carregando, usuario, permissoes, erro }`.
  * `permissoes` tem uma chave por área, sempre com as quatro ações booleanas.
  */
 export function usePermissoesAreasFornecedores() {
@@ -92,4 +93,90 @@ export function usePermissoesAreasFornecedores() {
   }, []);
 
   return estado;
+}
+
+/* -------------------------------------------------------------------------
+ * As áreas no menu lateral
+ * ---------------------------------------------------------------------- */
+
+/**
+ * O submenu de Fornecedores é montado em toda página (o menu lateral vive no
+ * Layout, e cada tela monta o seu). Guardar as áreas liberadas na sessão evita
+ * uma consulta a cada navegação e, principalmente, evita o submenu piscando
+ * itens que aparecem só depois da resposta do banco.
+ *
+ * É cache de CONVENIÊNCIA de exibição, não de autorização: quem decide é a RLS
+ * do banco, que confere `pode_em_area_fornecedor` antes de devolver qualquer
+ * linha, e a própria rota da área, que barra quem não tem `visualizar`.
+ */
+const CHAVE_AREAS_NO_MENU = "sfi.menuLateral.areasVisiveis";
+
+function lerAreasDoCache() {
+  try {
+    const bruto = window.sessionStorage.getItem(CHAVE_AREAS_NO_MENU);
+    if (!bruto) return null;
+    const lista = JSON.parse(bruto);
+    return Array.isArray(lista) ? lista.filter((id) => typeof id === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+function gravarAreasNoCache(ids) {
+  try {
+    window.sessionStorage.setItem(CHAVE_AREAS_NO_MENU, JSON.stringify(ids));
+  } catch {
+    /* navegador sem armazenamento: o submenu apenas reconsulta a cada página */
+  }
+}
+
+/**
+ * As áreas que a pessoa pode ver no submenu de Fornecedores do menu lateral.
+ *
+ * Enquanto a primeira consulta da sessão não responde, nada é mostrado — o
+ * submenu nunca exibe uma área que a pessoa talvez não possa abrir.
+ */
+export function useAreasVisiveisNoMenu() {
+  const [ids, setIds] = React.useState(() => lerAreasDoCache() ?? []);
+
+  React.useEffect(() => {
+    let ativo = true;
+
+    async function carregar() {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        if (!auth?.user) return;
+
+        const { data: usuarios } = await supabase
+          .from("usuarios")
+          .select("id")
+          .eq("auth_id", auth.user.id)
+          .limit(1);
+        const usuario = usuarios?.[0];
+        if (!usuario) return;
+
+        const { data: linhas, error } = await supabase
+          .from("permissoes_efetivas")
+          .select("modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_excluir")
+          .eq("usuario_id", usuario.id)
+          .in("modulo", [...MODULOS_AREAS, "fornecedores"]);
+        if (error) throw error;
+
+        const permissoes = resolverPermissoesAreas({ linhas: linhas ?? [] });
+        const liberadas = areasVisiveis(permissoes).map((area) => area.id);
+        gravarAreasNoCache(liberadas);
+        if (ativo) setIds(liberadas);
+      } catch (falha) {
+        // Menu é conveniência: falha de consulta mantém o que já se sabia.
+        console.error("[Áreas de Fornecedores] Não foi possível montar o submenu.", falha);
+      }
+    }
+
+    carregar();
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  return React.useMemo(() => AREAS.filter((area) => ids.includes(area.id)), [ids]);
 }
