@@ -20,6 +20,12 @@ import { supabase } from "./supabaseClient";
 export const MODULOS = [
   { id: "saldos", label: "Saldos" },
   { id: "fornecedores", label: "Fornecedores" },
+  // As três áreas específicas dentro de Fornecedores. Cada uma é um módulo
+  // próprio, com permissão própria; nenhuma permissão que já existia muda de
+  // significado por causa delas.
+  { id: "patrocinios", label: "Fornecedores · Patrocínios" },
+  { id: "alugueis", label: "Fornecedores · Aluguéis" },
+  { id: "bandas", label: "Fornecedores · Bandas" },
   { id: "pagamentos", label: "Pagamentos" },
   { id: "baixas", label: "Baixas de Pagamentos" },
   { id: "tributario", label: "Tributário" },
@@ -101,6 +107,27 @@ const ACOES_BAIXAS = [
   { campo: "pode_excluir", label: "Estornar baixa" },
 ];
 
+/**
+ * As áreas específicas de Fornecedores (Patrocínios, Aluguéis e Bandas) usam
+ * quatro das cinco colunas, com os rótulos das ações que a área realmente tem.
+ *
+ * "Inativar" é a exclusão lógica da área -- o registro nunca é apagado, como no
+ * resto do sistema. "Aprovar" não é usado por estas áreas: aprovar não é pagar,
+ * e nenhuma delas registra pagamento.
+ *
+ * O mesmo mapa está escrito na migration
+ * 20260910140000_areas_fornecedores_patrocinios_alugueis_bandas.sql e na função
+ * do banco `public.pode_em_area_fornecedor`.
+ */
+export const MODULOS_AREAS_FORNECEDORES = ["patrocinios", "alugueis", "bandas"];
+
+const ACOES_AREAS_FORNECEDORES = [
+  { campo: "pode_visualizar", label: "Visualizar" },
+  { campo: "pode_cadastrar", label: "Criar" },
+  { campo: "pode_editar", label: "Editar" },
+  { campo: "pode_excluir", label: "Inativar" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
 /**
@@ -111,6 +138,7 @@ export function acoesDoModulo(modulo) {
   if (modulo === MODULO_BACKUP) return ACOES_BACKUP;
   if (modulo === MODULO_COM_VALORES) return ACOES_SALDOS;
   if (modulo === MODULO_BAIXAS) return ACOES_BAIXAS;
+  if (MODULOS_AREAS_FORNECEDORES.includes(modulo)) return ACOES_AREAS_FORNECEDORES;
   return ACOES;
 }
 
