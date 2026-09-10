@@ -2,7 +2,7 @@ import React from "react";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, ChevronDown,
   RefreshCw, Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare, Star,
-  FileCheck2,
+  FileCheck2, Handshake,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
@@ -12,14 +12,21 @@ import GraficoRelatorio from "../components/relatorios/GraficoRelatorio";
 import OpcoesImpressao from "../components/relatorios/OpcoesImpressao";
 import PainelComparativo from "../components/relatorios/PainelComparativo";
 import PainelFiltros from "../components/comuns/PainelFiltros";
+import FiltrosRelatorioArea from "../components/relatorios/FiltrosRelatorioArea";
 import { usePermissaoRelatorios, MODULO_EQUIVALENTE } from "../lib/permissoesRelatorios";
 import {
   carregarBaseFinanceira, carregarBaseFornecedores, carregarBaseTributaria,
   carregarBaseTarefas, carregarBaseHistorico, carregarBasePagamentos, carregarBaseBaixas, carregarBaseCertidoes,
+  carregarBaseAreasFornecedores,
 } from "../lib/relatoriosDados";
 import {
-  CATEGORIAS, relatoriosDaCategoria, relatorioPorId, gerarRelatorio, valorTotal, formatarCelula,
+  CATEGORIAS, relatoriosDaCategoria, relatorioPorId, relatorioPermitido, gerarRelatorio, valorTotal,
+  formatarCelula,
 } from "../lib/relatoriosCatalogo";
+import { areaPorId } from "../lib/areasFornecedores";
+import {
+  descricaoDosFiltros, filtrosVaziosDoRelatorio, periodoDaArea,
+} from "../lib/relatoriosAreasFornecedores";
 import {
   configuracaoPadrao, FONTES, gerarRelatorioPersonalizado, normalizarConfiguracao, resumoDosCriterios,
 } from "../lib/relatoriosPersonalizados";
@@ -41,6 +48,7 @@ const ICONES_CATEGORIA = {
   usuarios: UserCog,
   auditoria: ShieldCheck,
   certidoes: FileCheck2,
+  areas: Handshake,
 };
 
 /**
@@ -57,6 +65,7 @@ const BASES_COMPLEMENTARES = [
   { chave: "pagamentos", nome: "Pagamentos", carregar: carregarBasePagamentos },
   { chave: "baixas", nome: "Baixas", carregar: carregarBaseBaixas },
   { chave: "certidoes", nome: "Certidões", carregar: carregarBaseCertidoes },
+  { chave: "areas", nome: "Patrocínios, Aluguéis e Bandas", carregar: carregarBaseAreasFornecedores },
 ];
 
 function hojeISO() {
@@ -205,6 +214,7 @@ export default function Relatorios() {
     historico: null,
     pagamentos: null,
     certidoes: null,
+    areas: null,
   });
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -216,6 +226,10 @@ export default function Relatorios() {
   const [categoriaAberta, setCategoriaAberta] = React.useState(null);
   const [geradoEm, setGeradoEm] = React.useState(null);
   const [periodo, setPeriodo] = React.useState({ inicio: primeiroDiaDoAno(), fim: hojeISO() });
+  // Filtros dos relatórios de área (Patrocínios, Aluguéis e Bandas). Só eles têm
+  // filtros próprios; começam vazios, para que o relatório abra mostrando os
+  // mesmos registros e os mesmos totais da tela da área.
+  const [filtrosArea, setFiltrosArea] = React.useState({});
 
   // --- Gráfico, comparativo e formato de impressão ---
   const [mostrarGrafico, setMostrarGrafico] = React.useState(false);
@@ -254,10 +268,25 @@ export default function Relatorios() {
    * que é o que a base confirma antes de trazer qualquer linha. Enquanto a
    * confirmação não chega (ou se a base falhar), a categoria fica de fora --
    * mostrá-la vazia daria a entender que o fornecedor não tem certidão.
+   *
+   * Patrocínios, Aluguéis e Bandas seguem a mesma ideia, mas relatório por
+   * relatório: cada um exige o `visualizar` da SUA área (quem não pode ver
+   * Bandas não vê o relatório de Bandas), e a categoria só aparece quando sobra
+   * pelo menos um. As outras categorias continuam exatamente como estavam --
+   * nenhum dos relatórios delas responde por permissão de área.
    */
+  const relatoriosVisiveis = React.useCallback(
+    (categoria) => relatoriosDaCategoria(categoria).filter((r) => relatorioPermitido(r, bases)),
+    [bases]
+  );
+
   const categoriasVisiveis = React.useMemo(
-    () => CATEGORIAS.filter((c) => c.id !== "certidoes" || bases.certidoes?.permitido === true),
-    [bases.certidoes]
+    () =>
+      CATEGORIAS.filter((c) => {
+        if (c.id === "certidoes") return bases.certidoes?.permitido === true;
+        return relatoriosVisiveis(c.id).length > 0;
+      }),
+    [bases.certidoes, relatoriosVisiveis]
   );
 
   const carregarBases = React.useCallback(async () => {
@@ -300,9 +329,18 @@ export default function Relatorios() {
   }, [podeVisualizar, carregarBases]);
 
   const relatorio = relatorioPorId(selecionado);
+  // A área do relatório escolhido (só os três de área têm uma) -- é ela que diz
+  // quais filtros o painel mostra e de onde saem as linhas.
+  const areaDoRelatorio = relatorio?.area ? areaPorId(relatorio.area) : null;
+  // Permissão da área também na hora de gerar: sem ela, nada é montado, mesmo
+  // que o relatório tenha sido escolhido antes de a permissão ser conhecida.
+  const podeVerRelatorio = relatorioPermitido(relatorio, bases);
   const resultado = React.useMemo(
-    () => (relatorio ? gerarRelatorio(relatorio, bases, { periodo }) : null),
-    [relatorio, bases, periodo]
+    () =>
+      relatorio && podeVerRelatorio
+        ? gerarRelatorio(relatorio, bases, { periodo, filtrosArea })
+        : null,
+    [relatorio, podeVerRelatorio, bases, periodo, filtrosArea]
   );
   const total = resultado ? valorTotal(resultado) : null;
   const grafico = React.useMemo(() => dadosDoGrafico(resultado), [resultado]);
@@ -317,6 +355,12 @@ export default function Relatorios() {
     setMostrarGrafico(false);
     setMostrarComparativo(false);
     setTipoGrafico("barras");
+    // Filtros de área recomeçam vazios (e são os da área do novo relatório):
+    // filtro de um relatório nunca vai junto para outro.
+    const escolhido = relatorioPorId(id);
+    setFiltrosArea(
+      escolhido?.area ? filtrosVaziosDoRelatorio(areaPorId(escolhido.area)) : {}
+    );
   }
 
   async function atualizar() {
@@ -325,9 +369,20 @@ export default function Relatorios() {
     if (criteriosGerados) setGeradoEmPersonalizado(agoraBR());
   }
 
-  /** Período do relatório em texto, quando ele tem filtro de datas. */
-  const periodoDoRelatorio =
-    relatorio?.temPeriodo ? textoPeriodo(periodo.inicio, periodo.fim) : "";
+  /**
+   * Período do relatório em texto, quando ele tem filtro de datas. Nos
+   * relatórios de área o período é um dos filtros do painel, e o texto diz por
+   * qual data o recorte foi feito -- sem período, o documento afirma que traz
+   * todos os registros.
+   */
+  const periodoDoRelatorio = React.useMemo(() => {
+    if (areaDoRelatorio) {
+      const texto = textoPeriodo(filtrosArea.periodoInicio, filtrosArea.periodoFim);
+      if (texto === "") return "Todos os registros cadastrados";
+      return `${texto} (por ${periodoDaArea(areaDoRelatorio).referencia})`;
+    }
+    return relatorio?.temPeriodo ? textoPeriodo(periodo.inicio, periodo.fim) : "";
+  }, [areaDoRelatorio, filtrosArea, relatorio, periodo]);
 
   /** Volta ao mesmo recorte com que a tela abre -- é o que "Ano corrente" já faz. */
   function voltarAoPeriodoPadrao() {
@@ -354,14 +409,25 @@ export default function Relatorios() {
   /**
    * Filtros do relatório pronto em texto: são a categoria e o agrupamento que ele
    * já declara -- é o que define o recorte dos dados nesse caso.
+   *
+   * Nos relatórios de área entram também os filtros escolhidos no painel, um a
+   * um, para que o documento diga exatamente o que está (e o que não está) na
+   * folha. Nenhum outro relatório muda: quem não tem área continua com as duas
+   * linhas de sempre.
    */
-  const filtrosDoRelatorio = React.useMemo(
-    () => [
+  const filtrosDoRelatorio = React.useMemo(() => {
+    const proprios = [
       { label: "Categoria", valor: CATEGORIAS.find((c) => c.id === relatorio?.categoria)?.nome },
       { label: "Agrupado por", valor: resultado?.rotuloGrupo },
-    ],
-    [relatorio, resultado]
-  );
+    ];
+    if (!areaDoRelatorio) return proprios;
+    return [
+      ...proprios,
+      ...descricaoDosFiltros(areaDoRelatorio, filtrosArea, {
+        secretarias: bases.areas?.secretarias ?? [],
+      }),
+    ];
+  }, [relatorio, resultado, areaDoRelatorio, filtrosArea, bases.areas]);
 
   const cabecalhoDoRelatorio = React.useMemo(
     () =>
@@ -378,12 +444,13 @@ export default function Relatorios() {
   const subtituloDocumento = React.useMemo(() => {
     const emitido = `Emitido em ${geradoEm ?? agoraBR()}`;
     const porQuem = usuario?.nome_completo ? ` por ${usuario.nome_completo}` : "";
+    if (areaDoRelatorio) return `${periodoDoRelatorio} — ${emitido}${porQuem}`;
     const trecho =
       relatorio?.temPeriodo && (periodo.inicio || periodo.fim)
         ? `Período de ${formatarCelula(periodo.inicio, "data")} a ${formatarCelula(periodo.fim, "data")} — `
         : "";
     return `${trecho}${emitido}${porQuem}`;
-  }, [geradoEm, usuario, relatorio, periodo]);
+  }, [geradoEm, usuario, relatorio, periodo, areaDoRelatorio, periodoDoRelatorio]);
 
   function imprimir() {
     if (!resultado || resultado.registros === 0) {
@@ -742,7 +809,7 @@ export default function Relatorios() {
               key={categoria.id}
               categoria={categoria}
               Icone={ICONES_CATEGORIA[categoria.id] ?? BarChart2}
-              relatorios={relatoriosDaCategoria(categoria.id)}
+              relatorios={relatoriosVisiveis(categoria.id)}
               aberto={categoriaAberta === categoria.id}
               onAlternar={alternarCategoria}
               selecionado={selecionado}
@@ -974,6 +1041,18 @@ export default function Relatorios() {
                 </PainelFiltros>
               )}
 
+              {/* Filtros dos relatórios de Patrocínios, Aluguéis e Bandas:
+                  mesmo painel recolhível das listagens das áreas. */}
+              {areaDoRelatorio && (
+                <FiltrosRelatorioArea
+                  className="mt-5"
+                  area={areaDoRelatorio}
+                  filtros={filtrosArea}
+                  onChange={setFiltrosArea}
+                  secretarias={bases.areas?.secretarias ?? []}
+                />
+              )}
+
               <div className="flex flex-wrap gap-3 mt-5">
                 <Chip label="Registros" valor={textoRegistros(resultado.registros)} />
                 {total !== null && <Chip label={resultado.rotuloTotal} valor={formatBRL(total)} destaque />}
@@ -1096,6 +1175,13 @@ export default function Relatorios() {
                   )}
                 </table>
               </div>
+            )}
+            {areaDoRelatorio && !carregando && (
+              <p className="px-5 sm:px-6 pb-5 pt-3 text-[11px] leading-relaxed text-[#0F2A44]/45">
+                Total contratado, Pago e Saldo são calculados a partir das baixas das NFs vinculadas
+                a cada registro — os mesmos valores da tela de {areaDoRelatorio.rotulo} e da aba de
+                Baixas. Sem NF vinculada, Pago fica em R$ 0,00 e o Saldo é o valor total.
+              </p>
             )}
           </section>
         )}

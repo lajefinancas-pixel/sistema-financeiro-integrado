@@ -470,7 +470,14 @@ export function registroAtendeBusca(area, registro, termo) {
   );
 }
 
-function atendeFiltro(area, registro, filtro, filtros) {
+/**
+ * Um registro atende a um filtro da área?
+ *
+ * É o único lugar que decide isso, e vale igual na listagem e no relatório da
+ * área -- é o que garante que "filtrei na tela" e "filtrei no relatório"
+ * devolvam o mesmo conjunto de registros.
+ */
+export function registroAtendeFiltro(area, registro, filtro, filtros) {
   if (filtro.tipo === "faixaValor") {
     const minimo = filtros[`${filtro.chave}Min`];
     const maximo = filtros[`${filtro.chave}Max`];
@@ -516,7 +523,9 @@ export function totalFiltrosAtivos(area, filtros = {}) {
 export function filtrarRegistros(area, registros = [], { busca = "", filtros = {} } = {}) {
   const filtradas = (registros ?? []).filter((registro) => {
     if (!registroAtendeBusca(area, registro, busca)) return false;
-    return (area?.filtros ?? []).every((filtro) => atendeFiltro(area, registro, filtro, filtros));
+    return (area?.filtros ?? []).every((filtro) =>
+      registroAtendeFiltro(area, registro, filtro, filtros),
+    );
   });
   return ordenarRegistros(area, filtradas);
 }

@@ -44,6 +44,13 @@ import {
   situacaoPorData,
 } from "./certidoes";
 import { anotarVigencia, ehVigenteNoTipo, somenteVigentes } from "./certidoesRegras";
+import { AREAS } from "./areasFornecedores";
+import {
+  carregarRegistrosDaArea,
+  carregarSecretariasDasAreas,
+  estruturaDeAreasAusente,
+} from "./areasFornecedoresDados";
+import { carregarPermissoesDasAreas } from "./permissoesAreasFornecedores";
 import {
   categoriaLabel,
   estaAtrasada,
@@ -607,3 +614,64 @@ export async function carregarBaseCertidoes() {
     documentacao: documentacaoDosFornecedores(fornecedores, certidoes, tipos),
   };
 }
+
+/* -------------------------------------------------------------------------
+ * Patrocínios, Aluguéis e Bandas
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Os registros das três áreas, para os relatórios de Patrocínios, Aluguéis e
+ * Bandas.
+ *
+ * Cada área é lida pela MESMA consulta da tela dela (`carregarRegistrosDaArea`),
+ * que já traz o fornecedor, a secretaria e as NFs vinculadas em `registro.notas`
+ * -- e é dessas notas que Pago e Saldo saem, calculados, na hora de montar a
+ * linha. Nenhuma consulta nova, nenhum total gravado em paralelo: o relatório vê
+ * exatamente o que a área vê.
+ *
+ * Só é lida a área que a pessoa pode visualizar; as outras nem consultadas são.
+ * `permitidas` diz quais foram, e é o que esconde da Central o relatório de uma
+ * área sem permissão. Em banco onde a migration das áreas não foi rodada não há
+ * o que relatar: os três relatórios simplesmente não aparecem, e o recado da
+ * migration continua sendo o das telas das áreas.
+ */
+export async function carregarBaseAreasFornecedores() {
+  const vazio = { permitidas: {}, registros: {}, secretarias: [] };
+
+  let permissoes = {};
+  try {
+    ({ permissoes } = await carregarPermissoesDasAreas());
+  } catch (falha) {
+    // Sem saber as permissões, nada é mostrado -- os relatórios só desaparecem
+    // da Central, sem afetar nenhum outro relatório.
+    console.error("[Relatórios] Não foi possível verificar as permissões das áreas.", falha);
+    return vazio;
+  }
+
+  const liberadas = AREAS.filter((area) => permissoes?.[area.id]?.visualizar === true);
+  if (liberadas.length === 0) return vazio;
+
+  const resultados = await Promise.all(
+    liberadas.map(async (area) => {
+      try {
+        return { area, registros: await carregarRegistrosDaArea(area.id) };
+      } catch (falha) {
+        if (estruturaDeAreasAusente(falha)) return { area, registros: null };
+        throw falha;
+      }
+    }),
+  );
+
+  const base = { permitidas: {}, registros: {}, secretarias: [] };
+  resultados.forEach(({ area, registros }) => {
+    if (registros === null) return;
+    base.permitidas[area.id] = true;
+    base.registros[area.id] = registros;
+  });
+
+  if (Object.keys(base.permitidas).length === 0) return vazio;
+
+  base.secretarias = await carregarSecretariasDasAreas().catch(() => []);
+  return base;
+}
+
