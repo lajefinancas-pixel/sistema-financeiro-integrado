@@ -294,7 +294,9 @@ test("9. a impressão da Programação Diária usa o nome escolhido, não outro"
   const pagina = await read(PAGINA_PROGRAMACAO);
   // A mesma função alimenta a tela, a impressão, o PDF e o Excel.
   assert.match(pagina, /function nomePagamento\(pagamento\) \{\s*\n\s*return nomeExibicaoDoPagamento\(pagamento\);\s*\n\}/);
-  assert.match(pagina, /pagamentos: pagamentos\.map\(\(item\) => \(\{ fornecedor: nomePagamento\(item\), valor: numero\(item\.valor_a_pagar\) \}\)\)/);
+  // A carga do papel sai da lista JÁ ORDENADA da tela (ordem alfabética pelo
+  // nome exibido), com o mesmo nome que a tela mostra.
+  assert.match(pagina, /pagamentos: pagamentosOrdenados\.map\(\(item\) => \(\{ fornecedor: nomePagamento\(item\), valor: numero\(item\.valor_a_pagar\) \}\)\)/);
   assert.match(pagina, /imprimirProgramacao\(dadosDocumento\(\)\)/);
   assert.match(pagina, /gerarPdfProgramacao\(dadosDocumento\(\)\)/);
   assert.match(pagina, /exportarExcelProgramacao\(dadosDocumento\(\)\)/);

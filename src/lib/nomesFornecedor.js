@@ -160,6 +160,59 @@ export function complementoDoPagamento(pagamento) {
 }
 
 /* -------------------------------------------------------------------------
+ * Ordem alfabética da programação
+ * ---------------------------------------------------------------------- */
+
+/**
+ * ORDEM ALFABÉTICA PELO NOME EXIBIDO.
+ *
+ * A programação diária é lida em voz alta na reunião, então a lista tem de sair
+ * na ordem em que a pessoa lê os nomes na tela -- e o nome que ela lê é o que a
+ * precedência de exibição escolheu: nome de exibição da programação -> apelido
+ * -> razão social. Ordenar pela razão social de um item que aparece como
+ * "Zé Alimentos — Merenda" colocaria o item numa posição que ninguém encontra.
+ *
+ * Alfabética brasileira: acento e caixa não mudam a posição ("Ávila" antes de
+ * "Bahia", "ANA" junto de "Ana"). Empate de nomes que se leem iguais é desfeito
+ * pela comparação exata, só para a ordem não variar de um render para o outro.
+ *
+ * ORDENAR É SÓ EXIBIÇÃO: as funções devolvem uma CÓPIA da lista, com os MESMOS
+ * objetos dentro. Nenhum valor, vínculo (`fornecedor_id`), conta definida ou
+ * total é lido, recalculado ou alterado aqui.
+ */
+const COLETOR_ALFABETICO = new Intl.Collator("pt-BR", { sensitivity: "base", ignorePunctuation: false });
+const COLETOR_EXATO = new Intl.Collator("pt-BR");
+
+/** Compara dois nomes já exibidos, ignorando acento e maiúsculas/minúsculas. */
+export function compararNomesExibidos(a, b) {
+  const nomeA = textoLimpo(a);
+  const nomeB = textoLimpo(b);
+  const alfabetica = COLETOR_ALFABETICO.compare(nomeA, nomeB);
+  return alfabetica !== 0 ? alfabetica : COLETOR_EXATO.compare(nomeA, nomeB);
+}
+
+/**
+ * Fornecedores do CADASTRO em ordem alfabética pelo nome exibido (apelido
+ * quando existe, senão o nome oficial) -- a lista de seleção da Proposta.
+ */
+export function ordenarFornecedoresPorNome(fornecedores = []) {
+  return [...(fornecedores ?? [])].sort(
+    (a, b) => compararNomesExibidos(nomeExibicaoDoFornecedor(a), nomeExibicaoDoFornecedor(b)),
+  );
+}
+
+/**
+ * ITENS da programação em ordem alfabética pelo nome exibido -- a lista dos
+ * escolhidos, os valores, a tabela de contas da execução, a impressão, o PDF e
+ * a planilha. Fornecedor avulso entra na mesma ordem, pelo nome digitado nele.
+ */
+export function ordenarPagamentosPorNome(pagamentos = []) {
+  return [...(pagamentos ?? [])].sort(
+    (a, b) => compararNomesExibidos(nomeExibicaoDoPagamento(a), nomeExibicaoDoPagamento(b)),
+  );
+}
+
+/* -------------------------------------------------------------------------
  * Busca do fornecedor
  * ---------------------------------------------------------------------- */
 

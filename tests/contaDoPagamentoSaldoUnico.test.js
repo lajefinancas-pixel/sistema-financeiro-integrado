@@ -254,7 +254,7 @@ test("TESTE 5: numa programação de data anterior o saldo exibido é o mesmo em
 
   // E na tela: a execução recebe a MESMA lista das contas de trabalho.
   const pagina = await read(PAGINA);
-  assert.match(pagina, /<PainelExecucaoProgramacao\n\s*programacao=\{programacao\}\n\s*pagamentos=\{pagamentos\}\n\s*contas=\{contasDaProgramacao\}/);
+  assert.match(pagina, /<PainelExecucaoProgramacao\n\s*programacao=\{programacao\}\n\s*pagamentos=\{pagamentosOrdenados\}\n\s*contas=\{contasDaProgramacao\}/);
   assert.match(pagina, /saldoCongelado=\{modoSaldoCongelado\}/);
   assert.match(pagina, /dataFormatada=\{dataBR\(programacao\.data_programacao\)\}/);
 

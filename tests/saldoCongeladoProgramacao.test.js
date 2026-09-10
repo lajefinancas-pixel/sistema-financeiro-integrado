@@ -308,7 +308,7 @@ test("a tela lê o saldo gravado da programação em vez de buscar o saldo atual
   // A etapa de execução recebe a MESMA lista das contas de trabalho: numa
   // programação de data anterior a conta não pode mostrar um saldo no topo da
   // tela e outro embaixo.
-  assert.match(pagina, /<PainelExecucaoProgramacao\n\s*programacao=\{programacao\}\n\s*pagamentos=\{pagamentos\}\n\s*contas=\{contasDaProgramacao\}/);
+  assert.match(pagina, /<PainelExecucaoProgramacao\n\s*programacao=\{programacao\}\n\s*pagamentos=\{pagamentosOrdenados\}\n\s*contas=\{contasDaProgramacao\}/);
   assert.match(pagina, /saldoCongelado=\{modoSaldoCongelado\}/);
   // Salvar e aprovar continuam de pé.
   assert.match(pagina, /supabase\.rpc\("salvar_planejamento_programacao", argumentos\)/);

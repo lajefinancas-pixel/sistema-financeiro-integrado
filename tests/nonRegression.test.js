@@ -218,7 +218,7 @@ test("impressão e PDF usam documento próprio sem controles de interface", asyn
 test("somente contas selecionadas e valores propostos chegam ao documento", async () => {
   const pagina = await read("src/pages/PagamentosRedesenhado.jsx");
   assert.match(pagina, /contas: contasSelecionadasComSaldo\.map/);
-  assert.match(pagina, /pagamentos: pagamentos\.map/);
+  assert.match(pagina, /pagamentos: pagamentosOrdenados\.map/);
   assert.doesNotMatch(pagina, /numero_nota_fiscal|retenções|dados bancários/);
 });
 
@@ -337,7 +337,7 @@ test("botões de impressão, PDF e Excel ficam na faixa fixa e o papel recebe a 
   assert.match(pagina, /secretaria: nomeSecretariaSelecionada/);
   assert.match(pagina, /emissao: agoraBR\(\)/);
   // Os pagamentos vão ao papel em duas colunas: fornecedor e valor.
-  assert.match(pagina, /pagamentos: pagamentos\.map\(\(item\) => \(\{ fornecedor: nomePagamento\(item\), valor: numero\(item\.valor_a_pagar\) \}\)\)/);
+  assert.match(pagina, /pagamentos: pagamentosOrdenados\.map\(\(item\) => \(\{ fornecedor: nomePagamento\(item\), valor: numero\(item\.valor_a_pagar\) \}\)\)/);
 });
 
 test("as chaves enviadas pela tela são as que o documento imprime", async () => {

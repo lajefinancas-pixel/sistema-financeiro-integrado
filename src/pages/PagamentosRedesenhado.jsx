@@ -8,7 +8,7 @@ import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { agoraBR, exportarExcelProgramacao, gerarPdfProgramacao, imprimirProgramacao } from "../lib/programacaoDocumento";
-import { alternarSelecao, calcularRestante, definirValorProgramado, ordenarFornecedoresPorAberto, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
+import { alternarSelecao, calcularRestante, chavesDeExibicaoDosPagamentos, definirValorProgramado, selecionarTodosVisiveis, somarContasSelecionadas, somarPagamentos, valorPlanejamento } from "../lib/planejamentoPagamentos";
 import {
   TEXTO_SEM_REGISTRO,
   aplicarSaldosCongelados,
@@ -48,6 +48,8 @@ import {
   filtrarFornecedoresPorTermo,
   nomeExibicaoDoPagamento,
   normalizarNomeExibicao,
+  ordenarFornecedoresPorNome,
+  ordenarPagamentosPorNome,
 } from "../lib/nomesFornecedor";
 
 const hojeISO = () => {
@@ -376,6 +378,21 @@ export default function PagamentosRedesenhado() {
   const envioAplicado = React.useRef(null);
   const [semColunasDeOrigem, setSemColunasDeOrigem] = React.useState(false);
   const [envioAnotado, setEnvioAnotado] = React.useState(false);
+  // Item que acabou de entrar na programação. A lista reordena na hora, então a
+  // tela leva a pessoa até onde o item caiu -- e só quando ele ficou fora da
+  // área visível.
+  const [itemAdicionado, setItemAdicionado] = React.useState(null);
+
+  // ORDEM DA PROGRAMAÇÃO, UMA SÓ: alfabética pelo nome exibido. Esta lista
+  // alimenta os escolhidos, os valores, a tabela de contas da execução, a
+  // impressão, o PDF e a planilha -- é o que garante que o papel saia na mesma
+  // ordem da tela. `pagamentos` continua sendo a lista de verdade (ordem de
+  // inclusão), e é ela que é gravada: reordenar é só exibição.
+  const pagamentosOrdenados = React.useMemo(() => ordenarPagamentosPorNome(pagamentos), [pagamentos]);
+  // A identidade de cada linha, para o React reconhecer a mesma linha depois de
+  // a lista reordenar: o valor sendo digitado e a renomeação aberta continuam
+  // onde estavam quando um fornecedor novo entra no meio da lista.
+  const chavesPagamentos = React.useMemo(() => chavesDeExibicaoDosPagamentos(pagamentos), [pagamentos]);
 
   const avisoPendente = envioPendente
     ? avisoDeEnvioPendente(envioPendente, { programacao, podeEditarProgramacao })
@@ -408,6 +425,7 @@ export default function PagamentosRedesenhado() {
     envioAplicado.current = envioPendente.chave;
     setEnvioAnotado(true);
     setPagamentos(aplicado.pagamentos);
+    if (aplicado.resultado === "adicionado") setItemAdicionado(aplicado.pagamentos[aplicado.pagamentos.length - 1]);
     setFornecedoresConfirmados(false);
     setMensagem(aplicado.mensagem);
     limparEnvio();
@@ -419,6 +437,22 @@ export default function PagamentosRedesenhado() {
     carregarBase();
     carregarProgramacoes();
   }, [secretariaId, data]);
+
+  // Fornecedor acrescentado entra na posição alfabética dele, que pode ser
+  // acima do que está na tela. `block: "nearest"` rola o mínimo necessário e
+  // não faz nada quando a linha já está visível: a rolagem de quem está
+  // conferindo a lista não se perde. Só exibição -- nada é alterado aqui.
+  React.useEffect(() => {
+    if (!itemAdicionado) return;
+    const chave = chavesPagamentos.get(itemAdicionado);
+    setItemAdicionado(null);
+    if (!chave || typeof document === "undefined") return;
+    const seletor = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(chave) : chave.replace(/["\\]/g, "\\$&");
+    // A mesma linha existe na lista dos escolhidos e na de valores; uma das
+    // duas está escondida por CSS, e a escondida não tem caixa de layout.
+    const linhas = [...document.querySelectorAll(`[data-item-programacao="${seletor}"]`)];
+    linhas.find((linha) => linha.offsetParent !== null)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [itemAdicionado, chavesPagamentos]);
 
   React.useEffect(() => {
     if (programacaoId) carregarProgramacao(programacaoId);
@@ -515,7 +549,11 @@ export default function PagamentosRedesenhado() {
         mapa[chave] = numero(mapa[chave]) + Math.max(0, numero(item.valor) - numero(item.valor_pago));
         return mapa;
       }, {});
-      setFornecedores(ordenarFornecedoresPorAberto((fornecedoresAtivos ?? []).map((fornecedor) => ({
+      // ORDEM ALFABÉTICA PELO NOME EXIBIDO -- o mesmo nome que a pessoa lê na
+      // linha (apelido quando existe, senão a razão social). O valor em aberto
+      // continua sendo mostrado ao lado de cada fornecedor; ele só não manda
+      // mais na posição da lista.
+      setFornecedores(ordenarFornecedoresPorNome((fornecedoresAtivos ?? []).map((fornecedor) => ({
         ...fornecedor,
         valor_em_aberto: numero(totais[String(fornecedor.id)]),
       }))));
@@ -678,9 +716,15 @@ export default function PagamentosRedesenhado() {
     }]);
   }
 
-  /** Identifica o item na tela: por id quando já gravado, por posição quando não. */
+  /**
+   * Identifica o item na tela: pelo id quando já gravado, senão pelo que o item
+   * É (fornecedor vinculado ou nome do avulso). NÃO é a posição: a lista está em
+   * ordem alfabética e reordena quando um fornecedor entra, e chave de posição
+   * faria a linha ser remontada -- fechando a renomeação aberta e tirando o foco
+   * do valor sendo digitado. A posição fica só como último recurso.
+   */
   function chaveDoPagamento(pagamento, indice) {
-    return vazio(pagamento.id) ? `pos:${indice}` : `id:${pagamento.id}`;
+    return chavesPagamentos.get(pagamento) ?? (vazio(pagamento.id) ? `pos:${indice}` : `id:${pagamento.id}`);
   }
 
   function abrirNomeExibicao(pagamento, indice) {
@@ -747,14 +791,18 @@ export default function PagamentosRedesenhado() {
       setErro("Informe o nome e um valor maior que zero para o fornecedor avulso.");
       return;
     }
-    setPagamentos((itens) => [...itens, {
+    // O avulso entra na MESMA ordem alfabética, pelo nome digitado nele -- pode
+    // cair no meio da lista, então a tela leva a pessoa até a linha nova.
+    const novo = {
       id: null,
       fornecedor_id: null,
       fornecedores: null,
       nome_avulso: avulso.nome.trim(),
       valor_a_pagar: numero(avulso.valor),
       cadastrar_fornecedor_posteriormente: avulso.cadastrarDepois,
-    }]);
+    };
+    setPagamentos((itens) => [...itens, novo]);
+    setItemAdicionado(novo);
     setAvulso({ nome: "", valor: 0, cadastrarDepois: false });
     setMostrarAvulso(false);
     setErro("");
@@ -1065,7 +1113,8 @@ export default function PagamentosRedesenhado() {
       // congelado gravado vai com saldo nulo e o papel imprime "--", nunca o
       // saldo de hoje e nunca zero no lugar do que não foi gravado.
       contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo ?? null, nome: conta.nome_conta })),
-      pagamentos: pagamentos.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
+      // A MESMA ordem da tela: o papel sai na sequência que a pessoa leu.
+      pagamentos: pagamentosOrdenados.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
       totalContas: saldoDaProgramacaoIndisponivel ? null : totalDisponivel,
       totalProgramado,
       restante: saldoDaProgramacaoIndisponivel ? null : restante,
@@ -1378,17 +1427,19 @@ export default function PagamentosRedesenhado() {
                 <div className="border-b border-black/5 px-3 py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">2.</span> Proposta</h2>
-                    <span className="text-[10px] text-[#17352F]/45 print:hidden">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Maior valor em aberto primeiro"}</span>
+                    <span className="text-[10px] text-[#17352F]/45 print:hidden">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Ordem alfabética"}</span>
                   </div>
                   {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar por nome, apelido, razão social ou CNPJ/CPF" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
                 </div>
 
-                {/* Lista completa, na ordem do maior valor em aberto para o menor. */}
+                {/* Lista completa, em ordem alfabética pelo nome exibido -- o
+                    mesmo nome que aparece na linha. O valor em aberto continua
+                    ao lado de cada fornecedor, só não manda mais na posição. */}
                 {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[1.6rem_1fr_auto] items-center gap-2 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-3.5 w-3.5 accent-[#17352F]"/><span className="min-w-0 font-medium text-[#17352F]"><NomeFornecedor fornecedor={fornecedor} classeSecundaria="text-[#17352F]/60"/></span><span className={fornecedor.valor_em_aberto > 0 ? "font-bold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)}</span></label>; })}</div>}
 
                 {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
                 <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
-                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
+                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
                   <div className="bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
                 </div>
 
@@ -1404,7 +1455,7 @@ export default function PagamentosRedesenhado() {
                 próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
             {!fornecedoresConfirmados && <section className="mt-3 overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm print:hidden">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[#17352F]/45">Valor editável, pode ser menor que o aberto</span></div>
-              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
+              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
             </section>}
 
             {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma
@@ -1420,7 +1471,7 @@ export default function PagamentosRedesenhado() {
                   Definir a conta continua não debitando nada. */}
               <PainelExecucaoProgramacao
                 programacao={programacao}
-                pagamentos={pagamentos}
+                pagamentos={pagamentosOrdenados}
                 contas={contasDaProgramacao}
                 contasSelecionadas={contasSelecionadas}
                 secretariaId={secretariaId}
