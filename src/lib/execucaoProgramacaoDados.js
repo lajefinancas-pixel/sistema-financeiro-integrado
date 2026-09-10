@@ -11,6 +11,7 @@ import { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 import { classificarFalhaFase1 } from "./estruturaPagamentosFase1.js";
 import { erroAmigavel } from "./erros";
 import { normalizarNomeExibicao } from "./nomesFornecedor.js";
+import { JUSTIFICATIVA_MINIMA_REABERTURA } from "./execucaoProgramacao.js";
 
 export { secretariasRelacionadas } from "./segregacaoSecretarias.js";
 
@@ -168,6 +169,56 @@ export async function definirNomeExibicaoDoPagamento({ pagamentoId, nome }) {
   return data;
 }
 
+/**
+ * O que está vinculado à programação, para a tela poder AVISAR antes de reabrir.
+ *
+ * Só contagem, e por função do banco: quem aprova pode não ter permissão de ver
+ * a aba de Baixas, e um aviso que aparecesse como "nenhuma baixa" por falta de
+ * leitura seria pior do que aviso nenhum. Quando não dá para conferir, devolve
+ * `null` -- que a tela trata como desconhecido, nunca como zero.
+ */
+export async function carregarVinculosDaProgramacao(programacaoId) {
+  try {
+    const { data, error } = await supabase.rpc("vinculos_da_programacao", {
+      p_programacao_id: programacaoId,
+    });
+    if (error) throw error;
+    return {
+      baixas: data?.baixas ?? null,
+      transferencias: data?.transferencias ?? null,
+      naoVerificado: data?.baixas == null || data?.transferencias == null,
+    };
+  } catch (falha) {
+    if (typeof console !== "undefined") {
+      console.warn("[Pagamentos Fase 2] não foi possível contar baixas e transferências da programação.", falha);
+    }
+    return { baixas: null, transferencias: null, naoVerificado: true };
+  }
+}
+
+/**
+ * Reabre a programação aprovada: desfaz a APROVAÇÃO, não os dados.
+ *
+ * A justificativa é conferida aqui e no banco -- a exigência não depende da
+ * tela. REABRIR NÃO DESFAZ NADA: contas, fornecedores, valores, saldos
+ * congelados, baixas, transferências e saldos reais das contas continuam como
+ * estão. A aprovação anterior segue registrada na Auditoria como fato ocorrido.
+ */
+export async function reabrirProgramacao({ programacaoId, justificativa }) {
+  const texto = String(justificativa ?? "").trim();
+  if (texto.length < JUSTIFICATIVA_MINIMA_REABERTURA) {
+    throw erroAmigavel(
+      `Escreva a justificativa da reabertura, com pelo menos ${JUSTIFICATIVA_MINIMA_REABERTURA} caracteres. Ela fica registrada na Auditoria.`
+    );
+  }
+  const { data, error } = await supabase.rpc("reabrir_programacao_pagamento", {
+    p_programacao_id: programacaoId,
+    p_justificativa: texto,
+  });
+  if (error) throw error;
+  return data;
+}
+
 /** As cinco permissões desta fase, com o padrão do módulo como reserva. */
 export const ACOES_FASE_2 = [
   "aprovar_programacao",
@@ -206,5 +257,25 @@ export async function carregarPermissoesFase2(permissaoModulo) {
     })
   );
 
-  return Object.fromEntries(resultados);
+  return { ...Object.fromEntries(resultados), [ACAO_REABRIR]: await podeReabrir(permissaoModulo) };
+}
+
+/**
+ * Permissão de reabrir programação aprovada.
+ *
+ * Fica fora de ACOES_FASE_2 de propósito: `pode_em_pagamentos_fase2` não
+ * conhece esta ação e devolveria `false` para todo mundo. A pergunta é feita à
+ * função própria, e enquanto a migration da reabertura não rodar vale o mesmo
+ * padrão de aprovar -- que é a permissão que a ação exige.
+ */
+export const ACAO_REABRIR = "reabrir_programacao";
+
+async function podeReabrir(permissaoModulo) {
+  try {
+    const { data, error } = await supabase.rpc("pode_reabrir_programacao");
+    if (error) throw error;
+    return data === true;
+  } catch (falha) {
+    return permissaoModulo?.pode_aprovar === true;
+  }
 }

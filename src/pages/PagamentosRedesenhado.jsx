@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
@@ -22,9 +22,10 @@ import {
 } from "../lib/saldoCongeladoProgramacao";
 import { FUNCOES_FASE_1, classificarFalhaFase1, detalheDoBanco, verificarEstruturaFase1 } from "../lib/estruturaPagamentosFase1";
 import { verificarEstruturaFase2 } from "../lib/estruturaPagamentosFase2";
-import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
-import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, definirContaDePagamentos, definirNomeExibicaoDoPagamento, estruturaFase2Ausente } from "../lib/execucaoProgramacaoDados";
+import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnalise, impedimentosParaAprovar, podeReabrirProgramacao, podeRevisarProposta, resumoAprovacao, statusLabelExecucao } from "../lib/execucaoProgramacao";
+import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, carregarVinculosDaProgramacao, definirContaDePagamentos, definirNomeExibicaoDoPagamento, estruturaFase2Ausente, reabrirProgramacao } from "../lib/execucaoProgramacaoDados";
 import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoProgramacao";
+import ModalReaberturaProgramacao from "../components/pagamentos/ModalReaberturaProgramacao";
 import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
 import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
 import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
@@ -137,6 +138,7 @@ const MIGRATION_FASE_1 = "supabase/migrations/20260827000000_consolidar_fluxo_pa
 const MIGRATION_REPARO_FASE_1 = "supabase/migrations/20260827130000_reaplicar_estrutura_pagamentos_fase_1.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
 const MIGRATION_CORRECAO_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
+const MIGRATION_REABERTURA = "supabase/migrations/20260910120000_reabrir_programacao_aprovada.sql";
 const MIGRATION_CORRECAO_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
 const MIGRATION_PADRONIZACAO_USUARIO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
 const MIGRATION_APELIDO = "supabase/migrations/20260905120000_apelido_fornecedor_e_nome_exibicao_programacao.sql";
@@ -241,6 +243,17 @@ function mensagemFalhaFase2(falha, mensagemPadrao) {
   return mensagemFalhaFase1(falha, mensagemPadrao);
 }
 
+// Reabrir tem migration própria, também rodada à mão no SQL Editor. Enquanto ela
+// não rodar, a função não existe -- e o aviso precisa dizer QUAL arquivo
+// executar, em vez de mandar rodar a migration da Fase 2, que não cria esta
+// função.
+function mensagemFalhaReabertura(falha) {
+  if (estruturaFase2Ausente(falha)) {
+    return `A ação de reabrir programação ainda não está no banco conectado a esta tela. Execute ${MIGRATION_REABERTURA} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo do banco está no console (F12).`;
+  }
+  return mensagemFalhaFase2(falha, "Não foi possível reabrir a programação.");
+}
+
 function registrarErroFase2(operacao, falha, contexto = {}) {
   if (typeof console === "undefined") return;
   console.error(`[Pagamentos Fase 2] ${operacao}`, {
@@ -318,6 +331,11 @@ export default function PagamentosRedesenhado() {
   const [transferencias, setTransferencias] = React.useState([]);
   const [contasTransferencia, setContasTransferencia] = React.useState([]);
   const [mostrarAprovacao, setMostrarAprovacao] = React.useState(false);
+  // Reabrir é AÇÃO DE EXCEÇÃO: desfaz a aprovação e devolve a programação para
+  // elaboração. Não desfaz dado nenhum -- os vínculos abaixo existem só para o
+  // aviso mostrado antes de confirmar.
+  const [mostrarReabertura, setMostrarReabertura] = React.useState(false);
+  const [vinculosReabertura, setVinculosReabertura] = React.useState({ baixas: 0, transferencias: 0 });
   const [mostrarTransferencia, setMostrarTransferencia] = React.useState(false);
   const [estornoAlvo, setEstornoAlvo] = React.useState(null);
   // Aprovada trava a proposta: o que muda depois disso é a execução, não o
@@ -809,6 +827,45 @@ export default function PagamentosRedesenhado() {
     }
   }
 
+  // REABRIR NÃO DESFAZ DADOS: devolve o status para "em elaboração" e limpa os
+  // campos da aprovação. Contas, fornecedores, valores, conta de cada pagamento,
+  // saldos congelados, baixas, transferências e saldos reais das contas
+  // continuam exatamente como estão -- e a aprovação anterior segue registrada
+  // na Auditoria como fato ocorrido.
+  async function abrirReabertura() {
+    if (!programacao) return;
+    // A contagem alimenta o AVISO do modal. Falha aqui não impede reabrir: os
+    // vínculos voltam como desconhecidos e o próprio aviso diz isso.
+    setVinculosReabertura(await carregarVinculosDaProgramacao(idInteiro(programacao.id, "Programação")));
+    setMostrarReabertura(true);
+  }
+
+  async function confirmarReabertura(justificativa) {
+    if (!programacao) return;
+    setSalvando(true);
+    setErro("");
+    setMensagem("");
+    try {
+      const resposta = await reabrirProgramacao({
+        programacaoId: idInteiro(programacao.id, "Programação"),
+        justificativa,
+      });
+      setMostrarReabertura(false);
+      setMensagem(
+        resposta?.ja_em_elaboracao
+          ? "Esta programação já estava em elaboração: nada foi alterado."
+          : "Programação reaberta e editável outra vez. Nenhum dado foi desfeito: contas, fornecedores, valores, saldos congelados, baixas e transferências continuam como estavam. A justificativa ficou registrada na Auditoria."
+      );
+      await carregarProgramacao(programacao.id, { manterRecolhimento: true });
+      await carregarProgramacoes(programacao.id);
+    } catch (falha) {
+      registrarErroFase2("Falha ao reabrir programação", falha, { programacaoId: programacao.id });
+      setErro(mensagemFalhaReabertura(falha));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   // ATRIBUIR CONTA NÃO DEBITA CONTA: o vínculo é o roteiro do pagamento. O
   // mesmo caminho atende um pagamento, os marcados e todos -- e depois de
   // aplicar em lote a troca individual continua possível.
@@ -1122,7 +1179,7 @@ export default function PagamentosRedesenhado() {
           {!programacao ? <div className="rounded-xl border border-dashed border-[#17352F]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[#17352F]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[#17352F]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#17352F] px-3 py-2 text-white">
               <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
-              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B98C55] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}</div>
+              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B98C55] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Desfaz a aprovação e devolve a programação para edição. Não desfaz baixas, transferências nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
             </div>
 
             {/* Volta da reunião com o gestor: a MESMA programação é reaberta
@@ -1291,6 +1348,14 @@ export default function PagamentosRedesenhado() {
             programação aberta é um documento de data anterior. O aviso abaixo
             diz isso na própria janela, para o número dela não ser lido como o
             saldo congelado que o resto da programação exibe. */}
+        {mostrarReabertura && programacao && <ModalReaberturaProgramacao
+          programacao={programacao}
+          vinculos={vinculosReabertura}
+          salvando={salvando}
+          onFechar={() => setMostrarReabertura(false)}
+          onConfirmar={confirmarReabertura}
+        />}
+
         {mostrarTransferencia && programacao && <ModalTransferenciaEntreContas
           programacao={programacao}
           contas={contasTransferencia}
