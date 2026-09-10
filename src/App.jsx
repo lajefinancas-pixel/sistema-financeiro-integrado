@@ -4,7 +4,7 @@ import { supabase } from "./lib/supabaseClient";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Saldos from "./pages/Saldos";
-import Fornecedores from "./pages/Fornecedores";
+import ModuloFornecedores from "./pages/ModuloFornecedores";
 import Certidoes from "./pages/Certidoes";
 import Pagamentos from "./pages/Pagamentos";
 import Baixas from "./pages/Baixas";
@@ -37,7 +37,10 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RotaProtegida><Dashboard /></RotaProtegida>} />
       <Route path="/saldos" element={<RotaProtegida><Saldos /></RotaProtegida>} />
-      <Route path="/fornecedores" element={<RotaProtegida><Fornecedores /></RotaProtegida>} />
+      {/* Fornecedores e as suas subabas (Todos | Patrocínios | Aluguéis | Bandas).
+          A rota sem área é a aba "Todos", a página de Fornecedores de sempre. */}
+      <Route path="/fornecedores" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
+      <Route path="/fornecedores/:area" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />

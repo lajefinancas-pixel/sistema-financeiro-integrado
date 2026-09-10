@@ -39,6 +39,12 @@ export function eventoCritico(evento) {
 const MODULOS = {
   saldos: "Saldos",
   fornecedores: "Fornecedores",
+  // Áreas específicas dentro de Fornecedores. Cada uma tem o seu módulo na
+  // trilha, para que a consulta consiga separar "o que mudou em Patrocínios" de
+  // "o que mudou no cadastro do fornecedor".
+  patrocinios: "Patrocínios",
+  alugueis: "Aluguéis",
+  bandas: "Bandas",
   pagamentos: "Pagamentos",
   tributario: "Tributário",
   certidoes: "Certidões",
@@ -92,6 +98,16 @@ const ACOES = {
   // por isso fica separada da aprovação, que continua registrada como fato
   // ocorrido.
   reabriu_programacao: "Reabriu programação",
+  // Áreas de Fornecedores (Patrocínios, Aluguéis e Bandas): a exclusão é lógica
+  // (inativar, com volta possível), e vincular ou desvincular NF não altera a
+  // nota nem as baixas dela -- só o vínculo com o registro da área. A alteração
+  // de valor ou de situação fica com ação própria porque é a que mais interessa
+  // conferir depois.
+  inativou: "Inativou",
+  reativou: "Reativou",
+  alterou_valor_situacao: "Alterou valor ou situação",
+  vinculou_nota: "Vinculou NF/processo",
+  desvinculou_nota: "Desvinculou NF/processo",
 };
 
 export function acaoLabel(valor) {
