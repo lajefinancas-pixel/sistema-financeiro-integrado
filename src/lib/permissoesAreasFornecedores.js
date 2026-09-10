@@ -30,6 +30,41 @@ const NENHUMA = Object.freeze(
   Object.fromEntries(AREAS.map((area) => [area.id, PERMISSOES_AREA_NENHUMA])),
 );
 
+export const PERMISSOES_AREAS_NENHUMA = NENHUMA;
+
+/**
+ * As permissões das três áreas do usuário logado: `{ usuario, permissoes }`.
+ *
+ * Sem usuário na sessão, `usuario` vem `null` e `permissoes` nega tudo. Vive
+ * fora do hook porque o relatório de cada área precisa da MESMA resposta para
+ * decidir se aparece na Central de Relatórios -- assim a tela da área e o
+ * relatório da área nunca discordam sobre quem pode ver o quê.
+ */
+export async function carregarPermissoesDasAreas() {
+  const { data: auth, error: erroAuth } = await supabase.auth.getUser();
+  if (erroAuth) throw erroAuth;
+  if (!auth?.user) throw erroAmigavel("Sessão não encontrada. Entre novamente para continuar.");
+
+  const { data: usuarios, error: erroUsuario } = await supabase
+    .from("usuarios")
+    .select("id, nome_completo, cargo, foto_url, status, perfis_acesso ( id, nome )")
+    .eq("auth_id", auth.user.id)
+    .limit(1);
+  if (erroUsuario) throw erroUsuario;
+
+  const usuario = usuarios?.[0] ?? null;
+  if (!usuario) return { usuario: null, permissoes: NENHUMA };
+
+  const { data: linhas, error: erroModulos } = await supabase
+    .from("permissoes_efetivas")
+    .select("modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_excluir")
+    .eq("usuario_id", usuario.id)
+    .in("modulo", [...MODULOS_AREAS, "fornecedores"]);
+  if (erroModulos) throw erroModulos;
+
+  return { usuario, permissoes: resolverPermissoesAreas({ linhas: linhas ?? [] }) };
+}
+
 /**
  * Hook da página de área: `{ carregando, usuario, permissoes, erro }`.
  * `permissoes` tem uma chave por área, sempre com as quatro ações booleanas.
@@ -47,31 +82,7 @@ export function usePermissoesAreasFornecedores() {
 
     async function carregar() {
       try {
-        const { data: auth, error: erroAuth } = await supabase.auth.getUser();
-        if (erroAuth) throw erroAuth;
-        if (!auth?.user) throw erroAmigavel("Sessão não encontrada. Entre novamente para continuar.");
-
-        const { data: usuarios, error: erroUsuario } = await supabase
-          .from("usuarios")
-          .select("id, nome_completo, cargo, foto_url, status, perfis_acesso ( id, nome )")
-          .eq("auth_id", auth.user.id)
-          .limit(1);
-        if (erroUsuario) throw erroUsuario;
-
-        const usuario = usuarios?.[0] ?? null;
-        if (!usuario) {
-          if (ativo) setEstado({ carregando: false, usuario: null, permissoes: NENHUMA, erro: null });
-          return;
-        }
-
-        const { data: linhas, error: erroModulos } = await supabase
-          .from("permissoes_efetivas")
-          .select("modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_excluir")
-          .eq("usuario_id", usuario.id)
-          .in("modulo", [...MODULOS_AREAS, "fornecedores"]);
-        if (erroModulos) throw erroModulos;
-
-        const permissoes = resolverPermissoesAreas({ linhas: linhas ?? [] });
+        const { usuario, permissoes } = await carregarPermissoesDasAreas();
         if (ativo) setEstado({ carregando: false, usuario, permissoes, erro: null });
       } catch (falha) {
         console.error("[Áreas de Fornecedores] Não foi possível verificar as permissões.", falha);

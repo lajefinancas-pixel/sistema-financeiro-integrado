@@ -9,9 +9,21 @@
 // As contas que chegam de carregarSaldosDasContas já vêm com uma linha por conta,
 // então os subtotais podem somar a coluna diretamente, sem risco de contar a
 // mesma conta duas vezes.
+//
+// Os relatórios de Patrocínios, Aluguéis e Bandas são os únicos com filtros
+// próprios (período, secretaria, fornecedor, situação, faixa de valores e os da
+// área): as colunas, as linhas e a ordem deles vêm de
+// lib/relatoriosAreasFornecedores.js, que reaproveita as MESMAS funções da
+// listagem de cada área -- inclusive o cálculo de Pago e Saldo a partir das
+// baixas das NFs vinculadas.
 
 import { somar } from "./rateioPagamentos";
 import { formatarPercentual, formatBRL } from "./moeda";
+import { AREAS } from "./areasFornecedores";
+import {
+  colunasDoRelatorioDaArea,
+  linhasDoRelatorioDaArea,
+} from "./relatoriosAreasFornecedores";
 
 /** Só a parte "AAAA-MM-DD" de uma data/hora do banco. */
 export function soData(valor) {
@@ -252,7 +264,61 @@ export const CATEGORIAS = [
     descricao:
       "Certidões dos fornecedores, vencimentos, documentação obrigatória e a visão por secretaria.",
   },
+  {
+    id: "areas",
+    nome: "Patrocínios, Aluguéis e Bandas",
+    descricao:
+      "Registros de cada área com valor contratado, pago e saldo -- o pago e o saldo calculados a partir das baixas das NFs vinculadas, como nas telas das áreas.",
+  },
 ];
+
+/* -------------------------------------------------------------------------
+ * Patrocínios, Aluguéis e Bandas
+ * ---------------------------------------------------------------------- */
+
+const DESCRICAO_DA_AREA = {
+  patrocinios:
+    "Patrocínios cadastrados, em ordem alfabética de fornecedor, com valor contratado, pago e saldo por registro.",
+  alugueis:
+    "Aluguéis cadastrados, em ordem alfabética de fornecedor, com o objeto alugado e o valor contratado, pago e saldo por registro.",
+  bandas:
+    "Contratações de bandas e artistas, em ordem alfabética de banda/artista, com evento e o valor contratado, pago e saldo por registro.",
+};
+
+/**
+ * Um relatório por área, com as colunas da listagem dela.
+ *
+ * `area` é o que dá a estes três (e só a estes) filtros próprios e permissão
+ * própria: `relatorioPermitido` exige o `visualizar` da área, e a tela passa os
+ * filtros escolhidos em `opcoes.filtrosArea`.
+ *
+ * O total geral da coluna Valor é o total contratado; Pago e Saldo são colunas
+ * somáveis, então o rodapé do relatório e o resumo saem da MESMA soma das linhas
+ * -- que por sua vez vem das baixas das NFs vinculadas a cada registro.
+ */
+const RELATORIOS_DAS_AREAS = AREAS.map((area) => ({
+  id: `area-${area.id}`,
+  categoria: "areas",
+  base: "areas",
+  area: area.id,
+  nome: `Relatório de ${area.rotulo}`,
+  descricao: DESCRICAO_DA_AREA[area.id] ?? "",
+  colunas: colunasDoRelatorioDaArea(area),
+  campoTotal: "valor",
+  rotuloTotal: "Total contratado",
+  montar: (bases, opcoes = {}) =>
+    blocoUnico(
+      linhasDoRelatorioDaArea(
+        area,
+        bases?.areas?.registros?.[area.id] ?? [],
+        opcoes.filtrosArea ?? {},
+      ),
+    ),
+  resumo: (resultado) => [
+    { label: "Total pago", valor: formatBRL(resultado.totais?.pago ?? 0) },
+    { label: "Saldo", valor: formatBRL(resultado.totais?.saldo ?? 0), destaque: true },
+  ],
+}));
 
 export const RELATORIOS = [
   {
@@ -777,6 +843,7 @@ export const RELATORIOS = [
       { label: "Vencidas", valor: String(quantidadePorPrazo(resultado, "vencida")) },
     ],
   },
+  ...RELATORIOS_DAS_AREAS,
 ];
 
 export function relatorioPorId(id) {
@@ -785,6 +852,19 @@ export function relatorioPorId(id) {
 
 export function relatoriosDaCategoria(categoria) {
   return RELATORIOS.filter((r) => r.categoria === categoria);
+}
+
+/**
+ * A pessoa pode ver este relatório?
+ *
+ * Só os relatórios de área respondem por permissão própria: cada um exige o
+ * `visualizar` da SUA área, o mesmo que libera a tela dela -- quem não pode ver
+ * Bandas não vê o relatório de Bandas. Os demais relatórios continuam como
+ * estavam, liberados pelo acesso à Central (e Certidões pela sua base).
+ */
+export function relatorioPermitido(relatorio, bases = {}) {
+  if (!relatorio?.area) return true;
+  return bases?.areas?.permitidas?.[relatorio.area] === true;
 }
 
 /** Soma das colunas marcadas como somáveis. */
