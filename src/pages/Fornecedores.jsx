@@ -27,6 +27,11 @@ import {
   estruturaDeApelidoAusente,
   normalizarNomeExibicao,
 } from "../lib/nomesFornecedor";
+import {
+  conferirDocumentoDisponivel,
+  duplicidadeDeDocumento,
+  mensagemDeDuplicidadeDoBanco,
+} from "../lib/documentoFornecedor";
 import PainelFiltros from "../components/comuns/PainelFiltros";
 import {
   auditarExclusao,
@@ -672,6 +677,15 @@ export default function Fornecedores() {
       if (!form.razao_social || !form.cpf_cnpj || !form.secretaria_id) {
         throw erroAmigavel("Preencha razão social, CPF/CNPJ e secretaria.");
       }
+
+      // UM DOCUMENTO, UM CADASTRO. O mesmo CPF/CNPJ em dois cadastros espalha
+      // notas, certidões e valores em aberto entre dois registros do mesmo
+      // fornecedor. A conferência ignora pontuação e alcança também o cadastro
+      // inativo, o que está na Lixeira e o de outra secretaria — a mensagem diz
+      // o nome de quem já tem o documento. A palavra final é do índice único do
+      // banco, tratado logo abaixo.
+      await conferirDocumentoDisponivel({ cpfCnpj: form.cpf_cnpj, fornecedores });
+
       // Apelido é opcional: vazio nem entra no insert, para o cadastro continuar
       // idêntico em banco onde a migration do apelido ainda não rodou.
       const apelido = normalizarNomeExibicao(form.apelido);
@@ -688,6 +702,11 @@ export default function Fornecedores() {
 
       const { error } = await supabase.from("fornecedores").insert(cadastro);
       if (error) {
+        // Índice único do banco: dois cadastros ao mesmo tempo, ou um caminho
+        // que não passou por esta tela. A recusa vira a mesma mensagem clara.
+        if (duplicidadeDeDocumento(error)) {
+          throw erroAmigavel(await mensagemDeDuplicidadeDoBanco({ cpfCnpj: form.cpf_cnpj }));
+        }
         if (apelido && estruturaDeApelidoAusente(error)) throw erroAmigavel(AVISO_MIGRATION_APELIDO);
         throw error;
       }
