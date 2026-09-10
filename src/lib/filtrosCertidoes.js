@@ -6,6 +6,12 @@ import {
   situacaoEfetiva,
 } from "./certidoes";
 import { anotarVigencia, ehVigenteNoTipo } from "./certidoesRegras";
+import { ATALHOS } from "./atalhosCertidoes";
+
+// A lista de atalhos e a leitura deles na URL moram em lib/atalhosCertidoes.js;
+// seguem exportadas daqui para nada mudar em quem já as importava deste módulo.
+export { ATALHOS };
+export { atalhoDaUrl, rotaCertidoesAVencer } from "./atalhosCertidoes";
 
 /**
  * Filtros, ordenação e agrupamento da listagem de certidões.
@@ -46,18 +52,6 @@ export const FILTROS_VAZIOS = {
 export const OPCOES_SITUACAO_FILTRO = [
   ...OPCOES_SITUACAO,
   { id: SITUACAO_NAO_CADASTRADA, label: "Não cadastrada" },
-];
-
-/**
- * Atalhos rápidos. São excludentes entre si (não faz sentido pedir "vencidas" e
- * "vencendo em 7 dias" ao mesmo tempo), mas somam com os demais filtros.
- */
-export const ATALHOS = [
-  { id: "vencidas", label: "Vencidas" },
-  { id: "vence_7", label: "Vencendo em 7 dias", dias: 7 },
-  { id: "vence_15", label: "Vencendo em 15 dias", dias: 15 },
-  { id: "vence_30", label: "Vencendo em 30 dias", dias: 30 },
-  { id: "sem_documento", label: "Sem documento cadastrado" },
 ];
 
 export const ORDENACOES = [

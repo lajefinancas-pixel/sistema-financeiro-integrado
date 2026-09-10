@@ -1,4 +1,5 @@
 import React from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ArrowUpDown,
   Download,
@@ -44,6 +45,7 @@ import {
   ORDENACOES,
   ORDENACAO_PADRAO,
   agruparPorFornecedor,
+  atalhoDaUrl,
   filtrarCertidoes,
   haFiltroAtivo,
   ordenarCertidoes,
@@ -83,6 +85,8 @@ export default function Certidoes() {
   // exige as duas permissões, sem criar nenhuma regra nova de acesso.
   const podeRenovar = podeCadastrar && podeEditar;
 
+  const [parametros] = useSearchParams();
+
   const [aba, setAba] = React.useState("certidoes");
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -105,13 +109,31 @@ export default function Certidoes() {
 
   // Filtros: o formulário só passa a valer em "Aplicar Filtros"; os atalhos
   // rápidos valem no clique.
-  const [filtros, setFiltros] = React.useState(FILTROS_VAZIOS);
-  const [filtrosAplicados, setFiltrosAplicados] = React.useState(FILTROS_VAZIOS);
+  //
+  // A tela também aceita um atalho pela URL (`/certidoes?atalho=vencidas`), que
+  // é como os atalhos do Painel Principal chegam aqui: quem clica em "3
+  // certidões vencidas" abre a listagem já recortada nas vencidas, em vez de
+  // procurar o recorte na mão. Sem o parâmetro, nada muda.
+  const atalhoPedido = atalhoDaUrl(parametros.get("atalho"));
+  const [filtros, setFiltros] = React.useState(() => ({ ...FILTROS_VAZIOS, atalho: atalhoPedido }));
+  const [filtrosAplicados, setFiltrosAplicados] = React.useState(() => ({
+    ...FILTROS_VAZIOS,
+    atalho: atalhoPedido,
+  }));
   const [ordenacao, setOrdenacao] = React.useState(ORDENACAO_PADRAO);
   // Visão da listagem: linha a linha ou com as certidões reunidas por fornecedor.
   const [agrupado, setAgrupado] = React.useState(false);
   // Fornecedor escolhido na listagem: mostra só as certidões dele, agrupadas.
   const [fornecedorFoco, setFornecedorFoco] = React.useState(null);
+
+  // Chegar de novo com outro atalho na URL (sem sair da tela) reaplica o
+  // recorte pedido. Filtro pedido pela pessoa na tela não é sobrescrito: o
+  // efeito só roda quando o parâmetro em si muda.
+  React.useEffect(() => {
+    if (!atalhoPedido) return;
+    setFiltros((atual) => ({ ...atual, atalho: atalhoPedido }));
+    setFiltrosAplicados((atual) => ({ ...atual, atalho: atalhoPedido }));
+  }, [atalhoPedido]);
 
   React.useEffect(() => {
     if (!podeVisualizar) return undefined;

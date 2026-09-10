@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  Bell, Search, Landmark, HeartPulse, GraduationCap, HandHeart,
+  Search, Landmark, HeartPulse, GraduationCap, HandHeart,
   Plus, Users, FileBarChart, DatabaseBackup, ChevronRight, TrendingUp, TrendingDown,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -9,6 +9,8 @@ import Layout from "../components/Layout";
 import CardCertidoes from "../components/certidoes/CardCertidoes";
 import AlertaBackupDiario from "../components/painel/AlertaBackupDiario";
 import SecoesPessoais from "../components/painel/SecoesPessoais";
+import SinoPendencias from "../components/painel/SinoPendencias";
+import { usePainelPessoal } from "../lib/painelPessoal";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { totalizarSaldos } from "../lib/saldosContas";
@@ -69,6 +71,12 @@ export default function Dashboard() {
   const [pendencias, setPendencias] = React.useState([]);
   const [ultimosRegistros, setUltimosRegistros] = React.useState([]);
   const [pagamentosProgramados, setPagamentosProgramados] = React.useState([]);
+
+  // Leitura única das seções pessoais. Ela alimenta "Minhas tarefas" e
+  // "Precisa da Minha Atenção" e, junto com as "Pendências e Alertas" logo
+  // abaixo, é a MESMA fonte que o sino do topo usa — sem consulta extra e sem
+  // recontagem por outro caminho.
+  const dadosPessoais = usePainelPessoal();
 
   React.useEffect(() => {
     carregarTudo();
@@ -157,16 +165,19 @@ export default function Dashboard() {
       const listaPendencias = [];
       if (vencidos && vencidos.length > 0) {
         listaPendencias.push({
+          id: "notas-vencidas",
           cor: "#DC2626", label: `Notas fiscais vencidas -- ${vencidos.length}`, rota: "/fornecedores",
         });
       }
       if (proximosVencer && proximosVencer.length > 0) {
         listaPendencias.push({
+          id: "documentos-a-vencer",
           cor: "#2563EB", label: `Documentos próximos do vencimento -- ${proximosVencer.length}`, rota: "/fornecedores",
         });
       }
       if (progsAbertas && progsAbertas.length > 0) {
         listaPendencias.push({
+          id: "fechamentos-pendentes",
           cor: "#EA9A1E", label: `Fechamentos diários pendentes -- ${progsAbertas.length}`, rota: "/pagamentos",
         });
       }
@@ -283,14 +294,14 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 bg-white border border-black/5 rounded-lg px-3 py-2 text-sm shadow-sm">
               {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
             </div>
-            <button className="relative w-9 h-9 rounded-lg bg-white border border-black/5 flex items-center justify-center shadow-sm">
-              <Bell size={16} className="text-[#0F2A44]/70" />
-              {pendencias.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                  {pendencias.length}
-                </span>
-              )}
-            </button>
+            {/* Sino: abre a lista das pendências que o próprio painel mostra
+                logo abaixo — "Precisa da Minha Atenção" e "Pendências e
+                Alertas" —, sem nova consulta e sem nova contagem. */}
+            <SinoPendencias
+              atencao={dadosPessoais.atencao}
+              alertas={pendencias}
+              carregando={dadosPessoais.carregando}
+            />
           </div>
         </div>
 
@@ -377,7 +388,7 @@ export default function Dashboard() {
 
             {/* Seções pessoais: as tarefas de quem está logado e o que precisa
                 de atenção agora. Compactas de propósito — resumo e atalho. */}
-            <SecoesPessoais />
+            <SecoesPessoais dados={dadosPessoais} />
 
             <div className="grid grid-cols-3 gap-5">
               <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-5">
@@ -390,7 +401,7 @@ export default function Dashboard() {
                   <div className="space-y-2">
                     {pendencias.map((p, i) => (
                       <button
-                        key={i}
+                        key={p.id ?? i}
                         onClick={() => navigate(p.rota)}
                         className="w-full flex items-center justify-between text-left px-3 py-2.5 rounded-lg hover:bg-black/[0.02] border border-black/5"
                       >

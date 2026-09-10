@@ -4,6 +4,7 @@ import { usePermissaoModulo } from "./permissoes";
 import { MODULO as MODULO_TAREFAS, estaAtrasada, hojeISO } from "./tarefas";
 import { listarCertidoes } from "./certidoes";
 import { prazosDeAlerta, resumoCertidoes } from "./alertasCertidoes";
+import { rotaCertidoesAVencer } from "./atalhosCertidoes";
 
 /**
  * Dados das duas seções pessoais do Painel Principal: "Minhas tarefas" e
@@ -95,7 +96,9 @@ export function itensDeAtencao({ certidoes, tarefas }) {
       id: "certidoes-vencidas",
       cor: "#DC2626",
       texto: `${certidoes.vencidas} ${plural(certidoes.vencidas, "certidão vencida", "certidões vencidas")}`,
-      rota: "/certidoes?filtro=pendencias",
+      // Abre a listagem de Certidões já recortada nas vencidas — o mesmo
+      // recorte que a contagem acima usou.
+      rota: "/certidoes?atalho=vencidas",
     });
   }
   if (tarefas?.atrasadas > 0) {
@@ -115,7 +118,9 @@ export function itensDeAtencao({ certidoes, tarefas }) {
         "certidão vence",
         "certidões vencem",
       )} em até ${certidoes.janela} dias`,
-      rota: "/certidoes?filtro=pendencias",
+      // Mesma janela de dias da contagem, quando ela existe como atalho da
+      // listagem; nas outras, a listagem abre inteira, como antes.
+      rota: rotaCertidoesAVencer(certidoes.janela),
     });
   }
   if (tarefas?.venceHoje > 0) {
