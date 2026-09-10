@@ -108,6 +108,10 @@ const ACOES = {
   alterou_valor_situacao: "Alterou valor ou situação",
   vinculou_nota: "Vinculou NF/processo",
   desvinculou_nota: "Desvinculou NF/processo",
+  // Mandar o registro da área para a Programação Diária. É PROPOSTA de
+  // pagamento: nenhum valor é pago, nenhuma nota recebe baixa e nenhum saldo de
+  // conta é movimentado por esta ação.
+  enviou_para_programacao: "Enviou para a programação",
 };
 
 export function acaoLabel(valor) {

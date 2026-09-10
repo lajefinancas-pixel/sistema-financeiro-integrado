@@ -1,11 +1,12 @@
 import React from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import Fornecedores from "./Fornecedores";
 import PaginaAreaFornecedores from "../components/fornecedores/areas/PaginaAreaFornecedores.jsx";
 import { areaPorRota } from "../lib/areasFornecedores.js";
 import { usePermissoesAreasFornecedores } from "../lib/permissoesAreasFornecedores.js";
+import { usePermissaoModulo } from "../lib/permissoes";
 import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
 import { carregarSecretariasDasAreas } from "../lib/areasFornecedoresDados.js";
 
@@ -32,8 +33,16 @@ import { carregarSecretariasDasAreas } from "../lib/areasFornecedoresDados.js";
  */
 export default function ModuloFornecedores() {
   const { area: rota } = useParams();
+  const [parametros] = useSearchParams();
   const { carregando, usuario, permissoes, erro } = usePermissoesAreasFornecedores();
+  // Quem manda um registro para a Programação Diária precisa poder editar a
+  // programação. A permissão é lida do módulo 'pagamentos', o mesmo que a tela
+  // de Pagamentos usa — e, como lá, a ausência de linha não bloqueia.
+  const { permissao: permissaoPagamentos } = usePermissaoModulo("pagamentos");
   const area = areaPorRota(rota);
+  // /fornecedores/bandas?fornecedor=12 — vem dos "Vínculos Específicos" da
+  // ficha do fornecedor e apenas recorta a lista pelo fornecedor_id.
+  const fornecedorInicial = parametros.get("fornecedor") ?? "";
 
   const [apoio, setApoio] = React.useState({ fornecedores: [], secretarias: [], carregando: false });
 
@@ -103,6 +112,8 @@ export default function ModuloFornecedores() {
           fornecedores={apoio.fornecedores}
           secretarias={apoio.secretarias}
           carregandoApoio={apoio.carregando}
+          podeProgramar={permissaoPagamentos?.pode_editar !== false}
+          fornecedorInicial={fornecedorInicial}
         />
       </div>
     </Layout>

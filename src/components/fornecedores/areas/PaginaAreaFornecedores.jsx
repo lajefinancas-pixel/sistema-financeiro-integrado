@@ -1,5 +1,6 @@
 import React from "react";
-import { Ban, Eye, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Ban, CalendarPlus, Eye, Pencil, Plus, RotateCcw } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import PainelFiltros from "../../comuns/PainelFiltros.jsx";
 import ModalRegistroArea from "./ModalRegistroArea.jsx";
 import ModalNotasDoRegistro from "./ModalNotasDoRegistro.jsx";
@@ -13,6 +14,7 @@ import {
   nomeDoFornecedorDoRegistro,
   resumoFinanceiroDoRegistro,
   situacaoAreaInfo,
+  situacaoPagamentoDoRegistro,
   textoDoCampo,
   totalFiltrosAtivos,
   totaisDaLista,
@@ -25,9 +27,11 @@ import {
   definirAtivoRegistro,
   desvincularNota,
   estruturaDeAreasAusente,
+  registrarEnvioParaProgramacao,
   vincularNota,
 } from "../../../lib/areasFornecedoresDados.js";
-import { apelidoDoFornecedor } from "../../../lib/nomesFornecedor.js";
+import { envioParaProgramacao, guardarEnvio } from "../../../lib/programacaoDeAreas.js";
+import { apelidoDoFornecedor, nomeOficialDoFornecedor } from "../../../lib/nomesFornecedor.js";
 
 /**
  * A listagem de uma área específica de Fornecedores (Patrocínios, Aluguéis ou
@@ -45,7 +49,16 @@ export default function PaginaAreaFornecedores({
   fornecedores = [],
   secretarias = [],
   carregandoApoio = false,
+  // Permissão de EDITAR o módulo 'pagamentos': sem ela, a ação de adicionar à
+  // Programação Diária não aparece. A recusa que vale continua sendo a da
+  // própria tela de programação e a do banco.
+  podeProgramar = false,
+  // Fornecedor vindo dos "Vínculos Específicos" da ficha
+  // (/fornecedores/patrocinios?fornecedor=12): a lista abre mostrando só os
+  // registros dele, com um chip para tirar o recorte.
+  fornecedorInicial = "",
 }) {
+  const navigate = useNavigate();
   const [registros, setRegistros] = React.useState([]);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -54,6 +67,9 @@ export default function PaginaAreaFornecedores({
 
   const [busca, setBusca] = React.useState("");
   const [filtros, setFiltros] = React.useState(() => filtrosVazios(area));
+  // Recorte por fornecedor: é o ID que filtra, nunca o nome -- dois
+  // fornecedores podem ter nomes parecidos, e o vínculo do sistema é o id.
+  const [fornecedorRecorte, setFornecedorRecorte] = React.useState(() => String(fornecedorInicial ?? ""));
 
   const [formAberto, setFormAberto] = React.useState(false);
   const [emEdicao, setEmEdicao] = React.useState(null);
@@ -74,6 +90,10 @@ export default function PaginaAreaFornecedores({
     setFormAberto(false);
     setEmEdicao(null);
   }, [area]);
+
+  React.useEffect(() => {
+    setFornecedorRecorte(String(fornecedorInicial ?? ""));
+  }, [fornecedorInicial]);
 
   const carregar = React.useCallback(async () => {
     setCarregando(true);
@@ -97,15 +117,42 @@ export default function PaginaAreaFornecedores({
     carregar();
   }, [carregar]);
 
+  const doFornecedorEscolhido = React.useMemo(
+    () =>
+      fornecedorRecorte === ""
+        ? registros
+        : registros.filter((registro) => String(registro.fornecedor_id) === fornecedorRecorte),
+    [registros, fornecedorRecorte],
+  );
   const visiveis = React.useMemo(
-    () => filtrarRegistros(area, registros, { busca, filtros }),
-    [area, registros, busca, filtros],
+    () => filtrarRegistros(area, doFornecedorEscolhido, { busca, filtros }),
+    [area, doFornecedorEscolhido, busca, filtros],
   );
   const totais = React.useMemo(() => totaisDaLista(visiveis), [visiveis]);
-  const ativos = totalFiltrosAtivos(area, filtros);
+  const ativos = totalFiltrosAtivos(area, filtros) + (fornecedorRecorte === "" ? 0 : 1);
+  const nomeDoRecorte =
+    fornecedorRecorte === ""
+      ? ""
+      : nomeOficialDoFornecedor(
+          doFornecedorEscolhido[0]?.fornecedores ??
+            fornecedores.find((f) => String(f.id) === fornecedorRecorte),
+        );
 
   const chips = React.useMemo(
     () =>
+      [
+        // O recorte por fornecedor entra como chip para ficar evidente que a
+        // lista está reduzida -- e removível, sem precisar voltar para a ficha.
+        ...(fornecedorRecorte === ""
+          ? []
+          : [
+              {
+                chave: "fornecedorRecorte",
+                rotulo: `Fornecedor: ${nomeDoRecorte || fornecedorRecorte}`,
+                remover: () => setFornecedorRecorte(""),
+              },
+            ]),
+      ].concat(
       area.filtros
         .flatMap((filtro) => {
           if (filtro.tipo === "faixaValor") {
@@ -143,7 +190,8 @@ export default function PaginaAreaFornecedores({
             },
           ];
         }),
-    [area, filtros, secretarias],
+      ),
+    [area, filtros, secretarias, fornecedorRecorte, nomeDoRecorte],
   );
 
   async function salvar(formulario, fornecedorEscolhido) {
@@ -185,6 +233,34 @@ export default function PaginaAreaFornecedores({
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível concluir esta ação."));
     }
+  }
+
+  /**
+   * Manda o registro para a Programação Diária. NÃO paga nada: leva apenas o
+   * fornecedor e o valor a programar para dentro do mesmo fluxo que já existe
+   * na tela de Pagamentos, onde o valor continua editável e a gravação segue
+   * sendo a de sempre. Nenhuma NF recebe baixa, nenhum saldo de conta é
+   * movimentado e o cadastro do fornecedor não é alterado.
+   */
+  async function enviarParaProgramacao(registro) {
+    setAviso(null);
+    setErro(null);
+    const envio = envioParaProgramacao(area, registro);
+    if (!envio.fornecedor_id) {
+      setErro("Este registro não tem fornecedor vinculado, então não há o que programar.");
+      return;
+    }
+    if (!guardarEnvio(envio)) {
+      setErro(
+        "Não foi possível levar este registro para a programação neste navegador. " +
+          "Abra a Programação Diária e escolha o fornecedor pela lista, como de costume.",
+      );
+      return;
+    }
+    // A auditoria é registrada aqui, no momento do envio, e nunca derruba a
+    // ação: se falhar, o usuário segue para a programação do mesmo jeito.
+    await registrarEnvioParaProgramacao(area.id, registro, envio);
+    navigate("/pagamentos");
   }
 
   async function abrirDetalhe(registro) {
@@ -270,7 +346,10 @@ export default function PaginaAreaFornecedores({
         rotulo="Filtros avançados"
         chips={chips}
         totalAtivos={ativos}
-        onLimpar={() => setFiltros(filtrosVazios(area))}
+        onLimpar={() => {
+          setFiltros(filtrosVazios(area));
+          setFornecedorRecorte("");
+        }}
         topo={
           <>
             <input
@@ -346,6 +425,8 @@ export default function PaginaAreaFornecedores({
                     setFormAberto(true);
                   }}
                   onAlternarAtivo={() => alternarAtivo(registro, registro.ativo === false)}
+                  podeProgramar={podeProgramar}
+                  onProgramar={() => enviarParaProgramacao(registro)}
                 />
               ))
             )}
@@ -394,9 +475,21 @@ export default function PaginaAreaFornecedores({
 }
 
 /** Uma linha da listagem, com Pago e Saldo calculados na hora de mostrar. */
-function Linha({ area, registro, permissao, onVer, onEditar, onAlternarAtivo }) {
+function Linha({
+  area,
+  registro,
+  permissao,
+  onVer,
+  onEditar,
+  onAlternarAtivo,
+  podeProgramar = false,
+  onProgramar,
+}) {
   const resumo = resumoFinanceiroDoRegistro(registro);
   const situacao = situacaoAreaInfo(registro.situacao);
+  // Situação do pagamento: LIDA das baixas das NFs vinculadas, na mesma conta
+  // que produz Pago e Saldo. Não existe coluna guardando isso.
+  const pagamento = situacaoPagamentoDoRegistro(registro);
   const inativo = registro.ativo === false;
 
   const conteudo = {
@@ -447,6 +540,19 @@ function Linha({ area, registro, permissao, onVer, onEditar, onAlternarAtivo }) 
             </td>
           );
         }
+        if (coluna.chave === "situacaoPagamento") {
+          return (
+            <td key={coluna.chave} className="px-3 py-2.5">
+              <span
+                className="inline-flex rounded-full px-2 py-0.5 text-[11px]"
+                style={{ backgroundColor: pagamento.bg, color: pagamento.cor }}
+                title="Calculado pelas baixas das NFs vinculadas — os mesmos valores da aba de Baixas."
+              >
+                {pagamento.label}
+              </span>
+            </td>
+          );
+        }
         if (coluna.chave === "acoes") {
           return (
             <td key={coluna.chave} className="px-3 py-2.5">
@@ -467,6 +573,16 @@ function Linha({ area, registro, permissao, onVer, onEditar, onAlternarAtivo }) 
                     className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
                   >
                     <Pencil size={14} />
+                  </button>
+                )}
+                {podeProgramar && !inativo && registro.fornecedor_id && (
+                  <button
+                    type="button"
+                    onClick={onProgramar}
+                    title={`Adicionar à Programação Diária (leva o fornecedor e o valor a programar — programar não é pagar)`}
+                    className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
+                  >
+                    <CalendarPlus size={14} />
                   </button>
                 )}
                 {permissao.inativar && (

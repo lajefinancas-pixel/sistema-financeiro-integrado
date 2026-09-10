@@ -34,6 +34,15 @@ import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSeleci
 import { estruturaDePixAusente } from "../lib/contasBancarias";
 import NomeFornecedor from "../components/comuns/NomeFornecedor";
 import {
+  AVISO_MIGRATION_ORIGEM,
+  aplicarEnvioNosPagamentos,
+  avisoDeEnvioPendente,
+  itemTemOrigem,
+  lerEnvio,
+  limparEnvio,
+  rotuloDaOrigem,
+} from "../lib/programacaoDeAreas";
+import {
   LIMITE_NOME_EXIBICAO,
   estruturaDeApelidoAusente,
   filtrarFornecedoresPorTermo,
@@ -105,10 +114,22 @@ async function itensDaProgramacao(programacaoId) {
       .is("excluido_em", null)
       .order("id");
 
+  // A origem (patrocínio, aluguel ou banda) é informação ADICIONAL do item: ela
+  // não substitui o fornecedor_id em nada e a maioria dos itens não tem origem
+  // nenhuma. Enquanto a migration da origem não rodar, a consulta cai para a
+  // versão sem essas colunas e a tela funciona exatamente como antes.
+  const comOrigem = await consultar(
+    `${COLUNAS_PAGAMENTO_PROGRAMACAO}, nome_exibicao_programacao, origem_tipo, origem_id, fornecedores(razao_social, apelido)`,
+  );
+  if (!comOrigem.error) return comOrigem;
+  if (!estruturaDeApelidoAusente(comOrigem.error)) return comOrigem;
+
   const comApelido = await consultar(
     `${COLUNAS_PAGAMENTO_PROGRAMACAO}, nome_exibicao_programacao, fornecedores(razao_social, apelido)`,
   );
-  if (!comApelido.error) return comApelido;
+  // Deu certo sem as colunas de origem: elas ainda não existem no banco, e o
+  // aviso da migration é mostrado só para quem veio de uma área.
+  if (!comApelido.error) return { ...comApelido, semColunasDeOrigem: true };
   if (!estruturaDeApelidoAusente(comApelido.error)) return comApelido;
   return consultar(`${COLUNAS_PAGAMENTO_PROGRAMACAO}, fornecedores(razao_social)`);
 }
@@ -348,11 +369,50 @@ export default function PagamentosRedesenhado() {
   // é histórico -- o banco recusa a alteração.
   const podeRenomearExibicao = podeEditar && programacao?.fechado !== true;
   const [nomeExibicaoEditando, setNomeExibicaoEditando] = React.useState(null);
+  // Registro de uma área (Patrocínios, Aluguéis ou Bandas) mandado para cá.
+  // É PROPOSTA: traz só o fornecedor e o valor a programar, e entra na lista
+  // pelo mesmo caminho de qualquer outro fornecedor. Nada é pago por isso.
+  const [envioPendente, setEnvioPendente] = React.useState(() => lerEnvio());
+  const envioAplicado = React.useRef(null);
+  const [semColunasDeOrigem, setSemColunasDeOrigem] = React.useState(false);
+  const [envioAnotado, setEnvioAnotado] = React.useState(false);
+
+  const avisoPendente = envioPendente
+    ? avisoDeEnvioPendente(envioPendente, { programacao, podeEditarProgramacao })
+    : "";
+
+  function cancelarEnvioPendente() {
+    limparEnvio();
+    setEnvioPendente(null);
+  }
 
   React.useEffect(() => {
     carregarSecretarias();
     conferirEstrutura();
   }, []);
+
+  // O envio entra na lista assim que existir uma programação que aceite item
+  // novo. Programação aprovada, fechada ou inexistente não recebe nada: o item
+  // fica esperando, com aviso na tela, e o usuário segue pelo caminho de sempre
+  // (criar programação, escolher outra data ou reabrir).
+  React.useEffect(() => {
+    if (!envioPendente || envioAplicado.current === envioPendente.chave) return;
+    if (!programacao || !podeEditarProgramacao) return;
+
+    const aplicado = aplicarEnvioNosPagamentos(pagamentos, envioPendente);
+    if (aplicado.resultado === "invalido") {
+      limparEnvio();
+      setEnvioPendente(null);
+      return;
+    }
+    envioAplicado.current = envioPendente.chave;
+    setEnvioAnotado(true);
+    setPagamentos(aplicado.pagamentos);
+    setFornecedoresConfirmados(false);
+    setMensagem(aplicado.mensagem);
+    limparEnvio();
+    setEnvioPendente(null);
+  }, [envioPendente, programacao, podeEditarProgramacao, pagamentos]);
 
   React.useEffect(() => {
     if (!secretariaId) return;
@@ -406,7 +466,13 @@ export default function PagamentosRedesenhado() {
       const { data: itens, error } = await supabase.from("secretarias").select("id, nome").eq("ativo", true).order("nome");
       if (error) throw error;
       setSecretarias(itens ?? []);
-      setSecretariaId(itens?.[0]?.id || "");
+      // Quem chegou de uma área abre já na secretaria do fornecedor daquele
+      // registro, quando ela está entre as que a pessoa vê. Sem envio, ou fora
+      // da lista, a primeira secretaria continua sendo a escolhida.
+      const daArea = (itens ?? []).find(
+        (item) => String(item.id) === String(envioPendente?.secretaria_id ?? ""),
+      );
+      setSecretariaId(daArea?.id || itens?.[0]?.id || "");
     } catch (falha) {
       setErro(mensagemAmigavel(falha, "Não foi possível carregar as secretarias."));
     } finally {
@@ -490,11 +556,15 @@ export default function PagamentosRedesenhado() {
     setErro("");
     try {
       const idProgramacao = idInteiro(id, "Programação");
-      const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, { data: itens, error: erroPagamentos }] = await Promise.all([
+      const [{ data: programa, error: erroPrograma }, { data: vinculadas, error: erroContas }, resultadoItens] = await Promise.all([
         cabecalhoDaProgramacao(idProgramacao),
         supabase.from("programacao_contas").select("conta_id, saldo_considerado, ordem").eq("programacao_id", idProgramacao).eq("ativa", true).order("ordem"),
         itensDaProgramacao(idProgramacao),
       ]);
+      const { data: itens, error: erroPagamentos } = resultadoItens;
+      // A migration da origem ainda não rodou: a tela segue inteira, e o aviso
+      // só aparece para quem acabou de mandar um registro de área para cá.
+      setSemColunasDeOrigem(Boolean(resultadoItens.semColunasDeOrigem));
       if (erroPrograma) throw erroPrograma;
       if (erroContas) throw erroContas;
       if (erroPagamentos) throw erroPagamentos;
@@ -727,6 +797,12 @@ export default function PagamentosRedesenhado() {
         nome_exibicao_programacao: normalizarNomeExibicao(item.nome_exibicao_programacao),
         valor_a_pagar: numero(item.valor_a_pagar),
         cadastrar_fornecedor_posteriormente: Boolean(item.cadastrar_fornecedor_posteriormente),
+        // Origem do item, quando ele veio de uma área de Fornecedores. É
+        // informação ADICIONAL: o vínculo do pagamento com o fornecedor
+        // continua sendo o fornecedor_id acima, e item sem origem -- o caso
+        // normal -- manda os dois campos nulos, como sempre.
+        origem_tipo: itemTemOrigem(item) ? item.origem_tipo : null,
+        origem_id: itemTemOrigem(item) ? item.origem_id : null,
       }));
       const programacaoIdInteiro = idInteiro(programacao.id, "Programação");
       const argumentos = {
@@ -1126,6 +1202,22 @@ export default function PagamentosRedesenhado() {
     );
   }
 
+  /**
+   * Etiqueta discreta dizendo de onde o item veio, quando ele nasceu de um
+   * registro de área. É só informação: o pagamento continua ligado ao
+   * fornecedor pelo fornecedor_id, e a busca de nota ou de processo na baixa
+   * não usa a origem para nada. Item sem origem -- o caso normal -- não mostra
+   * etiqueta nenhuma.
+   */
+  function etiquetaDeOrigem(pagamento) {
+    if (!itemTemOrigem(pagamento)) return null;
+    return (
+      <small className="ml-1 text-[10px] text-[#17352F]/45" title="Origem do item. O pagamento continua vinculado ao fornecedor, e a baixa continua sendo por NF/processo.">
+        via {rotuloDaOrigem(pagamento.origem_tipo)}
+      </small>
+    );
+  }
+
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
       <div className="mx-auto max-w-[1500px] px-4 pb-10 sm:px-6">
@@ -1170,6 +1262,19 @@ export default function PagamentosRedesenhado() {
           <p className="mt-1">Execute {MIGRATION_FASE_2} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. A revisão, a impressão e o restante do planejamento continuam funcionando; apenas aprovar, executar e transferir ficam indisponíveis.</p>
           {estruturaFase2.naoVerificado.length > 0 && <p className="mt-1 text-[11px]">Sem permissão para conferir: {listaLegivel(estruturaFase2.naoVerificado)} — estes não estão sendo acusados de faltar.</p>}
         </div>}
+
+        {/* Registro de área esperando: a programação da data não existe, está
+            aprovada ou está fechada. Nenhuma regra nova é inventada aqui -- o
+            caminho continua sendo criar programação, trocar de data ou reabrir. */}
+        {avisoPendente && <div className="mb-3 flex flex-wrap items-start justify-between gap-2 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
+          <p className="min-w-[16rem] flex-1">{avisoPendente}</p>
+          <button onClick={cancelarEnvioPendente} className="rounded-lg border border-[#8A321C]/30 px-2 py-1 text-[11px] font-semibold hover:bg-[#8A321C]/5">Cancelar envio</button>
+        </div>}
+
+        {/* Só quem veio de uma área vê este aviso: sem as colunas de origem o
+            item entra na programação do mesmo jeito, apenas sem guardar de qual
+            registro ele nasceu. */}
+        {semColunasDeOrigem && (envioAnotado || envioPendente) && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">{AVISO_MIGRATION_ORIGEM}</div>}
 
         {(erro || mensagem) && <div className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={15}/></button></div>}
 
@@ -1283,7 +1388,7 @@ export default function PagamentosRedesenhado() {
 
                 {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
                 <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
-                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
+                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
                   <div className="bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
                 </div>
 
@@ -1299,7 +1404,7 @@ export default function PagamentosRedesenhado() {
                 próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
             {!fornecedoresConfirmados && <section className="mt-3 overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm print:hidden">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[#17352F]/45">Valor editável, pode ser menor que o aberto</span></div>
-              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
+              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentos.map((pagamento, indice) => <div key={pagamento.id || `${pagamento.nome_avulso || pagamento.fornecedor_id}-${indice}`} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
             </section>}
 
             {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma
