@@ -1071,11 +1071,15 @@ export default function PagamentosRedesenhado() {
         setErro(parcial);
         return { ok: false, mensagem: parcial };
       }
+      // A resposta diz que JÁ ESTÁ GRAVADO, e não só o que aconteceu: esta seção
+      // não tem botão de salvar porque cada escolha vai ao banco no clique, e a
+      // linha acima acabou de reler do banco o que ficou lá. Sem essa frase, a
+      // tela contava a ação e deixava a dúvida "preciso salvar isto?" de pé.
       const feito = conta == null
-        ? `Conta retirada de ${alvos.length} ${alvos.length === 1 ? "pagamento" : "pagamentos"}. Nenhum saldo foi movimentado.`
+        ? `Conta retirada de ${alvos.length} ${alvos.length === 1 ? "pagamento" : "pagamentos"}. A retirada já está gravada no banco: não é preciso salvar. Nenhum saldo foi movimentado.`
         : alvos.length === 1
-          ? "Conta do pagamento definida. Definir conta não debita conta."
-          : `Conta definida em ${alvos.length} pagamentos. Definir conta não debita conta.`;
+          ? "Conta do pagamento definida e já gravada no banco: não é preciso salvar. Definir conta não debita conta."
+          : `Conta definida em ${alvos.length} pagamentos e já gravada no banco: não é preciso salvar. Definir conta não debita conta.`;
       setMensagem(feito);
       return { ok: true, mensagem: feito };
     } catch (falha) {
