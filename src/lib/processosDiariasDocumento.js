@@ -1,55 +1,86 @@
-// O documento do Processo de Diária: as DUAS páginas, em impressão e em PDF.
+// O documento do Processo de Diária: as TRÊS páginas, em impressão e em PDF.
 //
-// Não é captura de tela: é um documento com layout próprio, A4 retrato, com
-// cabeçalho institucional, identificação do processo, conteúdo em blocos,
-// totais, área de assinaturas e rodapé com a numeração das folhas.
+// É o modelo oficial da Prefeitura Municipal de São José da Laje - AL, folha por
+// folha, campo por campo:
 //
-// PAGINAÇÃO. A Solicitação começa na página 1 e a Liquidação SEMPRE começa em
-// folha nova, independentemente do tamanho do conteúdo -- na impressão pelo
+//   1. REQUISIÇÃO DE DIÁRIAS -- a Lei Municipal nº 003/2005, o que se requisita,
+//      a identificação do servidor, o quadro de valores com o VALOR POR EXTENSO
+//      e as três assinaturas (servidor, secretaria e prefeita).
+//   2. LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO -- o requisitante, o pedido de
+//      autorização à Senhora Prefeita, o quadro resumo, o favorecido com dados
+//      bancários e valor, e a autorização da prefeita para a Secretaria
+//      Municipal de Finanças.
+//   3. PRESTAÇÃO DE CONTAS DE DIÁRIAS -- o RELATÓRIO DE ATIVIDADES, impresso com
+//      linhas para ser escrito à mão quando ainda não foi digitado, e o
+//      fechamento com local, data, nome e cargo do servidor.
+//
+// Não é captura de tela: é o documento desenhado em A4 retrato, com o rodapé
+// institucional da prefeitura em TODAS as páginas.
+//
+// PAGINAÇÃO. Cada documento começa em folha PRÓPRIA -- na impressão pelo
 // `page-break-after` da folha, no PDF por um `addPage()` incondicional. No uso
-// normal o processo sai em exatamente duas páginas; conteúdo excepcionalmente
-// grande (uma finalidade de vinte linhas) transborda para uma folha a mais em
-// vez de ser cortado: informação do documento não é truncada para forçar duas
-// páginas.
+// normal o processo completo sai em exatamente três páginas; conteúdo
+// excepcionalmente grande transborda para uma folha a mais em vez de ser
+// cortado: informação do documento não é truncada para forçar três páginas.
+//
+// A PRESTAÇÃO DE CONTAS PENDENTE NÃO IMPEDE NADA. Ela é preenchida depois da
+// viagem: enquanto isso, a página 3 sai com as linhas em branco e as páginas 1
+// e 2 saem completas, como no papel.
 //
 // O DOCUMENTO NÃO É FINANCEIRO. Imprimir ou gerar o PDF não debita conta, não
 // dá baixa em NF, não altera saldo e não cria pagamento. A página 2 chama-se
-// "Solicitação de Liquidação da Diária" porque é o nome do formulário: é papel.
+// "Liquidação/Solicitação de Pagamento" porque é o nome do formulário: ela
+// SOLICITA a autorização da prefeita em papel, e nada mais.
 
 import { jsPDF } from "jspdf";
 import { formatBRL, formatBRLSimples, paraNumeroMoeda } from "./moeda.js";
 import { imprimirDocumentoHtml } from "./impressaoNavegador.js";
 import {
+  LEI_DAS_DIARIAS,
   TITULO_PAGINA_1,
   TITULO_PAGINA_2,
-  TRANSPORTES,
+  TITULO_PAGINA_3,
   dataBR,
-  dataHoraBR,
+  dataDasDiarias,
   nomeDaSecretaria,
   numeroDoProcesso,
   quantidadeDeDiarias,
+  relatorioDaPrestacao,
   situacaoInfo,
-  transporteRotulo,
-  valorNaLiquidacao,
+  valorExtensoDoProcesso,
 } from "./processosDiarias.js";
 
 /**
- * Identidade institucional, a mesma de relatoriosCabecalho.INSTITUICAO e do topo
- * da barra lateral. Repetida como texto porque este arquivo é carregado direto
- * pelos testes, sem o resolvedor de módulos do Vite.
+ * O cabeçalho institucional do modelo oficial.
+ *
+ * Repetido como texto porque este arquivo é carregado direto pelos testes, sem
+ * o resolvedor de módulos do Vite.
  */
 export const IDENTIDADE = {
-  orgao: "SECRETARIA DE FINANÇAS",
-  lema: "GESTÃO QUE TRANSFORMA",
+  orgao: "PREFEITURA MUNICIPAL DE SÃO JOSÉ DA LAJE",
+  estado: "ESTADO DE ALAGOAS",
 };
+
+/** O rodapé institucional, impresso em TODAS as páginas do processo. */
+export const RODAPE_INSTITUCIONAL = {
+  endereco: "Rua Dr. Oscar Gordilho, 23 - Centro - São José da Laje - Alagoas",
+  contato: "Tel.: (82) 9.9395-5442 | E-mail: prefeitura@saojosedalaje.al.gov.br | CNPJ: 12.330.916/0001-99",
+};
+
+/** O município que assina o documento, nas linhas de "Local e data". */
+export const MUNICIPIO = "São José da Laje - AL";
+
+/** A secretaria a quem a autorização da prefeita é destinada (página 2). */
+export const SECRETARIA_DE_FINANCAS = "Secretaria Municipal de Finanças";
 
 export const SEM_REGISTRO = "--";
 
-/** Os três escopos de saída: o processo completo ou uma página só. */
+/** Os quatro escopos de saída: o processo completo ou um documento só. */
 export const ESCOPOS = [
-  { id: "completo", rotulo: "Processo completo (2 páginas)" },
-  { id: "solicitacao", rotulo: "Somente a Solicitação" },
+  { id: "completo", rotulo: "Processo completo (3 páginas)" },
+  { id: "requisicao", rotulo: "Somente a Requisição" },
   { id: "liquidacao", rotulo: "Somente a Liquidação" },
+  { id: "prestacao", rotulo: "Somente a Prestação de Contas" },
 ];
 
 const COR = {
@@ -70,9 +101,12 @@ const TINTA = {
   papel: [251, 250, 247],
 };
 
-// A4 retrato com margens enxutas: é o que faz o processo caber em duas folhas
-// sem apertar a leitura.
-const PAGINA = { largura: 210, altura: 297, margemTopo: 10, margemBase: 12, margemLado: 13 };
+// A4 retrato. A margem de baixo é maior porque o rodapé institucional tem duas
+// linhas de endereço e contato, mais a linha de emissão.
+const PAGINA = { largura: 210, altura: 297, margemTopo: 10, margemBase: 18, margemLado: 13 };
+
+/** O espaçamento das linhas do RELATÓRIO DE ATIVIDADES, em milímetros. */
+const PAUTA = 7;
 
 /* -------------------------------------------------------------------------
  * Dados do documento
@@ -108,58 +142,123 @@ export function agoraBR() {
   });
 }
 
+/** "2" ou "1,5" -- a quantidade como ela entra na frase "Requisita: N Diária(s)". */
+function quantidadeNumero(valor) {
+  const numero = quantidadeDeDiarias(valor);
+  if (numero <= 0) return SEM_REGISTRO;
+  return Number.isInteger(numero) ? String(numero) : numero.toFixed(1).replace(".", ",");
+}
+
+/** "2 diárias" -- a quantidade com a palavra, para o quadro resumo. */
 function quantidadeTexto(valor) {
   const numero = quantidadeDeDiarias(valor);
   if (numero <= 0) return SEM_REGISTRO;
-  const formatado = Number.isInteger(numero) ? String(numero) : numero.toFixed(1).replace(".", ",");
-  return `${formatado} ${numero === 1 ? "diária" : "diárias"}`;
+  return `${quantidadeNumero(valor)} ${numero === 1 ? "diária" : "diárias"}`;
 }
 
 /**
- * Tudo o que as duas páginas mostram, lido UMA VEZ do processo.
+ * "Secretaria Municipal de Educação" -- o requisitante da página 2.
  *
- * Os dados compartilhados aparecem nas duas páginas porque são os mesmos dados
- * -- não há cópia aqui, só leitura do mesmo registro. Os campos espelhados da
- * liquidação passam por `valorNaLiquidacao`: mostram o que a liquidação
- * informou, ou o que a solicitação diz enquanto ela não informou nada diferente.
+ * O prefixo não é repetido quando a secretaria já vem cadastrada com ele: o
+ * papel sairia "Secretaria Municipal de Secretaria de Educação".
+ */
+function requisitanteDe(nome) {
+  const limpo = texto(nome);
+  if (limpo === "") return SEM_REGISTRO;
+  return /^secretaria/i.test(limpo) ? limpo : `Secretaria Municipal de ${limpo}`;
+}
+
+/**
+ * O texto do campo "Objetivando" -- o mesmo nas páginas 1 e 2.
+ *
+ * É o campo do formulário oficial onde se escreve a que a viagem se destina.
+ * Ele reúne o que o cadastro tem sobre isso (objeto, finalidade e destino) em
+ * vez de deixar qualquer um deles fora do papel.
+ */
+function objetivandoDe(processo) {
+  const objeto = texto(processo?.objeto);
+  const finalidade = texto(processo?.finalidade);
+  const destino = texto(processo?.destino);
+
+  const partes = [];
+  if (objeto !== "") partes.push(objeto);
+  if (finalidade !== "" && finalidade !== objeto) partes.push(finalidade);
+  if (destino !== "") partes.push(`Destino: ${destino}`);
+  return partes.length > 0 ? partes.join(" — ") : SEM_REGISTRO;
+}
+
+/** "São José da Laje - AL, 10 de março de 2026" -- ou com o dia e o mês em branco. */
+function localEData(data, ano) {
+  const bruto = texto(data);
+  const partes = /^(\d{4})-(\d{2})-(\d{2})/.exec(bruto);
+  if (partes) {
+    const meses = [
+      "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+      "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+    ];
+    const mes = meses[Number(partes[2]) - 1] ?? "";
+    return `${MUNICIPIO}, ${Number(partes[3])} de ${mes} de ${partes[1]}`;
+  }
+  // Sem data preenchida o papel sai como o formulário oficial: para completar à
+  // mão, já com o ano do exercício.
+  const exercicio = Number(ano);
+  const fim = Number.isFinite(exercicio) && exercicio > 0 ? String(Math.trunc(exercicio)) : "______";
+  return `${MUNICIPIO}, ______ de ____________________ de ${fim}`;
+}
+
+/**
+ * Tudo o que as três páginas mostram, lido UMA VEZ do processo.
+ *
+ * Os dados compartilhados aparecem em mais de uma página porque são os MESMOS
+ * dados -- não há cópia aqui, só leitura do mesmo registro. É o que garante que
+ * o nome do servidor na Requisição e o favorecido da Liquidação nunca divirjam.
  */
 export function dadosDoDocumento(processo, { secretarias = [], emissor = "", emissao = null } = {}) {
   const p = processo ?? {};
+  const secretaria = nomeDaSecretaria(p, secretarias);
+
   return {
     numero: numeroDoProcesso(p) || SEM_REGISTRO,
+    ano: p.ano ?? null,
     situacao: situacaoInfo(p.situacao).rotulo,
     cancelado: texto(p.situacao) === "cancelada",
     rascunho: texto(p.situacao) === "rascunho",
     motivoCancelamento: texto(p.motivo_cancelamento),
     data: dataBR(p.data_processo) || SEM_REGISTRO,
-    secretaria: ou(nomeDaSecretaria(p, secretarias)),
+    secretaria: ou(secretaria),
+    requisitante: requisitanteDe(secretaria),
     emissao: emissao || agoraBR(),
     emissor: ou(emissor),
 
-    beneficiario: {
+    // PÁGINA 1 — o que se requisita.
+    requisicao: {
+      lei: LEI_DAS_DIARIAS,
+      quantidade: quantidadeNumero(p.quantidade_diarias),
+      custeio: ou(p.custeio_despesas),
+      objetivando: objetivandoDe(p),
+      dataDiarias: ou(dataDasDiarias(p)),
+    },
+
+    // PÁGINA 1 — identificação do servidor, na ordem do formulário.
+    servidor: {
       nome: ou(p.beneficiario_nome),
       cpf: ou(p.beneficiario_cpf),
-      matricula: ou(p.beneficiario_matricula),
+      endereco: ou(p.beneficiario_endereco),
+      secretaria: ou(secretaria),
       cargo: ou(p.beneficiario_cargo),
-      lotacao: ou(p.beneficiario_lotacao),
+      horarioSaida: ou(p.hora_saida),
+      tipoDiaria: ou(p.tipo_diaria),
     },
 
-    viagem: {
-      destino: ou(p.destino),
-      saida: ou(dataHoraBR(p.data_saida, p.hora_saida)),
-      retorno: ou(dataHoraBR(p.data_retorno, p.hora_retorno)),
-      quantidade: quantidadeTexto(p.quantidade_diarias),
+    // O quadro de valores das páginas 1 e 2.
+    valor: {
+      quantidade: quantidadeNumero(p.quantidade_diarias),
+      quantidadeTexto: quantidadeTexto(p.quantidade_diarias),
       unitario: moeda(p.valor_unitario),
-      unitarioSimples: moedaSimples(p.valor_unitario),
       total: moeda(p.valor_total),
       totalSimples: moedaSimples(p.valor_total),
+      extenso: ou(valorExtensoDoProcesso(p)),
     },
-
-    objeto: ou(p.objeto),
-    finalidade: ou(p.finalidade),
-    transporteEscolhido: texto(p.transporte),
-    transporte: ou(transporteRotulo(p)),
-    observacoes: ou(p.observacoes),
 
     banco: {
       banco: ou(p.banco),
@@ -169,43 +268,40 @@ export function dadosDoDocumento(processo, { secretarias = [], emissor = "", emi
       titular: ou(p.titular),
     },
 
-    liquidacao: {
-      data: ou(dataBR(p.liquidacao_data)),
-      saida: ou(dataBR(valorNaLiquidacao(p, "liquidacao_data_saida"))),
-      retorno: ou(dataBR(valorNaLiquidacao(p, "liquidacao_data_retorno"))),
-      quantidade: quantidadeTexto(valorNaLiquidacao(p, "liquidacao_quantidade")),
-      valor: moeda(valorNaLiquidacao(p, "liquidacao_valor")),
-      valorSimples: moedaSimples(valorNaLiquidacao(p, "liquidacao_valor")),
-      relatorio: ou(p.liquidacao_relatorio),
-      documentos: ou(p.liquidacao_documentos),
-      responsavel: ou(p.liquidacao_responsavel),
-      observacoes: ou(p.liquidacao_observacoes),
+    // PÁGINA 3 — a prestação de contas, que pode estar pendente.
+    prestacao: {
+      relatorio: relatorioDaPrestacao(p),
+      data: texto(p.prestacao_data),
+      localEData: localEData(p.prestacao_data, p.ano),
     },
+
+    localEData: localEData(p.data_processo, p.ano),
   };
 }
 
-/** As folhas que a saída vai ter, na ordem. */
+/** As folhas que a saída vai ter, na ordem do processo. */
 export function folhasDoEscopo(escopo) {
-  if (escopo === "solicitacao") return ["solicitacao"];
+  if (escopo === "requisicao") return ["requisicao"];
   if (escopo === "liquidacao") return ["liquidacao"];
-  return ["solicitacao", "liquidacao"];
+  if (escopo === "prestacao") return ["prestacao"];
+  return ["requisicao", "liquidacao", "prestacao"];
 }
 
 /** "processo-diaria-0001-2026.pdf" */
 export function nomeDoArquivo(dados, extensao = "pdf", escopo = "completo") {
   const numero = String(dados?.numero ?? "").replace("/", "-").replace(/[^\w-]/g, "");
-  const sufixo = escopo === "solicitacao" ? "-solicitacao" : escopo === "liquidacao" ? "-liquidacao" : "";
-  return `processo-diaria-${numero || "sem-numero"}${sufixo}.${extensao}`;
+  const sufixos = { requisicao: "-requisicao", liquidacao: "-liquidacao", prestacao: "-prestacao-de-contas" };
+  return `processo-diaria-${numero || "sem-numero"}${sufixos[escopo] ?? ""}.${extensao}`;
 }
 
 /* -------------------------------------------------------------------------
  * Impressão (HTML)
  * ---------------------------------------------------------------------- */
 
-// O brasão da Secretaria, o mesmo de public/brasao.svg, embutido no documento
-// para que a folha nunca saia sem ele por causa de uma imagem que não carregou.
+// O brasão, o mesmo de public/brasao.svg, embutido no documento para que a folha
+// nunca saia sem ele por causa de uma imagem que não carregou.
 function brasaoSvg(lado) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${lado}mm" height="${lado}mm" viewBox="0 0 512 512" role="img" aria-label="Brasão da Secretaria de Finanças">`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${lado}mm" height="${lado}mm" viewBox="0 0 512 512" role="img" aria-label="Brasão do Município de São José da Laje">`
     + `<rect width="512" height="512" rx="48" fill="#0F2A44"/>`
     + `<g transform="translate(76,64) scale(3)">`
     + `<path d="M60 6 L63 15 L72 15 L65 21 L67 30 L60 25 L53 30 L55 21 L48 15 L57 15 Z" fill="#C9A227"/>`
@@ -219,95 +315,108 @@ function estilos() {
     @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
-    body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; line-height: 1.3;
+    body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35;
       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-    /* A folha tem a altura da página e sempre quebra depois: é isto que faz a
-       Liquidação começar em folha nova, qualquer que seja o tamanho do conteúdo.
-       A altura é MÍNIMA, não fixa -- conteúdo excepcional transborda para uma
-       folha a mais em vez de ser cortado. */
+    /* A folha tem a altura da página e sempre quebra depois: é isto que faz cada
+       documento do processo começar em folha nova, qualquer que seja o tamanho
+       do conteúdo. A altura é MÍNIMA, não fixa -- conteúdo excepcional
+       transborda para uma folha a mais em vez de ser cortado. */
     .folha { position: relative; width: ${PAGINA.largura}mm; min-height: ${PAGINA.altura}mm;
-      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 8}mm;
+      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 4}mm;
       page-break-after: always; break-after: page; }
     .folha:last-child { page-break-after: auto; break-after: auto; }
 
     .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
     .cabecalho svg { display: block; flex: 0 0 auto; }
-    .orgao { font-size: 9pt; font-weight: bold; letter-spacing: .14em; }
-    .lema { margin-top: .4mm; color: ${COR.ouro}; font-size: 6.5pt; font-weight: bold; letter-spacing: .18em; }
-    .titulo { margin: 1mm 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; letter-spacing: .01em; }
+    .orgao { font-size: 10pt; font-weight: bold; letter-spacing: .08em; }
+    .estado { margin-top: .4mm; color: ${COR.apoio}; font-size: 7.5pt; font-weight: bold; letter-spacing: .16em; }
+    .titulo { margin: 1.2mm 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; letter-spacing: .02em; }
     .selo { margin-left: auto; text-align: right; font-size: 7.5pt; color: ${COR.apoio}; white-space: nowrap; }
     .selo strong { display: block; font-family: Georgia, "Times New Roman", serif; font-size: 12pt; color: ${COR.navy}; }
     .pagina-de { font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; }
 
-    .identificacao { display: flex; gap: 3mm; margin-top: 2.5mm; }
-    .identificacao div { flex: 1; border: .5pt solid ${COR.linha}; background: ${COR.faixa}; padding: 1.4mm 2mm; overflow: hidden; }
-    .identificacao span { display: block; font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: ${COR.apoio}; }
-    .identificacao strong { font-size: 9pt; }
-
-    .aviso { margin-top: 2.5mm; border: .8pt solid ${COR.navy}; padding: 1.6mm 2mm; font-size: 7.5pt; }
+    .aviso { margin-top: 2.5mm; border: .8pt solid ${COR.navy}; padding: 1.6mm 2mm; font-size: 8pt; }
     .aviso strong { letter-spacing: .06em; text-transform: uppercase; }
 
-    h2 { margin: 3.5mm 0 1.4mm; padding: 1.1mm 2mm; background: ${COR.navy}; color: #fff; font-size: 7.5pt;
+    h2 { margin: 4mm 0 1.6mm; padding: 1.2mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
 
+    .abertura { margin: 4mm 0 0; text-align: justify; }
+    .linha-doc { margin: 2.6mm 0 0; }
+    .linha-doc b { letter-spacing: .02em; }
+    /* O valor preenchido sai sobre a linha pontilhada do formulário; vazio, a
+       linha fica lá para ser completada à mão. */
+    .preenchido { border-bottom: .5pt dotted ${COR.apoio}; padding: 0 1mm; }
+    .destaque { font-weight: bold; }
+
     .grade { display: flex; flex-wrap: wrap; border: .5pt solid ${COR.linha}; border-bottom: 0; }
-    .campo { border-bottom: .5pt solid ${COR.linha}; border-right: .5pt solid ${COR.linha}; padding: 1.3mm 2mm; overflow: hidden; }
-    .campo:last-child { border-right: 0; }
-    .campo .rotulo { display: block; font-size: 6.3pt; letter-spacing: .08em; text-transform: uppercase; color: ${COR.apoio}; }
-    .campo .valor { display: block; font-size: 9pt; overflow-wrap: break-word; }
-    .campo.destaque .valor { font-weight: bold; }
+    .campo { border-bottom: .5pt solid ${COR.linha}; border-right: .5pt solid ${COR.linha}; padding: 1.4mm 2mm; overflow: hidden; }
+    .campo .rotulo { display: block; font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: ${COR.apoio}; }
+    .campo .valor { display: block; font-size: 9.5pt; overflow-wrap: break-word; }
+    .campo.forte .valor { font-weight: bold; }
     .c100 { width: 100%; border-right: 0; }
     .c50 { width: 50%; }
     .c33 { width: 33.34%; }
-    .c25 { width: 25%; }
     .c67 { width: 66.66%; }
-    /* Fim de linha da grade: sem borda à direita, para o quadro fechar reto. */
     .fim { border-right: 0; }
 
-    .texto { border: .5pt solid ${COR.linha}; padding: 1.8mm 2mm; min-height: 16mm; font-size: 9pt;
+    table.quadro { width: 100%; border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1.4mm 2mm;
+      font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
+    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt; vertical-align: top;
+      overflow-wrap: break-word; }
+    table.quadro td.numero { font-weight: bold; white-space: nowrap; }
+    table.quadro td b { display: block; }
+    table.quadro td span.rotulo { display: block; font-size: 6.5pt; letter-spacing: .08em;
+      text-transform: uppercase; color: ${COR.apoio}; margin-top: 1.2mm; }
+    table.quadro td span.rotulo:first-child { margin-top: 0; }
+
+    .texto { border: .5pt solid ${COR.linha}; padding: 1.8mm 2mm; min-height: 16mm; font-size: 9.5pt;
       white-space: pre-wrap; overflow-wrap: break-word; }
-    .texto.curto { min-height: 11mm; }
 
-    .transportes { display: flex; flex-wrap: wrap; gap: 2mm 5mm; border: .5pt solid ${COR.linha}; padding: 1.8mm 2mm; font-size: 8.5pt; }
-    .transportes span { display: inline-flex; align-items: center; gap: 1.4mm; }
-    .caixa { display: inline-block; width: 3.2mm; height: 3.2mm; border: .7pt solid ${COR.navy}; text-align: center;
-      line-height: 3mm; font-size: 7pt; font-weight: bold; }
+    /* O RELATÓRIO DE ATIVIDADES sai PAUTADO: as linhas são impressas, para ser
+       escrito à mão quando a prestação de contas ainda não foi digitada. A
+       entrelinha do texto é a mesma distância das linhas, então o que já foi
+       digitado assenta sobre elas. */
+    .pautado { border: .5pt solid ${COR.linha}; padding: 0 2mm; min-height: ${PAUTA * 16}mm;
+      font-size: 10pt; line-height: ${PAUTA}mm; white-space: pre-wrap; overflow-wrap: break-word;
+      background-image: repeating-linear-gradient(to bottom,
+        transparent 0, transparent ${PAUTA - 0.25}mm, ${COR.linha} ${PAUTA - 0.25}mm, ${COR.linha} ${PAUTA}mm); }
 
-    .total { display: flex; align-items: center; justify-content: flex-end; gap: 4mm; margin-top: 2mm;
-      background: ${COR.navy}; color: #fff; padding: 2mm 2.5mm; }
-    .total span { font-size: 8pt; font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
-    .total strong { font-size: 13pt; }
+    .fecho { margin-top: 4mm; text-align: justify; }
+    .local-data { margin-top: 8mm; text-align: center; font-size: 10pt; }
 
-    .declaracao { margin-top: 3mm; font-size: 8pt; text-align: justify; color: ${COR.apoio}; }
-
-    .assinaturas { display: flex; gap: 6mm; margin-top: 9mm; }
+    .assinaturas { display: flex; gap: 6mm; margin-top: 12mm; }
     .assinaturas div { flex: 1; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm; text-align: center;
       font-size: 7.5pt; color: ${COR.apoio}; }
-    .assinaturas strong { display: block; font-size: 8pt; color: ${COR.navy}; }
+    .assinaturas strong { display: block; font-size: 8.5pt; color: ${COR.navy}; }
+    .assinatura-unica { margin: 12mm auto 0; width: 90mm; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm;
+      text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
+    .assinatura-unica strong { display: block; font-size: 9pt; color: ${COR.navy}; }
+
+    .autorizacao { margin-top: 5mm; border: .8pt solid ${COR.navy}; padding: 3mm; }
+    .autorizacao .rotulo-caixa { font-size: 7.5pt; font-weight: bold; letter-spacing: .1em;
+      text-transform: uppercase; color: ${COR.apoio}; }
+    .autorizacao p { margin: 1.6mm 0 0; }
+    .linhas-a-mao { margin-top: 6mm; }
+    .linhas-a-mao div { margin-top: 5mm; border-bottom: .5pt solid ${COR.apoio}; font-size: 8pt;
+      color: ${COR.apoio}; padding-bottom: .8mm; }
 
     .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
-      display: flex; justify-content: space-between; gap: 6mm; border-top: .5pt solid ${COR.linha};
-      padding-top: 1.2mm; color: ${COR.apoio}; font-size: 6.8pt; }
-    .rodape span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
+    .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
+    .rodape .emissao { margin-top: .6mm; font-size: 6.5pt; }
   `;
 }
 
 function cabecalhoHtml(dados, titulo, indice, total) {
-  return `<div class="cabecalho">${brasaoSvg(15)}`
+  return `<div class="cabecalho">${brasaoSvg(16)}`
     + `<div><div class="orgao">${escapar(IDENTIDADE.orgao)}</div>`
-    + `<div class="lema">${escapar(IDENTIDADE.lema)}</div>`
+    + `<div class="estado">${escapar(IDENTIDADE.estado)}</div>`
     + `<div class="titulo">${escapar(titulo)}</div></div>`
     + `<div class="selo"><span class="pagina-de">Processo de diária nº</span><strong>${escapar(dados.numero)}</strong>`
     + `<span class="pagina-de">Página ${indice} de ${total}</span></div>`
-    + `</div>`;
-}
-
-function identificacaoHtml(dados) {
-  return `<div class="identificacao">`
-    + `<div><span>Data do processo</span><strong>${escapar(dados.data)}</strong></div>`
-    + `<div><span>Secretaria</span><strong>${escapar(dados.secretaria)}</strong></div>`
-    + `<div><span>Situação do documento</span><strong>${escapar(dados.situacao)}</strong></div>`
     + `</div>`;
 }
 
@@ -328,157 +437,157 @@ function avisoHtml(dados) {
   return "";
 }
 
-function campo(rotulo, valor, classe = "c50", destaque = false) {
-  return `<div class="campo ${classe}${destaque ? " destaque" : ""}">`
+function campo(rotulo, valor, classe = "c50", forte = false) {
+  return `<div class="campo ${classe}${forte ? " forte" : ""}">`
     + `<span class="rotulo">${escapar(rotulo)}</span>`
     + `<span class="valor">${escapar(valor)}</span></div>`;
 }
 
-function transportesHtml(dados) {
-  const itens = TRANSPORTES.map((opcao) => {
-    const marcado = dados.transporteEscolhido === opcao.id;
-    const rotulo = opcao.id === "outro" && marcado && dados.transporte !== SEM_REGISTRO
-      ? dados.transporte
-      : opcao.rotulo;
-    return `<span><i class="caixa">${marcado ? "X" : ""}</i>${escapar(rotulo)}</span>`;
-  }).join("");
-  return `<div class="transportes">${itens}</div>`;
-}
-
-function rodapeHtml(dados, titulo, indice, total) {
+/** O rodapé institucional, igual em todas as folhas. */
+function rodapeHtml(dados, indice, total) {
   return `<div class="rodape">`
-    + `<span>${escapar(titulo)} — Processo nº ${escapar(dados.numero)} — ${escapar(dados.secretaria)}</span>`
-    + `<span>Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)} — Página ${indice} de ${total}</span>`
+    + `<div class="endereco">${escapar(RODAPE_INSTITUCIONAL.endereco)}</div>`
+    + `<div>${escapar(RODAPE_INSTITUCIONAL.contato)}</div>`
+    + `<div class="emissao">Processo nº ${escapar(dados.numero)} — Página ${indice} de ${total} — `
+    + `Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
     + `</div>`;
 }
 
-/** Página 1: SOLICITAÇÃO DE DIÁRIA. */
-function folhaSolicitacao(dados, indice, total) {
+/** Página 1: REQUISIÇÃO DE DIÁRIAS. */
+function folhaRequisicao(dados, indice, total) {
   return `<div class="folha">`
     + cabecalhoHtml(dados, TITULO_PAGINA_1, indice, total)
-    + identificacaoHtml(dados)
     + avisoHtml(dados)
 
-    + `<h2>1. Beneficiário</h2>`
+    + `<p class="abertura">O(a) servidor(a) abaixo identificado(a), na conformidade da `
+    + `${escapar(dados.requisicao.lei)}</p>`
+
+    + `<p class="linha-doc"><b>Requisita:</b> <span class="preenchido destaque">${escapar(dados.requisicao.quantidade)}</span> `
+    + `Diária(s) destinada(s) ao custeio de despesas `
+    + `<span class="preenchido">${escapar(dados.requisicao.custeio)}</span></p>`
+    + `<p class="linha-doc"><b>Objetivando:</b> <span class="preenchido">${escapar(dados.requisicao.objetivando)}</span></p>`
+    + `<p class="linha-doc"><b>Data da(s) Diária(s):</b> <span class="preenchido">${escapar(dados.requisicao.dataDiarias)}</span></p>`
+
+    + `<h2>Identificação do Servidor</h2>`
     + `<div class="grade">`
-    + campo("Nome", dados.beneficiario.nome, "c67")
-    + campo("CPF", dados.beneficiario.cpf, "c33 fim")
-    + campo("Matrícula", dados.beneficiario.matricula, "c25")
-    + campo("Cargo / função", dados.beneficiario.cargo, "c25")
-    + campo("Secretaria", dados.secretaria, "c25")
-    + campo("Lotação", dados.beneficiario.lotacao, "c25 fim")
+    + campo("Nome", dados.servidor.nome, "c67")
+    + campo("CPF", dados.servidor.cpf, "c33 fim")
+    + campo("Endereço", dados.servidor.endereco, "c100")
+    + campo("Secretaria", dados.servidor.secretaria, "c50")
+    + campo("Cargo", dados.servidor.cargo, "c50 fim")
+    + campo("Horário de Saída", dados.servidor.horarioSaida, "c50")
+    + campo("Tipo de Diária", dados.servidor.tipoDiaria, "c50 fim")
     + `</div>`
 
-    + `<h2>2. Viagem</h2>`
-    + `<div class="grade">`
-    + campo("Destino", dados.viagem.destino, "c100")
-    + campo("Data e hora de saída", dados.viagem.saida, "c50")
-    + campo("Data e hora de retorno", dados.viagem.retorno, "c50 fim")
-    + campo("Quantidade de diárias", dados.viagem.quantidade, "c33", true)
-    + campo("Valor unitário", dados.viagem.unitario, "c33", true)
-    + campo("Valor total", dados.viagem.total, "c33 fim", true)
-    + `</div>`
+    + `<table class="quadro"><thead><tr>`
+    + `<th style="width:20%">Quantidade</th>`
+    + `<th style="width:28%">Valor da(s) Diária(s) R$</th>`
+    + `<th>Valor por Extenso</th>`
+    + `</tr></thead><tbody><tr>`
+    + `<td class="numero">${escapar(dados.valor.quantidade)}</td>`
+    + `<td class="numero">${escapar(dados.valor.totalSimples)}</td>`
+    + `<td>${escapar(dados.valor.extenso)}</td>`
+    + `</tr></tbody></table>`
 
-    + `<h2>3. Objeto / finalidade da viagem</h2>`
-    + (dados.objeto !== SEM_REGISTRO
-      ? `<div class="grade"><div class="campo c100"><span class="rotulo">Objeto</span><span class="valor">${escapar(dados.objeto)}</span></div></div>`
-      : "")
-    + `<div class="texto">${escapar(dados.finalidade)}</div>`
-
-    + `<h2>4. Meio de transporte</h2>`
-    + transportesHtml(dados)
-
-    + `<h2>5. Dados bancários para crédito</h2>`
-    + `<div class="grade">`
-    + campo("Banco", dados.banco.banco, "c33")
-    + campo("Agência", dados.banco.agencia, "c33")
-    + campo("Conta", dados.banco.conta, "c33 fim")
-    + campo("Chave PIX", dados.banco.pix, "c50")
-    + campo("Titular", dados.banco.titular, "c50 fim")
-    + `</div>`
-
-    + `<h2>6. Observações</h2>`
-    + `<div class="texto curto">${escapar(dados.observacoes === SEM_REGISTRO ? "" : dados.observacoes)}</div>`
-
-    + `<div class="total"><span>Valor total da diária</span><strong>${escapar(dados.viagem.total)}</strong></div>`
-
-    + `<div class="declaracao">Declaro que as informações acima são verdadeiras e que a viagem se destina exclusivamente ao interesse do serviço público. `
-    + `Este documento é a solicitação da diária e não constitui autorização de pagamento.</div>`
+    + `<p class="local-data">${escapar(dados.localEData)}</p>`
 
     + `<div class="assinaturas">`
-    + `<div><strong>${escapar(dados.beneficiario.nome)}</strong>Beneficiário</div>`
-    + `<div><strong>&nbsp;</strong>Chefia imediata</div>`
-    + `<div><strong>&nbsp;</strong>Ordenador de despesa</div>`
+    + `<div><strong>${escapar(dados.servidor.nome === SEM_REGISTRO ? "&nbsp;" : dados.servidor.nome)}</strong>Assinatura do Servidor</div>`
+    + `<div><strong>&nbsp;</strong>Responsável pela Secretaria</div>`
+    + `<div><strong>&nbsp;</strong>Assinatura da Prefeita</div>`
     + `</div>`
 
-    + rodapeHtml(dados, TITULO_PAGINA_1, indice, total)
+    + rodapeHtml(dados, indice, total)
     + `</div>`;
 }
 
-/** Página 2: SOLICITAÇÃO DE LIQUIDAÇÃO DA DIÁRIA (sempre em folha nova). */
+/** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO (sempre em folha nova). */
 function folhaLiquidacao(dados, indice, total) {
   return `<div class="folha">`
     + cabecalhoHtml(dados, TITULO_PAGINA_2, indice, total)
-    + identificacaoHtml(dados)
     + avisoHtml(dados)
 
-    + `<h2>1. Beneficiário e objeto (dados do processo)</h2>`
-    + `<div class="grade">`
-    + campo("Nome", dados.beneficiario.nome, "c67")
-    + campo("CPF", dados.beneficiario.cpf, "c33 fim")
-    + campo("Secretaria", dados.secretaria, "c50")
-    + campo("Destino", dados.viagem.destino, "c50 fim")
-    + campo("Objeto / finalidade", dados.objeto !== SEM_REGISTRO ? dados.objeto : dados.finalidade, "c100")
+    + `<p class="linha-doc"><b>Requisitante:</b> <span class="preenchido">${escapar(dados.requisitante)}</span></p>`
+
+    + `<p class="abertura"><b>A Senhora Prefeita</b></p>`
+    + `<p class="abertura">Pelo presente, venho solicitar AUTORIZAÇÃO de pagamento em favor do(a) beneficiário(a) `
+    + `abaixo identificado(a), o(a) qual: Realizou viagens e/ou deslocamentos, conforme descrito abaixo, e que `
+    + `ATESTO a necessidade e a realização das mesmas.</p>`
+
+    + `<h2>Quadro Resumo</h2>`
+    + `<table class="quadro"><thead><tr>`
+    + `<th>Objetivando</th>`
+    + `<th style="width:20%">Quantidade</th>`
+    + `<th style="width:30%">Requisitante</th>`
+    + `</tr></thead><tbody><tr>`
+    + `<td>${escapar(dados.requisicao.objetivando)}</td>`
+    + `<td class="numero">${escapar(dados.valor.quantidadeTexto)}</td>`
+    + `<td>${escapar(dados.requisitante)}</td>`
+    + `</tr></tbody></table>`
+
+    + `<table class="quadro"><thead><tr>`
+    + `<th style="width:40%">Favorecido(a)</th>`
+    + `<th style="width:32%">Dados Bancários</th>`
+    + `<th>Valor (R$)</th>`
+    + `</tr></thead><tbody><tr>`
+    + `<td><span class="rotulo">Nome</span><b>${escapar(dados.servidor.nome)}</b>`
+    + `<span class="rotulo">Endereço</span>${escapar(dados.servidor.endereco)}`
+    + `<span class="rotulo">CNPJ/CPF</span>${escapar(dados.servidor.cpf)}</td>`
+    + `<td><span class="rotulo">Banco</span>${escapar(dados.banco.banco)}`
+    + `<span class="rotulo">Agência</span>${escapar(dados.banco.agencia)}`
+    + `<span class="rotulo">Conta</span>${escapar(dados.banco.conta)}</td>`
+    + `<td><b>${escapar(dados.valor.total)}</b>`
+    + `<span class="rotulo">Valor por extenso</span>${escapar(dados.valor.extenso)}</td>`
+    + `</tr></tbody></table>`
+
+    + `<div class="autorizacao">`
+    + `<div class="rotulo-caixa">Autorização da Prefeita</div>`
+    + `<p><b>Ciente / Autorizo.</b></p>`
+    + `<p>À ${escapar(SECRETARIA_DE_FINANCAS)}, para as providências de pagamento.</p>`
+    + `<p class="local-data">${escapar(dados.localEData)}</p>`
+    + `<div class="assinatura-unica"><strong>&nbsp;</strong>Assinatura da Prefeita</div>`
+    + `<div class="linhas-a-mao">`
+    + `<div>Nome:</div>`
+    + `<div>CPF:</div>`
+    + `<div>Cargo:</div>`
+    + `</div>`
     + `</div>`
 
-    + `<h2>2. Viagem realizada</h2>`
-    + `<div class="grade">`
-    + campo("Data da liquidação", dados.liquidacao.data, "c33")
-    + campo("Saída realizada", dados.liquidacao.saida, "c33")
-    + campo("Retorno realizado", dados.liquidacao.retorno, "c33 fim")
-    + campo("Diárias realizadas", dados.liquidacao.quantidade, "c50", true)
-    + campo("Valor a liquidar", dados.liquidacao.valor, "c50 fim", true)
-    + `</div>`
-
-    + `<h2>3. Relatório da viagem</h2>`
-    + `<div class="texto">${escapar(dados.liquidacao.relatorio === SEM_REGISTRO ? "" : dados.liquidacao.relatorio)}</div>`
-
-    + `<h2>4. Documentos comprobatórios apresentados</h2>`
-    + `<div class="texto curto">${escapar(dados.liquidacao.documentos === SEM_REGISTRO ? "" : dados.liquidacao.documentos)}</div>`
-
-    + `<h2>5. Dados bancários para crédito</h2>`
-    + `<div class="grade">`
-    + campo("Banco", dados.banco.banco, "c33")
-    + campo("Agência", dados.banco.agencia, "c33")
-    + campo("Conta", dados.banco.conta, "c33 fim")
-    + campo("Chave PIX", dados.banco.pix, "c50")
-    + campo("Titular", dados.banco.titular, "c50 fim")
-    + `</div>`
-
-    + `<h2>6. Conferência e observações</h2>`
-    + `<div class="grade">`
-    + campo("Responsável pela conferência", dados.liquidacao.responsavel, "c50")
-    + campo("Valor da diária concedida", dados.viagem.total, "c50 fim", true)
-    + `</div>`
-    + `<div class="texto curto">${escapar(dados.liquidacao.observacoes === SEM_REGISTRO ? "" : dados.liquidacao.observacoes)}</div>`
-
-    + `<div class="total"><span>Valor a liquidar</span><strong>${escapar(dados.liquidacao.valor)}</strong></div>`
-
-    + `<div class="declaracao">Solicito a liquidação da diária concedida no processo acima, referente à viagem efetivamente realizada nas condições declaradas. `
-    + `Este documento é a solicitação de liquidação: não é baixa de pagamento e não autoriza, por si, débito em conta.</div>`
-
-    + `<div class="assinaturas">`
-    + `<div><strong>${escapar(dados.beneficiario.nome)}</strong>Beneficiário</div>`
-    + `<div><strong>&nbsp;</strong>Conferência / chefia imediata</div>`
-    + `<div><strong>&nbsp;</strong>Ordenador de despesa</div>`
-    + `</div>`
-
-    + rodapeHtml(dados, TITULO_PAGINA_2, indice, total)
+    + rodapeHtml(dados, indice, total)
     + `</div>`;
 }
 
+/** Página 3: PRESTAÇÃO DE CONTAS DE DIÁRIAS (sempre em folha nova). */
+function folhaPrestacao(dados, indice, total) {
+  return `<div class="folha">`
+    + cabecalhoHtml(dados, TITULO_PAGINA_3, indice, total)
+    + avisoHtml(dados)
+
+    + `<h2>Relatório de Atividades</h2>`
+    + `<div class="pautado">${escapar(dados.prestacao.relatorio)}</div>`
+
+    + `<p class="fecho">Sem mais a acrescentar, subscrevo-me.</p>`
+    + `<p class="fecho">Eis a prestação de contas, a qual submeto à apreciação e aprovação.</p>`
+
+    + `<p class="local-data">${escapar(dados.prestacao.localEData)}</p>`
+
+    + `<div class="assinatura-unica">`
+    + `<strong>${escapar(dados.servidor.nome === SEM_REGISTRO ? "&nbsp;" : dados.servidor.nome)}</strong>`
+    + `${escapar(dados.servidor.cargo === SEM_REGISTRO ? "Cargo do(a) servidor(a)" : dados.servidor.cargo)}`
+    + `</div>`
+
+    + rodapeHtml(dados, indice, total)
+    + `</div>`;
+}
+
+const FOLHAS_HTML = {
+  requisicao: folhaRequisicao,
+  liquidacao: folhaLiquidacao,
+  prestacao: folhaPrestacao,
+};
+
 /**
- * O documento inteiro em HTML: as duas folhas em um só arquivo.
+ * O documento inteiro em HTML: as três folhas em um só arquivo.
  *
  * É o MESMO HTML usado na pré-visualização da tela e na impressão -- o que se vê
  * antes de imprimir é o documento, não uma imitação dele.
@@ -487,10 +596,7 @@ export function htmlDoProcesso(dados, { escopo = "completo" } = {}) {
   const folhas = folhasDoEscopo(escopo);
   const total = folhas.length;
   const corpo = folhas
-    .map((folha, indice) =>
-      folha === "solicitacao"
-        ? folhaSolicitacao(dados, indice + 1, total)
-        : folhaLiquidacao(dados, indice + 1, total))
+    .map((folha, indice) => (FOLHAS_HTML[folha] ?? folhaRequisicao)(dados, indice + 1, total))
     .join("");
 
   const titulo = `Processo de Diária nº ${dados.numero}`;
@@ -504,7 +610,7 @@ export function imprimirProcesso(dados, { escopo = "completo" } = {}) {
 }
 
 /* -------------------------------------------------------------------------
- * PDF (arquivo único, duas páginas)
+ * PDF (arquivo único, três páginas)
  * ---------------------------------------------------------------------- */
 
 // O mesmo brasão desenhado com primitivas do PDF: nada de captura de tela, e
@@ -540,55 +646,70 @@ function desenharBrasaoPdf(pdf, x, y, lado) {
 }
 
 /**
- * O desenhista de uma folha: mantém o cursor vertical e sabe abrir folha de
- * continuação quando o conteúdo de uma página excede a altura útil.
+ * O desenhista de uma folha: mantém o cursor vertical, o rodapé institucional e
+ * sabe abrir folha de continuação quando o conteúdo de uma página excede a
+ * altura útil.
  *
- * Folha de continuação é a exceção, não a regra: no uso normal cada página do
- * processo cabe na sua folha. Ela existe para NÃO cortar informação.
+ * Folha de continuação é a exceção, não a regra: no uso normal cada documento
+ * do processo cabe na sua folha. Ela existe para NÃO cortar informação.
  */
 function criarPincel(pdf, dados) {
   const largura = PAGINA.largura;
   const margem = PAGINA.margemLado;
   const util = largura - margem * 2;
-  const limite = PAGINA.altura - PAGINA.margemBase - 6;
-  const estado = { y: 0, titulo: "", pagina: 0, totalFolhas: 0, folhasUsadas: 0 };
+  const limite = PAGINA.altura - PAGINA.margemBase - 4;
+  const estado = { y: 0, titulo: "", pagina: 0, totalFolhas: 0, folhasUsadas: 0, recuo: 0 };
 
-  const linhaRodape = () => {
-    pdf.setDrawColor(...TINTA.linha);
-    pdf.setLineWidth(0.2);
+  // O recuo é o que permite desenhar conteúdo DENTRO de uma moldura sem que o
+  // texto encoste na borda dela.
+  const xEsq = () => margem + estado.recuo;
+  const largUtil = () => util - estado.recuo * 2;
+
+  /** O rodapé institucional da prefeitura, em TODAS as folhas. */
+  const rodapeInstitucional = () => {
     const y = PAGINA.altura - PAGINA.margemBase;
+    pdf.setDrawColor(...TINTA.navy);
+    pdf.setLineWidth(0.3);
     pdf.line(margem, y, largura - margem, y);
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(7);
+    pdf.setTextColor(...TINTA.navy);
+    pdf.text(RODAPE_INSTITUCIONAL.endereco, largura / 2, y + 3.4, { align: "center" });
+
     pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(6.8);
     pdf.setTextColor(...TINTA.apoio);
-    pdf.text(`${estado.titulo} — Processo nº ${dados.numero} — ${dados.secretaria}`, margem, y + 3);
+    pdf.text(RODAPE_INSTITUCIONAL.contato, largura / 2, y + 6.6, { align: "center" });
+
+    pdf.setFontSize(6.5);
     pdf.text(
-      `Emitido em ${dados.emissao} por ${dados.emissor} — Página ${estado.pagina} de ${estado.totalFolhas}`,
-      largura - margem, y + 3, { align: "right" },
+      `Processo nº ${dados.numero} — Página ${estado.pagina} de ${estado.totalFolhas} — `
+      + `Emitido em ${dados.emissao} por ${dados.emissor}`,
+      largura / 2, y + 9.6, { align: "center" },
     );
   };
 
   const cabecalho = (continuacao) => {
-    const lado = continuacao ? 9 : 15;
+    const lado = continuacao ? 10 : 16;
     const topo = PAGINA.margemTopo;
     desenharBrasaoPdf(pdf, margem, topo, lado);
     const x = margem + lado + 4;
 
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(continuacao ? 7.5 : 9);
+    pdf.setFontSize(continuacao ? 8 : 10);
     pdf.setTextColor(...TINTA.navy);
-    pdf.text(IDENTIDADE.orgao, x, topo + (continuacao ? 3.6 : 4.4));
+    pdf.text(IDENTIDADE.orgao, x, topo + (continuacao ? 3.8 : 4.6));
 
     if (!continuacao) {
-      pdf.setFontSize(6.5);
-      pdf.setTextColor(...TINTA.ouro);
-      pdf.text(IDENTIDADE.lema, x, topo + 7.4);
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...TINTA.apoio);
+      pdf.text(IDENTIDADE.estado, x, topo + 8);
     }
 
     pdf.setFont("times", "bold");
     pdf.setFontSize(continuacao ? 9 : 13);
     pdf.setTextColor(...TINTA.navy);
-    pdf.text(continuacao ? `${estado.titulo} (continuação)` : estado.titulo, x, topo + (continuacao ? 7.6 : 12.4));
+    pdf.text(continuacao ? `${estado.titulo} (continuação)` : estado.titulo, x, topo + (continuacao ? 8 : 13.2));
 
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(7);
@@ -613,20 +734,21 @@ function criarPincel(pdf, dados) {
     util,
     limite,
 
-    /** Abre a primeira folha de uma página do processo. */
+    /** Abre a primeira folha de um documento do processo. */
     abrirPagina(titulo, pagina, totalFolhas) {
       if (estado.folhasUsadas > 0) pdf.addPage();
       estado.folhasUsadas += 1;
       estado.titulo = titulo;
       estado.pagina = pagina;
       estado.totalFolhas = totalFolhas;
+      estado.recuo = 0;
       cabecalho(false);
     },
 
     /** Garante espaço; quando não há, abre folha de continuação. */
     espaco(necessario) {
       if (estado.y + necessario <= limite) return;
-      linhaRodape();
+      rodapeInstitucional();
       pdf.addPage();
       estado.folhasUsadas += 1;
       estado.pagina += 1;
@@ -635,39 +757,94 @@ function criarPincel(pdf, dados) {
     },
 
     fecharPagina() {
-      linhaRodape();
+      rodapeInstitucional();
+    },
+
+    /** Empurra o cursor para baixo (o respiro entre blocos do formulário). */
+    respiro(altura = 3) {
+      estado.y += altura;
     },
 
     secao(rotulo) {
       this.espaco(12);
       pdf.setFillColor(...TINTA.navy);
-      pdf.rect(margem, estado.y, util, 5, "F");
+      pdf.rect(xEsq(), estado.y, largUtil(), 5, "F");
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7.5);
+      pdf.setFontSize(8);
       pdf.setTextColor(...TINTA.branco);
-      pdf.text(String(rotulo).toUpperCase(), margem + 2, estado.y + 3.5);
+      pdf.text(String(rotulo).toUpperCase(), xEsq() + 2, estado.y + 3.5);
       estado.y += 7;
+    },
+
+    /** Um parágrafo corrido do formulário. */
+    paragrafo(conteudo, { negrito = false, tamanho = 10, centralizado = false } = {}) {
+      const entre = tamanho * 0.48;
+      const linhas = pdf.splitTextToSize(String(conteudo ?? ""), largUtil());
+      this.espaco(linhas.length * entre + 2);
+      pdf.setFont("helvetica", negrito ? "bold" : "normal");
+      pdf.setFontSize(tamanho);
+      pdf.setTextColor(...TINTA.navy);
+      linhas.forEach((linha, indice) => {
+        if (centralizado) {
+          pdf.text(linha, largura / 2, estado.y + entre * 0.8 + indice * entre, { align: "center" });
+        } else {
+          pdf.text(linha, xEsq(), estado.y + entre * 0.8 + indice * entre);
+        }
+      });
+      estado.y += linhas.length * entre + 2;
+    },
+
+    /**
+     * Uma linha do formulário: rótulo em negrito e o valor sobre a linha
+     * pontilhada, como em "Requisita: ___ Diária(s) ...".
+     */
+    linha(rotulo, valor, { destaque = false } = {}) {
+      const entre = 4.8;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      const largRotulo = pdf.getTextWidth(`${rotulo} `);
+      pdf.setFont("helvetica", destaque ? "bold" : "normal");
+      const linhas = pdf.splitTextToSize(String(valor ?? ""), largUtil() - largRotulo);
+      const altura = Math.max(1, linhas.length) * entre;
+      this.espaco(altura + 2);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...TINTA.navy);
+      pdf.text(rotulo, xEsq(), estado.y + 3.4);
+
+      pdf.setFont("helvetica", destaque ? "bold" : "normal");
+      pdf.setDrawColor(...TINTA.linha);
+      pdf.setLineWidth(0.2);
+      const total = Math.max(1, linhas.length);
+      for (let indice = 0; indice < total; indice += 1) {
+        const y = estado.y + 3.4 + indice * entre;
+        pdf.text(linhas[indice] ?? "", xEsq() + largRotulo, y);
+        pdf.line(xEsq() + largRotulo, y + 1.2, xEsq() + largUtil(), y + 1.2);
+      }
+
+      estado.y += altura + 2;
     },
 
     /** Uma faixa de campos rotulados, em colunas proporcionais. */
     campos(itens) {
       const altura = 9;
       this.espaco(altura + 2);
-      let x = margem;
+      let x = xEsq();
       pdf.setDrawColor(...TINTA.linha);
       pdf.setLineWidth(0.2);
 
       itens.forEach((item) => {
-        const larguraCampo = util * (item.largura ?? 1 / itens.length);
+        const larguraCampo = largUtil() * (item.largura ?? 1 / itens.length);
         pdf.rect(x, estado.y, larguraCampo, altura);
 
         pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(6.3);
+        pdf.setFontSize(6.5);
         pdf.setTextColor(...TINTA.apoio);
         pdf.text(String(item.rotulo).toUpperCase(), x + 1.8, estado.y + 3);
 
         pdf.setFont("helvetica", item.destaque ? "bold" : "normal");
-        pdf.setFontSize(9);
+        pdf.setFontSize(9.5);
         pdf.setTextColor(...TINTA.navy);
         const cabe = pdf.splitTextToSize(String(item.valor ?? SEM_REGISTRO), larguraCampo - 3.6)[0] ?? "";
         pdf.text(cabe, x + 1.8, estado.y + 7);
@@ -678,102 +855,138 @@ function criarPincel(pdf, dados) {
       estado.y += altura + 1.5;
     },
 
-    /** Bloco de texto livre em quadro: cresce com o conteúdo, nunca corta. */
-    bloco(conteudo, { minimo = 16 } = {}) {
-      const valor = texto(conteudo) === SEM_REGISTRO ? "" : texto(conteudo);
-      const linhas = valor === "" ? [] : pdf.splitTextToSize(valor, util - 4);
-      const altura = Math.max(minimo, linhas.length * 3.8 + 3.4);
-      this.espaco(altura + 2);
+    /**
+     * Um quadro do formulário: cabeçalho das colunas e UMA linha de conteúdo.
+     *
+     * É o quadro de valores da página 1 ("Quantidade | Valor da(s) Diária(s) R$
+     * | Valor por Extenso") e os dois quadros da página 2.
+     */
+    quadro(colunas) {
+      const alturaCabecalho = 6;
+      const entre = 3.9;
 
-      pdf.setDrawColor(...TINTA.linha);
-      pdf.setLineWidth(0.2);
-      pdf.rect(margem, estado.y, util, altura);
-
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(9);
-      pdf.setTextColor(...TINTA.navy);
-      linhas.forEach((linha, indice) => {
-        pdf.text(linha, margem + 2, estado.y + 4.2 + indice * 3.8);
+      // Cada célula pode ter várias partes rotuladas (o favorecido tem nome,
+      // endereço e CPF empilhados); a altura da linha é a da maior delas.
+      const preparadas = colunas.map((coluna) => {
+        const larguraColuna = largUtil() * (coluna.largura ?? 1 / colunas.length);
+        const partes = (coluna.partes ?? [{ valor: coluna.valor, negrito: coluna.negrito }]).map((parte) => ({
+          rotulo: texto(parte.rotulo),
+          negrito: parte.negrito === true,
+          linhas: pdf.splitTextToSize(String(parte.valor ?? SEM_REGISTRO), larguraColuna - 4),
+        }));
+        const alturaConteudo = partes.reduce(
+          (soma, parte) => soma + (parte.rotulo !== "" ? 2.9 : 0) + parte.linhas.length * entre,
+          0,
+        );
+        return { larguraColuna, partes, alturaConteudo };
       });
 
-      estado.y += altura + 1.5;
-    },
+      const alturaLinha = Math.max(9, ...preparadas.map((c) => c.alturaConteudo + 3.4));
+      this.espaco(alturaCabecalho + alturaLinha + 3);
 
-    /** As cinco opções de transporte, com a escolhida marcada. */
-    transporte(escolhido, rotuloOutro) {
-      const altura = 8;
-      this.espaco(altura + 2);
-      pdf.setDrawColor(...TINTA.linha);
-      pdf.setLineWidth(0.2);
-      pdf.rect(margem, estado.y, util, altura);
-
-      let x = margem + 2.5;
-      TRANSPORTES.forEach((opcao) => {
-        const marcado = escolhido === opcao.id;
-        pdf.setDrawColor(...TINTA.navy);
-        pdf.setLineWidth(0.25);
-        pdf.rect(x, estado.y + 2.6, 3, 3);
-        if (marcado) {
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(7);
-          pdf.setTextColor(...TINTA.navy);
-          pdf.text("X", x + 0.65, estado.y + 5);
-        }
-        const rotulo = opcao.id === "outro" && marcado && rotuloOutro ? rotuloOutro : opcao.rotulo;
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(8.5);
+      // Cabeçalho.
+      let x = xEsq();
+      pdf.setFillColor(...TINTA.faixa);
+      pdf.rect(xEsq(), estado.y, largUtil(), alturaCabecalho, "F");
+      pdf.setDrawColor(...TINTA.navy);
+      pdf.setLineWidth(0.25);
+      preparadas.forEach((coluna, indice) => {
+        pdf.rect(x, estado.y, coluna.larguraColuna, alturaCabecalho);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(7.5);
         pdf.setTextColor(...TINTA.navy);
-        pdf.text(rotulo, x + 4.2, estado.y + 5);
-        x += 4.2 + pdf.getTextWidth(rotulo) + 6;
+        pdf.text(String(colunas[indice].rotulo).toUpperCase(), x + 2, estado.y + 4);
+        x += coluna.larguraColuna;
+      });
+      estado.y += alturaCabecalho;
+
+      // Conteúdo.
+      x = xEsq();
+      preparadas.forEach((coluna) => {
+        pdf.rect(x, estado.y, coluna.larguraColuna, alturaLinha);
+        let y = estado.y + 3.6;
+        coluna.partes.forEach((parte) => {
+          if (parte.rotulo !== "") {
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(6.5);
+            pdf.setTextColor(...TINTA.apoio);
+            pdf.text(parte.rotulo.toUpperCase(), x + 2, y);
+            y += 2.9;
+          }
+          pdf.setFont("helvetica", parte.negrito ? "bold" : "normal");
+          pdf.setFontSize(9.5);
+          pdf.setTextColor(...TINTA.navy);
+          parte.linhas.forEach((linha) => {
+            pdf.text(linha, x + 2, y);
+            y += entre;
+          });
+        });
+        x += coluna.larguraColuna;
+      });
+      estado.y += alturaLinha + 2;
+    },
+
+    /**
+     * O RELATÓRIO DE ATIVIDADES: um quadro PAUTADO, com as linhas impressas.
+     *
+     * As linhas saem no papel para o relatório poder ser escrito à mão quando a
+     * prestação de contas ainda não foi digitada -- e o texto já digitado
+     * assenta sobre elas, porque a entrelinha é a distância entre as linhas.
+     */
+    pautado(conteudo, { linhas: minimoDeLinhas = 16 } = {}) {
+      const valor = texto(conteudo);
+      const escritas = valor === "" ? [] : pdf.splitTextToSize(valor, largUtil() - 5);
+      const quantas = Math.max(minimoDeLinhas, escritas.length);
+      const altura = quantas * PAUTA + 2;
+      this.espaco(altura + 3);
+
+      pdf.setDrawColor(...TINTA.linha);
+      pdf.setLineWidth(0.2);
+      pdf.rect(xEsq(), estado.y, largUtil(), altura);
+
+      for (let indice = 0; indice < quantas; indice += 1) {
+        const y = estado.y + 1 + (indice + 1) * PAUTA;
+        pdf.line(xEsq() + 2, y, xEsq() + largUtil() - 2, y);
+      }
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...TINTA.navy);
+      escritas.forEach((linha, indice) => {
+        pdf.text(linha, xEsq() + 2.5, estado.y + 1 + (indice + 1) * PAUTA - 1.4);
       });
 
-      estado.y += altura + 1.5;
+      estado.y += altura + 2;
     },
 
-    total(rotulo, valor) {
-      const altura = 10;
-      this.espaco(altura + 2);
-      pdf.setFillColor(...TINTA.navy);
-      pdf.rect(margem, estado.y, util, altura, "F");
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(8);
-      pdf.setTextColor(...TINTA.branco);
-      pdf.text(String(rotulo).toUpperCase(), margem + 2.5, estado.y + 6.4);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(13);
-      pdf.text(String(valor), largura - margem - 2.5, estado.y + 6.8, { align: "right" });
-      estado.y += altura + 1.5;
+    /** "São José da Laje - AL, 10 de março de 2026", centralizado. */
+    localData(conteudo) {
+      this.espaco(12);
+      this.respiro(5);
+      this.paragrafo(conteudo, { centralizado: true });
     },
 
-    declaracao(conteudo) {
-      const linhas = pdf.splitTextToSize(String(conteudo), util);
-      this.espaco(linhas.length * 3.4 + 3);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8);
-      pdf.setTextColor(...TINTA.apoio);
-      linhas.forEach((linha, indice) => pdf.text(linha, margem, estado.y + 3 + indice * 3.4));
-      estado.y += linhas.length * 3.4 + 3;
-    },
-
-    /** Área de assinaturas: vai para o pé da folha, como no papel. */
-    assinaturas(nomes) {
+    /** Área de assinaturas lado a lado, como no papel. */
+    assinaturas(nomes, { aoPe = true } = {}) {
       const altura = 14;
-      this.espaco(altura + 2);
+      this.espaco(altura + 4);
       // Se ainda há folga, as assinaturas descem para perto do rodapé.
       const piso = limite - altura;
-      if (estado.y < piso) estado.y = piso;
+      if (aoPe && estado.y < piso) estado.y = piso;
+      else estado.y += 8;
 
-      const larguraCampo = (util - 6 * (nomes.length - 1)) / nomes.length;
-      let x = margem;
+      const larguraCampo = (largUtil() - 6 * (nomes.length - 1)) / nomes.length;
+      let x = xEsq();
       nomes.forEach((item) => {
         pdf.setDrawColor(...TINTA.navy);
         pdf.setLineWidth(0.3);
         pdf.line(x, estado.y, x + larguraCampo, estado.y);
 
         pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(8);
+        pdf.setFontSize(8.5);
         pdf.setTextColor(...TINTA.navy);
-        pdf.text(texto(item.nome) || " ", x + larguraCampo / 2, estado.y + 3.4, { align: "center" });
+        pdf.text(texto(item.nome) === SEM_REGISTRO ? " " : (texto(item.nome) || " "),
+          x + larguraCampo / 2, estado.y + 3.4, { align: "center" });
 
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(7.5);
@@ -785,18 +998,60 @@ function criarPincel(pdf, dados) {
       estado.y += altura;
     },
 
+    /** Linhas rotuladas para completar à mão (Nome, CPF, Cargo). */
+    linhasAMao(rotulos) {
+      rotulos.forEach((rotulo) => {
+        this.espaco(8);
+        estado.y += 5;
+        pdf.setDrawColor(...TINTA.apoio);
+        pdf.setLineWidth(0.2);
+        pdf.line(xEsq(), estado.y, xEsq() + largUtil(), estado.y);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...TINTA.apoio);
+        pdf.text(rotulo, xEsq() + 1, estado.y - 1.2);
+      });
+      estado.y += 2;
+    },
+
+    /**
+     * Uma moldura em volta de um bloco do formulário (a autorização da
+     * prefeita). O conteúdo é desenhado com recuo, para não encostar na borda.
+     */
+    moldura(rotulo, desenhar) {
+      this.espaco(60);
+      const inicio = estado.y;
+      estado.recuo = 3;
+      estado.y += 3;
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...TINTA.apoio);
+      pdf.text(String(rotulo).toUpperCase(), xEsq(), estado.y + 2.6);
+      estado.y += 5;
+
+      desenhar();
+
+      estado.y += 3;
+      pdf.setDrawColor(...TINTA.navy);
+      pdf.setLineWidth(0.35);
+      pdf.rect(margem, inicio, util, estado.y - inicio);
+      estado.recuo = 0;
+      estado.y += 2;
+    },
+
     aviso(mensagem) {
       if (!mensagem) return;
-      const linhas = pdf.splitTextToSize(mensagem, util - 4);
+      const linhas = pdf.splitTextToSize(mensagem, largUtil() - 4);
       const altura = linhas.length * 3.4 + 3.4;
       this.espaco(altura + 2);
       pdf.setDrawColor(...TINTA.navy);
       pdf.setLineWidth(0.35);
-      pdf.rect(margem, estado.y, util, altura);
+      pdf.rect(xEsq(), estado.y, largUtil(), altura);
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(7.5);
       pdf.setTextColor(...TINTA.navy);
-      linhas.forEach((linha, indice) => pdf.text(linha, margem + 2, estado.y + 3.6 + indice * 3.4));
+      linhas.forEach((linha, indice) => pdf.text(linha, xEsq() + 2, estado.y + 3.6 + indice * 3.4));
       estado.y += altura + 1.5;
     },
   };
@@ -811,156 +1066,154 @@ function textoDoAviso(dados) {
   return "";
 }
 
-function paginaSolicitacaoPdf(pincel, dados, pagina, total) {
+/** Página 1: REQUISIÇÃO DE DIÁRIAS. */
+function paginaRequisicaoPdf(pincel, dados, pagina, total) {
   pincel.abrirPagina(TITULO_PAGINA_1, pagina, total);
-  pincel.campos([
-    { rotulo: "Data do processo", valor: dados.data, largura: 0.28 },
-    { rotulo: "Secretaria", valor: dados.secretaria, largura: 0.44 },
-    { rotulo: "Situação do documento", valor: dados.situacao, largura: 0.28 },
-  ]);
   pincel.aviso(textoDoAviso(dados));
 
-  pincel.secao("1. Beneficiário");
-  pincel.campos([
-    { rotulo: "Nome", valor: dados.beneficiario.nome, largura: 0.66 },
-    { rotulo: "CPF", valor: dados.beneficiario.cpf, largura: 0.34 },
-  ]);
-  pincel.campos([
-    { rotulo: "Matrícula", valor: dados.beneficiario.matricula, largura: 0.25 },
-    { rotulo: "Cargo / função", valor: dados.beneficiario.cargo, largura: 0.25 },
-    { rotulo: "Secretaria", valor: dados.secretaria, largura: 0.25 },
-    { rotulo: "Lotação", valor: dados.beneficiario.lotacao, largura: 0.25 },
-  ]);
-
-  pincel.secao("2. Viagem");
-  pincel.campos([{ rotulo: "Destino", valor: dados.viagem.destino, largura: 1 }]);
-  pincel.campos([
-    { rotulo: "Data e hora de saída", valor: dados.viagem.saida, largura: 0.5 },
-    { rotulo: "Data e hora de retorno", valor: dados.viagem.retorno, largura: 0.5 },
-  ]);
-  pincel.campos([
-    { rotulo: "Quantidade de diárias", valor: dados.viagem.quantidade, largura: 1 / 3, destaque: true },
-    { rotulo: "Valor unitário", valor: dados.viagem.unitarioSimples, largura: 1 / 3, destaque: true },
-    { rotulo: "Valor total", valor: dados.viagem.totalSimples, largura: 1 / 3, destaque: true },
-  ]);
-
-  pincel.secao("3. Objeto / finalidade da viagem");
-  if (dados.objeto !== SEM_REGISTRO) {
-    pincel.campos([{ rotulo: "Objeto", valor: dados.objeto, largura: 1 }]);
-  }
-  pincel.bloco(dados.finalidade);
-
-  pincel.secao("4. Meio de transporte");
-  pincel.transporte(dados.transporteEscolhido, dados.transporte);
-
-  pincel.secao("5. Dados bancários para crédito");
-  pincel.campos([
-    { rotulo: "Banco", valor: dados.banco.banco, largura: 1 / 3 },
-    { rotulo: "Agência", valor: dados.banco.agencia, largura: 1 / 3 },
-    { rotulo: "Conta", valor: dados.banco.conta, largura: 1 / 3 },
-  ]);
-  pincel.campos([
-    { rotulo: "Chave PIX", valor: dados.banco.pix, largura: 0.5 },
-    { rotulo: "Titular", valor: dados.banco.titular, largura: 0.5 },
-  ]);
-
-  pincel.secao("6. Observações");
-  pincel.bloco(dados.observacoes, { minimo: 11 });
-
-  pincel.total("Valor total da diária", dados.viagem.totalSimples);
-  pincel.declaracao(
-    "Declaro que as informações acima são verdadeiras e que a viagem se destina exclusivamente ao interesse do "
-    + "serviço público. Este documento é a solicitação da diária e não constitui autorização de pagamento.",
+  pincel.respiro(2);
+  pincel.paragrafo(
+    `O(a) servidor(a) abaixo identificado(a), na conformidade da ${dados.requisicao.lei}`,
   );
+
+  pincel.respiro(1);
+  pincel.linha(
+    "Requisita:",
+    `${dados.requisicao.quantidade} Diária(s) destinada(s) ao custeio de despesas ${dados.requisicao.custeio}`,
+  );
+  pincel.linha("Objetivando:", dados.requisicao.objetivando);
+  pincel.linha("Data da(s) Diária(s):", dados.requisicao.dataDiarias);
+
+  pincel.secao("Identificação do Servidor");
+  pincel.campos([
+    { rotulo: "Nome", valor: dados.servidor.nome, largura: 0.66 },
+    { rotulo: "CPF", valor: dados.servidor.cpf, largura: 0.34 },
+  ]);
+  pincel.campos([{ rotulo: "Endereço", valor: dados.servidor.endereco, largura: 1 }]);
+  pincel.campos([
+    { rotulo: "Secretaria", valor: dados.servidor.secretaria, largura: 0.5 },
+    { rotulo: "Cargo", valor: dados.servidor.cargo, largura: 0.5 },
+  ]);
+  pincel.campos([
+    { rotulo: "Horário de Saída", valor: dados.servidor.horarioSaida, largura: 0.5 },
+    { rotulo: "Tipo de Diária", valor: dados.servidor.tipoDiaria, largura: 0.5 },
+  ]);
+
+  pincel.respiro(2);
+  pincel.quadro([
+    { rotulo: "Quantidade", valor: dados.valor.quantidade, negrito: true, largura: 0.2 },
+    { rotulo: "Valor da(s) Diária(s) R$", valor: dados.valor.totalSimples, negrito: true, largura: 0.28 },
+    { rotulo: "Valor por Extenso", valor: dados.valor.extenso, largura: 0.52 },
+  ]);
+
+  pincel.localData(dados.localEData);
   pincel.assinaturas([
-    { nome: dados.beneficiario.nome, papel: "Beneficiário" },
-    { nome: "", papel: "Chefia imediata" },
-    { nome: "", papel: "Ordenador de despesa" },
+    { nome: dados.servidor.nome, papel: "Assinatura do Servidor" },
+    { nome: "", papel: "Responsável pela Secretaria" },
+    { nome: "", papel: "Assinatura da Prefeita" },
   ]);
   pincel.fecharPagina();
 }
 
+/** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO. */
 function paginaLiquidacaoPdf(pincel, dados, pagina, total) {
   pincel.abrirPagina(TITULO_PAGINA_2, pagina, total);
-  pincel.campos([
-    { rotulo: "Data do processo", valor: dados.data, largura: 0.28 },
-    { rotulo: "Secretaria", valor: dados.secretaria, largura: 0.44 },
-    { rotulo: "Situação do documento", valor: dados.situacao, largura: 0.28 },
-  ]);
   pincel.aviso(textoDoAviso(dados));
 
-  pincel.secao("1. Beneficiário e objeto (dados do processo)");
-  pincel.campos([
-    { rotulo: "Nome", valor: dados.beneficiario.nome, largura: 0.66 },
-    { rotulo: "CPF", valor: dados.beneficiario.cpf, largura: 0.34 },
+  pincel.respiro(2);
+  pincel.linha("Requisitante:", dados.requisitante);
+
+  pincel.respiro(2);
+  pincel.paragrafo("A Senhora Prefeita", { negrito: true });
+  pincel.respiro(1);
+  pincel.paragrafo(
+    "Pelo presente, venho solicitar AUTORIZAÇÃO de pagamento em favor do(a) beneficiário(a) abaixo "
+    + "identificado(a), o(a) qual: Realizou viagens e/ou deslocamentos, conforme descrito abaixo, e que ATESTO "
+    + "a necessidade e a realização das mesmas.",
+  );
+
+  pincel.secao("Quadro Resumo");
+  pincel.quadro([
+    { rotulo: "Objetivando", valor: dados.requisicao.objetivando, largura: 0.5 },
+    { rotulo: "Quantidade", valor: dados.valor.quantidadeTexto, negrito: true, largura: 0.2 },
+    { rotulo: "Requisitante", valor: dados.requisitante, largura: 0.3 },
   ]);
-  pincel.campos([
-    { rotulo: "Secretaria", valor: dados.secretaria, largura: 0.5 },
-    { rotulo: "Destino", valor: dados.viagem.destino, largura: 0.5 },
-  ]);
-  pincel.campos([
+
+  pincel.respiro(2);
+  pincel.quadro([
     {
-      rotulo: "Objeto / finalidade",
-      valor: dados.objeto !== SEM_REGISTRO ? dados.objeto : dados.finalidade,
-      largura: 1,
+      rotulo: "Favorecido(a)",
+      largura: 0.4,
+      partes: [
+        { rotulo: "Nome", valor: dados.servidor.nome, negrito: true },
+        { rotulo: "Endereço", valor: dados.servidor.endereco },
+        { rotulo: "CNPJ/CPF", valor: dados.servidor.cpf },
+      ],
+    },
+    {
+      rotulo: "Dados Bancários",
+      largura: 0.32,
+      partes: [
+        { rotulo: "Banco", valor: dados.banco.banco },
+        { rotulo: "Agência", valor: dados.banco.agencia },
+        { rotulo: "Conta", valor: dados.banco.conta },
+      ],
+    },
+    {
+      rotulo: "Valor (R$)",
+      largura: 0.28,
+      partes: [
+        { valor: dados.valor.total, negrito: true },
+        { rotulo: "Valor por extenso", valor: dados.valor.extenso },
+      ],
     },
   ]);
 
-  pincel.secao("2. Viagem realizada");
-  pincel.campos([
-    { rotulo: "Data da liquidação", valor: dados.liquidacao.data, largura: 1 / 3 },
-    { rotulo: "Saída realizada", valor: dados.liquidacao.saida, largura: 1 / 3 },
-    { rotulo: "Retorno realizado", valor: dados.liquidacao.retorno, largura: 1 / 3 },
-  ]);
-  pincel.campos([
-    { rotulo: "Diárias realizadas", valor: dados.liquidacao.quantidade, largura: 0.5, destaque: true },
-    { rotulo: "Valor a liquidar", valor: dados.liquidacao.valorSimples, largura: 0.5, destaque: true },
-  ]);
+  pincel.moldura("Autorização da Prefeita", () => {
+    pincel.paragrafo("Ciente / Autorizo.", { negrito: true });
+    pincel.paragrafo(`À ${SECRETARIA_DE_FINANCAS}, para as providências de pagamento.`);
+    pincel.localData(dados.localEData);
+    pincel.assinaturas([{ nome: "", papel: "Assinatura da Prefeita" }], { aoPe: false });
+    pincel.linhasAMao(["Nome:", "CPF:", "Cargo:"]);
+  });
 
-  pincel.secao("3. Relatório da viagem");
-  pincel.bloco(dados.liquidacao.relatorio);
+  pincel.fecharPagina();
+}
 
-  pincel.secao("4. Documentos comprobatórios apresentados");
-  pincel.bloco(dados.liquidacao.documentos, { minimo: 11 });
+/** Página 3: PRESTAÇÃO DE CONTAS DE DIÁRIAS. */
+function paginaPrestacaoPdf(pincel, dados, pagina, total) {
+  pincel.abrirPagina(TITULO_PAGINA_3, pagina, total);
+  pincel.aviso(textoDoAviso(dados));
 
-  pincel.secao("5. Dados bancários para crédito");
-  pincel.campos([
-    { rotulo: "Banco", valor: dados.banco.banco, largura: 1 / 3 },
-    { rotulo: "Agência", valor: dados.banco.agencia, largura: 1 / 3 },
-    { rotulo: "Conta", valor: dados.banco.conta, largura: 1 / 3 },
-  ]);
-  pincel.campos([
-    { rotulo: "Chave PIX", valor: dados.banco.pix, largura: 0.5 },
-    { rotulo: "Titular", valor: dados.banco.titular, largura: 0.5 },
-  ]);
+  pincel.secao("Relatório de Atividades");
+  pincel.pautado(dados.prestacao.relatorio);
 
-  pincel.secao("6. Conferência e observações");
-  pincel.campos([
-    { rotulo: "Responsável pela conferência", valor: dados.liquidacao.responsavel, largura: 0.5 },
-    { rotulo: "Valor da diária concedida", valor: dados.viagem.totalSimples, largura: 0.5, destaque: true },
-  ]);
-  pincel.bloco(dados.liquidacao.observacoes, { minimo: 11 });
+  pincel.respiro(2);
+  pincel.paragrafo("Sem mais a acrescentar, subscrevo-me.");
+  pincel.paragrafo("Eis a prestação de contas, a qual submeto à apreciação e aprovação.");
 
-  pincel.total("Valor a liquidar", dados.liquidacao.valorSimples);
-  pincel.declaracao(
-    "Solicito a liquidação da diária concedida no processo acima, referente à viagem efetivamente realizada nas "
-    + "condições declaradas. Este documento é a solicitação de liquidação: não é baixa de pagamento e não autoriza, "
-    + "por si, débito em conta.",
-  );
+  pincel.localData(dados.prestacao.localEData);
   pincel.assinaturas([
-    { nome: dados.beneficiario.nome, papel: "Beneficiário" },
-    { nome: "", papel: "Conferência / chefia imediata" },
-    { nome: "", papel: "Ordenador de despesa" },
+    {
+      nome: dados.servidor.nome,
+      papel: dados.servidor.cargo === SEM_REGISTRO ? "Cargo do(a) servidor(a)" : dados.servidor.cargo,
+    },
   ]);
   pincel.fecharPagina();
 }
 
+const FOLHAS_PDF = {
+  requisicao: paginaRequisicaoPdf,
+  liquidacao: paginaLiquidacaoPdf,
+  prestacao: paginaPrestacaoPdf,
+};
+
 /**
- * O PDF do processo: UM ÚNICO ARQUIVO com as duas páginas.
+ * O PDF do processo: UM ÚNICO ARQUIVO com as três páginas.
  *
  * Desenhado com as primitivas do jsPDF, em milímetros sobre A4 -- não é imagem
- * da tela. A Liquidação entra por `addPage()` incondicional, então ela SEMPRE
- * começa em página nova.
+ * da tela. Cada documento entra por `addPage()` incondicional, então a
+ * Liquidação e a Prestação de Contas SEMPRE começam em página nova.
  */
 export function montarPdfDoProcesso(dados, { escopo = "completo" } = {}) {
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -968,8 +1221,7 @@ export function montarPdfDoProcesso(dados, { escopo = "completo" } = {}) {
   const pincel = criarPincel(pdf, dados);
 
   folhas.forEach((folha, indice) => {
-    if (folha === "solicitacao") paginaSolicitacaoPdf(pincel, dados, indice + 1, folhas.length);
-    else paginaLiquidacaoPdf(pincel, dados, indice + 1, folhas.length);
+    (FOLHAS_PDF[folha] ?? paginaRequisicaoPdf)(pincel, dados, indice + 1, folhas.length);
   });
 
   return pdf;

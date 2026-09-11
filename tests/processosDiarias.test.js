@@ -6,11 +6,16 @@ import {
   ACOES_DIARIAS,
   CAMPOS_COMPARTILHADOS,
   CAMPOS_LIQUIDACAO,
+  CAMPOS_PRESTACAO,
+  CAMPOS_REQUISICAO,
+  LEI_DAS_DIARIAS,
+  MIGRATION_MODELO_OFICIAL,
   MIGRATION_PROCESSOS,
   MODULO_DIARIAS,
   MODULO_DIARIAS_SAIDA,
   TITULO_PAGINA_1,
   TITULO_PAGINA_2,
+  TITULO_PAGINA_3,
   acoesDisponiveis,
   alteracaoManualDeValor,
   aplicarCalculo,
@@ -28,37 +33,46 @@ import {
   sincronizarLiquidacao,
   soltarVinculoDeCadastro,
   totalDivergeDoCalculo,
+  relatorioDaPrestacao,
   totalFiltrosAtivos,
   validarFinalizacao,
   validarRascunho,
+  valorExtensoDoProcesso,
   valorNaLiquidacao,
 } from "../src/lib/processosDiarias.js";
 import {
   ESCOPOS,
+  RODAPE_INSTITUCIONAL,
   dadosDoDocumento,
   folhasDoEscopo,
   htmlDoProcesso,
   montarPdfDoProcesso,
   nomeDoArquivo,
 } from "../src/lib/processosDiariasDocumento.js";
+import { valorPorExtenso } from "../src/lib/valorPorExtenso.js";
 
 /**
  * PROCESSOS · Diárias — o módulo documental.
  *
  * O que este arquivo defende, e que nenhuma outra parte da suíte defende:
  *
- *   1. um processo é UM registro com DUAS páginas -- Solicitação e Liquidação
- *      não são cadastros independentes e carregam o mesmo número;
+ *   1. um processo é UM registro com TRÊS páginas -- Requisição, Liquidação e
+ *      Prestação de Contas não são cadastros independentes e carregam o mesmo
+ *      número;
  *   2. a sincronização leva o dado compartilhado para a página 2 e NUNCA apaga
  *      o que a liquidação já tinha de próprio;
  *   3. o beneficiário preenchido à mão não vira fornecedor, e editar o
  *      documento não encosta no cadastro de ninguém;
- *   4. a impressão sai com a Liquidação em folha nova, e o PDF é um arquivo só;
+ *   4. cada documento começa em folha nova, o PDF é um arquivo só, e a
+ *      prestação de contas em branco não impede a impressão das duas primeiras;
  *   5. NADA aqui debita conta, dá baixa em NF, altera saldo, cria pagamento ou
  *      mexe na Programação Diária -- nem em código, nem por engano.
  */
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+
+/** Texto literal dentro de uma expressão regular (o rodapé tem ponto e parêntese). */
+const escapar = (texto) => texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const ARQUIVOS_DO_MODULO = [
   "src/lib/processosDiarias.js",
@@ -207,8 +221,11 @@ test("rascunho é salvo incompleto; finalizar é que exige a página 1", () => {
   assert.ok(erros.destino);
   assert.ok(erros.finalidade);
   assert.ok(erros.valor_total);
-  // A página 2 NÃO é exigida para finalizar: a liquidação vem depois da viagem.
-  CAMPOS_LIQUIDACAO.forEach((campo) => assert.equal(erros[campo], undefined));
+  // As páginas 2 e 3 NÃO são exigidas para finalizar: a liquidação e a
+  // prestação de contas vêm depois da viagem.
+  [...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO].forEach((campo) =>
+    assert.equal(erros[campo], undefined)
+  );
 
   assert.deepEqual(validarFinalizacao(processoDeExemplo()), {});
 });
@@ -311,10 +328,30 @@ test("duplicar cria processo novo, sem número e sem a liquidação do original"
  * Lista, busca e filtros (testes 17 e 18)
  * ---------------------------------------------------------------------- */
 
-test("o indicador diz o que falta em cada página", () => {
-  assert.equal(preenchimentoDoProcesso(processoDeExemplo()).texto, "Solicitação ✓ | Liquidação pendente");
-  const completo = processoDeExemplo({ liquidacao_relatorio: "Viagem realizada." });
-  assert.equal(preenchimentoDoProcesso(completo).texto, "Solicitação ✓ | Liquidação ✓");
+test("o indicador diz o que falta em cada uma das três páginas", () => {
+  assert.equal(
+    preenchimentoDoProcesso(processoDeExemplo()).texto,
+    "Requisição ✓ | Liquidação pendente | Prestação de contas pendente"
+  );
+
+  const comLiquidacao = processoDeExemplo({
+    objeto: "Reunião técnica",
+    banco: "Banco do Brasil",
+    conta: "12345-6",
+  });
+  assert.equal(
+    preenchimentoDoProcesso(comLiquidacao).texto,
+    "Requisição ✓ | Liquidação ✓ | Prestação de contas pendente"
+  );
+
+  const completo = { ...comLiquidacao, prestacao_relatorio: "Viagem realizada." };
+  assert.equal(
+    preenchimentoDoProcesso(completo).texto,
+    "Requisição ✓ | Liquidação ✓ | Prestação de contas ✓"
+  );
+  // A prestação pendente é informação, não impedimento: nada aqui bloqueia.
+  assert.equal(preenchimentoDoProcesso(comLiquidacao).prestacao, false);
+  assert.equal(preenchimentoDoProcesso(comLiquidacao).requisicao, true);
 });
 
 test("a busca rápida acha por número, nome, CPF, destino, objeto e situação", () => {
@@ -374,34 +411,73 @@ test("a lista é compacta, com as colunas pedidas e os filtros do sistema", asyn
  * Impressão e PDF (testes 10 e 11)
  * ---------------------------------------------------------------------- */
 
-test("o processo completo sai em duas folhas, com a liquidação começando na segunda", () => {
-  assert.deepEqual(folhasDoEscopo("completo"), ["solicitacao", "liquidacao"]);
-  assert.deepEqual(folhasDoEscopo("solicitacao"), ["solicitacao"]);
+test("o processo completo sai em três folhas, cada documento começando em folha nova", () => {
+  assert.deepEqual(folhasDoEscopo("completo"), ["requisicao", "liquidacao", "prestacao"]);
+  assert.deepEqual(folhasDoEscopo("requisicao"), ["requisicao"]);
   assert.deepEqual(folhasDoEscopo("liquidacao"), ["liquidacao"]);
-  assert.deepEqual(ESCOPOS.map((e) => e.id), ["completo", "solicitacao", "liquidacao"]);
+  assert.deepEqual(folhasDoEscopo("prestacao"), ["prestacao"]);
+  assert.deepEqual(ESCOPOS.map((e) => e.id), ["completo", "requisicao", "liquidacao", "prestacao"]);
 
   const dados = dadosDoDocumento(processoDeExemplo({ numero: 1 }), {
     secretarias: [{ id: 3, nome: "Secretaria de Finanças" }],
   });
   const html = htmlDoProcesso(dados, { escopo: "completo" });
 
-  // Duas folhas A4, e a quebra é da folha -- não depende do tamanho do texto.
-  assert.equal((html.match(/class="folha"/g) ?? []).length, 2);
+  // Três folhas A4, e a quebra é da folha -- não depende do tamanho do texto.
+  assert.equal((html.match(/class="folha"/g) ?? []).length, 3);
   assert.match(html, /size: A4 portrait/);
   assert.match(html, /page-break-after: always/);
   assert.ok(html.indexOf(TITULO_PAGINA_1) < html.indexOf(TITULO_PAGINA_2));
-  // O mesmo número nas duas páginas.
-  assert.equal((html.match(/0001\/2026/g) ?? []).length >= 2, true);
+  assert.ok(html.indexOf(TITULO_PAGINA_2) < html.indexOf(TITULO_PAGINA_3));
+  // O mesmo número nas três páginas.
+  assert.equal((html.match(/0001\/2026/g) ?? []).length >= 3, true);
 });
 
-test("o PDF é um arquivo único com as duas páginas", () => {
+test("o papel traz a lei, o rodapé institucional em toda folha e a pauta da prestação", () => {
+  const dados = dadosDoDocumento(processoDeExemplo({ numero: 1 }), {
+    secretarias: [{ id: 3, nome: "Secretaria de Finanças" }],
+  });
+  const html = htmlDoProcesso(dados, { escopo: "completo" });
+
+  assert.ok(html.includes(LEI_DAS_DIARIAS));
+  // O endereço e o contato da prefeitura saem nas três folhas.
+  assert.equal((html.match(new RegExp(escapar(RODAPE_INSTITUCIONAL.endereco), "g")) ?? []).length, 3);
+  assert.ok(html.includes("CNPJ: 12.330.916/0001-99"));
+  // A prestação de contas é impressa com as linhas para escrever à mão.
+  assert.match(html, /repeating-linear-gradient/);
+  assert.match(html, /<h2>Relatório de Atividades<\/h2><div class="pautado">/);
+  assert.ok(html.includes("Sem mais a acrescentar, subscrevo-me."));
+  assert.ok(html.includes("Eis a prestação de contas, a qual submeto à apreciação e aprovação."));
+  // As três assinaturas da requisição e a autorização da Prefeita.
+  assert.ok(html.includes("Assinatura do Servidor"));
+  assert.ok(html.includes("Assinatura da Prefeita"));
+  assert.ok(html.includes("Secretaria Municipal de Finanças"));
+});
+
+test("a folha em branco sai assim mesmo: prestação pendente não impede a impressão", () => {
+  const dados = dadosDoDocumento(processoDeExemplo({ numero: 1 }), {
+    secretarias: [{ id: 3, nome: "Secretaria de Finanças" }],
+  });
+  assert.equal(dados.prestacao.relatorio, "");
+  // As três folhas saem do mesmo jeito, com a terceira pautada para a mão.
+  assert.equal((htmlDoProcesso(dados, { escopo: "completo" }).match(/class="folha"/g) ?? []).length, 3);
+  assert.equal(montarPdfDoProcesso(dados, { escopo: "completo" }).getNumberOfPages(), 3);
+});
+
+test("o PDF é um arquivo único com as três páginas", () => {
   const dados = dadosDoDocumento(processoDeExemplo({ numero: 1 }), {
     secretarias: [{ id: 3, nome: "Secretaria de Finanças" }],
   });
   const pdf = montarPdfDoProcesso(dados, { escopo: "completo" });
-  assert.equal(pdf.getNumberOfPages(), 2);
-  assert.equal(montarPdfDoProcesso(dados, { escopo: "solicitacao" }).getNumberOfPages(), 1);
+  assert.equal(pdf.getNumberOfPages(), 3);
+  assert.equal(montarPdfDoProcesso(dados, { escopo: "requisicao" }).getNumberOfPages(), 1);
+  assert.equal(montarPdfDoProcesso(dados, { escopo: "prestacao" }).getNumberOfPages(), 1);
   assert.equal(nomeDoArquivo(dados, "pdf", "completo"), "processo-diaria-0001-2026.pdf");
+  assert.equal(nomeDoArquivo(dados, "pdf", "requisicao"), "processo-diaria-0001-2026-requisicao.pdf");
+  assert.equal(
+    nomeDoArquivo(dados, "pdf", "prestacao"),
+    "processo-diaria-0001-2026-prestacao-de-contas.pdf"
+  );
 });
 
 test("o documento tem layout próprio -- não é captura de tela -- e não gera Word neste envio", async () => {
@@ -623,4 +699,122 @@ test("finalizar fecha o documento e nada mais", async () => {
   assert.doesNotMatch(sql, /insert into public\.pagamentos/i);
   // A finalização é gravada como fato documental, com o nome que diz isso.
   assert.match(dados, /finalizou_processo/);
+});
+
+/* -------------------------------------------------------------------------
+ * Modelo oficial: valor por extenso, campos novos e a migration aditiva
+ * ---------------------------------------------------------------------- */
+
+test("o valor por extenso é escrito em português, do centavo ao milhão", () => {
+  assert.equal(valorPorExtenso(1250), "mil, duzentos e cinquenta reais");
+  assert.equal(valorPorExtenso("1.100,50"), "mil e cem reais e cinquenta centavos");
+  assert.equal(valorPorExtenso(1), "um real");
+  assert.equal(valorPorExtenso("0,01"), "um centavo");
+  assert.equal(valorPorExtenso(100), "cem reais");
+  assert.equal(valorPorExtenso(320), "trezentos e vinte reais");
+  // Milhão redondo pede a preposição; milhão quebrado, não.
+  assert.equal(valorPorExtenso(1000000), "um milhão de reais");
+  assert.equal(valorPorExtenso(1500000), "um milhão e quinhentos mil reais");
+  assert.equal(valorPorExtenso(0), "zero real");
+});
+
+test("o extenso acompanha o valor sozinho, mas a digitação manual manda", () => {
+  const automatico = aplicarCalculo({ quantidade_diarias: "2,5", valor_unitario: "320,00" });
+  assert.equal(automatico.valor_total, 800);
+  assert.equal(automatico.valor_extenso, "oitocentos reais");
+
+  // Valor total digitado à mão: o extenso segue o que está no papel.
+  const manual = aplicarCalculo({ ...automatico, valor_total: 950, valor_total_manual: true });
+  assert.equal(manual.valor_total, 950);
+  assert.equal(manual.valor_extenso, "novecentos e cinquenta reais");
+
+  // Extenso corrigido à mão: o cálculo não o reescreve mais.
+  const corrigido = aplicarCalculo({
+    ...manual,
+    valor_extenso: "novecentos e cinquenta reais (conforme requisição)",
+    valor_extenso_manual: true,
+    valor_unitario: "400,00",
+    valor_total_manual: false,
+  });
+  assert.equal(corrigido.valor_extenso, "novecentos e cinquenta reais (conforme requisição)");
+
+  // E o processo sabe se virar quando a coluna ainda está vazia.
+  assert.equal(valorExtensoDoProcesso({ valor_total: 800, valor_extenso: "" }), "oitocentos reais");
+  assert.equal(valorExtensoDoProcesso({ valor_total: 800, valor_extenso: "a combinar" }), "a combinar");
+});
+
+test("os campos novos do modelo oficial existem no formulário, na leitura e na gravação", async () => {
+  const novos = [
+    "beneficiario_endereco",
+    "tipo_diaria",
+    "custeio_despesas",
+    "data_diarias",
+    "valor_extenso",
+    "prestacao_relatorio",
+    "prestacao_data",
+  ];
+
+  const vazio = processoVazio({ ano: 2026, hoje: "2026-03-10" });
+  novos.forEach((campo) => assert.ok(campo in vazio, `falta ${campo} no processo vazio`));
+
+  assert.ok(CAMPOS_REQUISICAO.includes("tipo_diaria"));
+  assert.ok(CAMPOS_REQUISICAO.includes("custeio_despesas"));
+  assert.ok(CAMPOS_REQUISICAO.includes("data_diarias"));
+  assert.deepEqual(CAMPOS_PRESTACAO, ["prestacao_relatorio", "prestacao_data"]);
+  // O endereço e o extenso são do processo inteiro: uma coluna só, as três folhas.
+  assert.ok(CAMPOS_COMPARTILHADOS.includes("beneficiario_endereco"));
+  assert.ok(CAMPOS_COMPARTILHADOS.includes("valor_extenso"));
+
+  const [dados, modal] = await Promise.all([
+    read("src/lib/processosDiariasDados.js"),
+    read("src/components/processos/ModalProcessoDiaria.jsx"),
+  ]);
+  novos.forEach((campo) => {
+    assert.ok(dados.includes(campo), `a leitura não traz ${campo}`);
+    assert.ok(modal.includes(campo), `a tela não edita ${campo}`);
+  });
+});
+
+test("a prestação de contas antiga continua sendo impressa e é editável no lugar novo", () => {
+  // Processos gravados antes do modelo oficial escreviam no campo da liquidação.
+  assert.equal(relatorioDaPrestacao({ liquidacao_relatorio: "Viagem realizada." }), "Viagem realizada.");
+  // Quando o campo novo é preenchido, é ele que vale.
+  assert.equal(
+    relatorioDaPrestacao({ liquidacao_relatorio: "Antigo.", prestacao_relatorio: "Novo." }),
+    "Novo."
+  );
+  assert.equal(relatorioDaPrestacao({}), "");
+});
+
+test("a migration do modelo oficial só acrescenta colunas e não toca em tabela financeira", async () => {
+  const sql = await read(`supabase/migrations/${MIGRATION_MODELO_OFICIAL}`);
+
+  assert.doesNotMatch(sql, /\bdrop table\b|\bdrop column\b|\btruncate\b|\brename\b/i);
+  [
+    /alter table (public\.)?pagamentos\b/i,
+    /alter table (public\.)?contas_bancarias\b/i,
+    /alter table (public\.)?saldos_historico\b/i,
+    /alter table (public\.)?programacoes_pagamento\b/i,
+    /alter table (public\.)?fornecedores\b/i,
+  ].forEach((padrao) => assert.doesNotMatch(sql, padrao));
+
+  // Só a tabela do módulo, e só com "add column if not exists".
+  assert.match(sql, /alter table public\.processos_diarias/);
+  ["beneficiario_endereco", "tipo_diaria", "custeio_despesas", "data_diarias", "valor_extenso",
+   "valor_extenso_manual", "prestacao_relatorio", "prestacao_data"].forEach((coluna) =>
+    assert.ok(
+      new RegExp(`add column if not exists ${coluna}\\b`, "i").test(sql),
+      `a migration não acrescenta ${coluna}`
+    )
+  );
+});
+
+test("a tela avisa que a migration precisa ser rodada à mão no Supabase", async () => {
+  const [regras, pagina] = await Promise.all([
+    read("src/lib/processosDiarias.js"),
+    read("src/components/processos/PaginaDiarias.jsx"),
+  ]);
+  assert.ok(regras.includes(MIGRATION_MODELO_OFICIAL));
+  assert.match(regras, /SQL Editor do Supabase/);
+  assert.match(pagina, /AVISO_MIGRATION_PROCESSOS/);
 });

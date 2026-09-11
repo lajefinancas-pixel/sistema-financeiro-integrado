@@ -5,16 +5,23 @@
 // pago, cria pagamento ou toca na Programação Diária. "Solicitação de
 // liquidação" é o NOME DO DOCUMENTO da página 2: é papel, não é baixa.
 //
-// UM PROCESSO = DOIS DOCUMENTOS. A Solicitação de Diária (página 1) e a
-// Solicitação de Liquidação da Diária (página 2) são as duas páginas do MESMO
-// processo, e por isso vivem no MESMO registro: mesmo número, mesmos dados
-// gerais. Não existem "solicitações" e "liquidações" como registros
-// independentes, e não existe subaba separada de Liquidação.
+// UM PROCESSO = TRÊS DOCUMENTOS, como no modelo oficial da prefeitura: a
+// Requisição de Diárias (página 1), a Liquidação/Solicitação de Pagamento
+// (página 2) e a Prestação de Contas de Diárias (página 3). As três páginas são
+// do MESMO processo, e por isso vivem no MESMO registro: mesmo número, mesmos
+// dados gerais. Não existem "requisições", "liquidações" e "prestações de
+// contas" como registros independentes, nem subabas separadas para elas.
+//
+// A PRESTAÇÃO DE CONTAS É PREENCHIDA DEPOIS, quando o servidor volta da
+// viagem. Ela nunca impede a geração da Requisição + Liquidação: não entra na
+// validação de finalização e a impressão do processo completo sai com a página
+// 3 em branco (impressa com linhas) enquanto ela estiver pendente.
 //
 // Este arquivo é carregado direto pelos testes, sem o resolvedor de módulos do
 // Vite: só funções puras, nada de React e nada de supabase.
 
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
+import { valorPorExtenso } from "./valorPorExtenso.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -26,9 +33,20 @@ export const TABELA_NUMERACAO = "processos_diarias_numeracao";
 
 export const MIGRATION_PROCESSOS = "20260911160000_processos_modulo_diarias.sql";
 
+/**
+ * A migration dos campos do MODELO OFICIAL da prefeitura.
+ *
+ * Só acrescenta colunas em `public.processos_diarias` (endereço do servidor,
+ * tipo de diária, data das diárias, custeio, valor por extenso e a prestação de
+ * contas). Nenhuma coluna é removida, nenhum dado é reescrito e nenhuma outra
+ * tabela é tocada. Precisa ser rodada à mão no SQL Editor do Supabase.
+ */
+export const MIGRATION_MODELO_OFICIAL = "20260911190000_processos_diarias_modelo_oficial.sql";
+
 export const AVISO_MIGRATION_PROCESSOS =
-  `O módulo Processos ainda não tem as suas tabelas neste banco. Rode a migration ${MIGRATION_PROCESSOS} `
-  + "no SQL Editor do Supabase para liberar a área de Diárias. Nenhum outro módulo é afetado por ela.";
+  `O módulo Processos ainda não tem as suas tabelas -- ou os campos do modelo oficial -- neste banco. Rode as migrations ${MIGRATION_PROCESSOS} `
+  + `e ${MIGRATION_MODELO_OFICIAL} no SQL Editor do Supabase para liberar a área de Diárias. `
+  + "Nenhum outro módulo é afetado por elas.";
 
 /* -------------------------------------------------------------------------
  * Situações
@@ -107,26 +125,36 @@ export function numeroDoProcesso(processo) {
   return numeroFormatado(processo?.ano, processo?.numero);
 }
 
-/** "PROCESSO DE DIÁRIA Nº 0001/2026" -- o título das duas páginas e da tela. */
+/** "PROCESSO DE DIÁRIA Nº 0001/2026" -- o título das três páginas e da tela. */
 export function tituloDoProcesso(processo) {
   const numero = numeroDoProcesso(processo);
   return numero ? `PROCESSO DE DIÁRIA Nº ${numero}` : "PROCESSO DE DIÁRIA (novo)";
 }
 
-export const TITULO_PAGINA_1 = "SOLICITAÇÃO DE DIÁRIA";
-export const TITULO_PAGINA_2 = "SOLICITAÇÃO DE LIQUIDAÇÃO DA DIÁRIA";
+/**
+ * Os títulos das três folhas, como estão impressos no modelo oficial.
+ *
+ * São os nomes do papel, não apelidos internos: quem confere o processo procura
+ * exatamente estas linhas no alto de cada página.
+ */
+export const TITULO_PAGINA_1 = "REQUISIÇÃO DE DIÁRIAS";
+export const TITULO_PAGINA_2 = "LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO";
+export const TITULO_PAGINA_3 = "PRESTAÇÃO DE CONTAS DE DIÁRIAS";
+
+/** A lei municipal citada na abertura da Requisição. */
+export const LEI_DAS_DIARIAS = "Lei Municipal nº 003/2005 de 23 de fevereiro de 2005";
 
 /* -------------------------------------------------------------------------
  * Campos
  * ---------------------------------------------------------------------- */
 
 /**
- * DADOS GERAIS: digitados UMA VEZ e reutilizados nas duas páginas.
+ * DADOS GERAIS: digitados UMA VEZ e reutilizados nas três páginas.
  *
  * Eles são compartilhados por CONSTRUÇÃO -- não há cópia a manter em dia, nem
- * duas linhas a sincronizar: as duas páginas leem as mesmas colunas do mesmo
- * registro. Alterar um dado compartilhado na Solicitação aparece na Liquidação
- * no mesmo instante porque é o mesmo dado.
+ * linhas a sincronizar: as três páginas leem as mesmas colunas do mesmo
+ * registro. Alterar um dado compartilhado na Requisição aparece na Liquidação e
+ * na Prestação de Contas no mesmo instante porque é o mesmo dado.
  */
 export const CAMPOS_COMPARTILHADOS = [
   "data_processo",
@@ -135,6 +163,10 @@ export const CAMPOS_COMPARTILHADOS = [
   "beneficiario_cpf",
   "objeto",
   "valor_total",
+  // Nome e endereço identificam o servidor na página 1 e o FAVORECIDO na 2.
+  "beneficiario_endereco",
+  // O valor por extenso sai ao lado do número nas páginas 1 e 2.
+  "valor_extenso",
   // Também vão prontos para a página 2 (item 7: sem digitação repetida).
   "destino",
   "finalidade",
@@ -145,11 +177,16 @@ export const CAMPOS_COMPARTILHADOS = [
   "titular",
 ];
 
-/** Campos PRÓPRIOS da página 1 (a Solicitação de Diária). */
-export const CAMPOS_SOLICITACAO = [
+/** Campos PRÓPRIOS da página 1 (a Requisição de Diárias). */
+export const CAMPOS_REQUISICAO = [
   "beneficiario_matricula",
   "beneficiario_cargo",
   "beneficiario_lotacao",
+  // Do modelo oficial: o tipo de diária e o custeio a que ela se destina, mais
+  // a data das diárias escrita como o papel pede ("10 e 11/03/2026").
+  "tipo_diaria",
+  "custeio_despesas",
+  "data_diarias",
   "data_saida",
   "hora_saida",
   "data_retorno",
@@ -161,7 +198,7 @@ export const CAMPOS_SOLICITACAO = [
   "observacoes",
 ];
 
-/** Campos PRÓPRIOS da página 2 (a Solicitação de Liquidação da Diária). */
+/** Campos PRÓPRIOS da página 2 (a Liquidação/Solicitação de Pagamento). */
 export const CAMPOS_LIQUIDACAO = [
   "liquidacao_data",
   "liquidacao_data_saida",
@@ -175,9 +212,20 @@ export const CAMPOS_LIQUIDACAO = [
 ];
 
 /**
- * Os campos da Liquidação que NASCEM espelhando a Solicitação.
+ * Campos PRÓPRIOS da página 3 (a Prestação de Contas de Diárias).
  *
- * A viagem realizada normalmente é a viagem solicitada, então estes quatro
+ * Ela é preenchida DEPOIS da viagem, e ficar pendente é o normal: nada aqui
+ * entra na validação de finalização nem impede a impressão das páginas 1 e 2.
+ */
+export const CAMPOS_PRESTACAO = [
+  "prestacao_relatorio",
+  "prestacao_data",
+];
+
+/**
+ * Os campos da Liquidação que NASCEM espelhando a Requisição.
+ *
+ * A viagem realizada normalmente é a viagem requisitada, então estes quatro
  * chegam preenchidos com o que está na página 1 -- é o que dispensa a digitação
  * repetida. Mas eles existem separados de propósito: quem volta um dia antes
  * informa ali a data real e a quantidade real, e é esse número que a página 2
@@ -229,17 +277,50 @@ export function calcularValorTotal(quantidade, valorUnitario) {
 }
 
 /**
- * Aplica o cálculo automático ao formulário.
+ * Aplica o cálculo automático ao formulário: o total e o valor por extenso.
  *
  * O total é recalculado sempre, EXCETO quando quem preenche assumiu o valor à
  * mão (`valor_total_manual`). A edição manual é permitida porque existe caso
  * real de valor concedido diferente do produto (diária proporcional, teto da
  * secretaria) -- e ela vai para a auditoria, com o antes e o depois.
+ *
+ * O extenso acompanha o total nos DOIS casos: o papel traz a coluna "VALOR POR
+ * EXTENSO" ao lado do número, e ela sairia errada se o valor digitado à mão não
+ * atualizasse o texto. Quem quiser outra redação assume o campo
+ * (`valor_extenso_manual`) e o automático para de sobrescrever.
  */
 export function aplicarCalculo(formulario) {
-  const base = formulario ?? {};
-  if (base.valor_total_manual === true) return { ...base };
-  return { ...base, valor_total: calcularValorTotal(base.quantidade_diarias, base.valor_unitario) };
+  const base = { ...(formulario ?? {}) };
+
+  if (base.valor_total_manual !== true) {
+    base.valor_total = calcularValorTotal(base.quantidade_diarias, base.valor_unitario);
+  }
+  if (base.valor_extenso_manual !== true) {
+    base.valor_extenso = extensoAutomatico(base.valor_total);
+  }
+
+  return base;
+}
+
+/**
+ * O extenso que o automático escreve para um valor.
+ *
+ * Processo em branco não recebe "zero real": enquanto não há valor, a coluna
+ * fica vazia e o documento imprime o traço de campo não preenchido.
+ */
+function extensoAutomatico(valor) {
+  const total = paraNumeroMoeda(valor);
+  return total > 0 ? valorPorExtenso(total) : "";
+}
+
+/**
+ * O valor por extenso que o documento IMPRIME: o texto do processo, quando
+ * existe; o gerado a partir do total, para os processos gravados antes de o
+ * campo existir.
+ */
+export function valorExtensoDoProcesso(processo) {
+  const proprio = texto(processo?.valor_extenso);
+  return proprio !== "" ? proprio : extensoAutomatico(processo?.valor_total);
 }
 
 /** O total que o cálculo automático daria para o formulário atual. */
@@ -261,7 +342,7 @@ export function totalDivergeDoCalculo(formulario) {
  * Propaga para a página 2 a alteração de um dado COMPARTILHADO da página 1.
  *
  * Os dados gerais não precisam de propagação nenhuma: são as mesmas colunas nas
- * duas páginas. O que precisa é o punhado de campos que a Liquidação tem em
+ * três páginas. O que precisa é o punhado de campos que a Liquidação tem em
  * separado porque ela pode divergir (datas, quantidade e valor efetivamente
  * realizados). Regra, campo por campo:
  *
@@ -306,6 +387,19 @@ export function valorNaLiquidacao(processo, campoLiquidacao) {
   return espelho ? processo?.[espelho.origem] : proprio;
 }
 
+/**
+ * O RELATÓRIO DE ATIVIDADES que a página 3 imprime.
+ *
+ * O relatório passou a ter campo próprio na Prestação de Contas, mas os
+ * processos gravados antes disso escreveram o texto no relatório da liquidação.
+ * A leitura cai nele quando o campo novo está vazio, para que nenhum relatório
+ * já digitado desapareça do papel.
+ */
+export function relatorioDaPrestacao(processo) {
+  const proprio = texto(processo?.prestacao_relatorio);
+  return proprio !== "" ? proprio : texto(processo?.liquidacao_relatorio);
+}
+
 /* -------------------------------------------------------------------------
  * Formulário
  * ---------------------------------------------------------------------- */
@@ -323,12 +417,14 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
     objeto: "",
     valor_total: 0,
     valor_total_manual: false,
+    valor_extenso: "",
+    valor_extenso_manual: false,
     situacao: "rascunho",
   };
   // Os compartilhados entram junto: destino, finalidade e os dados bancários
-  // são das DUAS páginas, e sem eles aqui o formulário perderia esses campos ao
+  // são das TRÊS páginas, e sem eles aqui o formulário perderia esses campos ao
   // reabrir um rascunho (processoParaFormulario copia o que existe no branco).
-  [...CAMPOS_COMPARTILHADOS, ...CAMPOS_SOLICITACAO, ...CAMPOS_LIQUIDACAO].forEach((campo) => {
+  [...CAMPOS_COMPARTILHADOS, ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO].forEach((campo) => {
     if (!(campo in branco)) branco[campo] = "";
   });
   branco.quantidade_diarias = "";
@@ -359,6 +455,7 @@ export function processoParaFormulario(processo) {
   formulario.ano = processo?.ano ?? base.ano;
   formulario.situacao = processo?.situacao ?? "rascunho";
   formulario.valor_total_manual = processo?.valor_total_manual === true;
+  formulario.valor_extenso_manual = processo?.valor_extenso_manual === true;
   formulario.fornecedor_id = processo?.fornecedor_id ?? null;
   formulario.secretaria_id = processo?.secretaria_id ?? "";
   return formulario;
@@ -367,6 +464,7 @@ export function processoParaFormulario(processo) {
 const CAMPOS_DATA = new Set([
   "data_processo", "data_saida", "data_retorno",
   "liquidacao_data", "liquidacao_data_saida", "liquidacao_data_retorno",
+  "prestacao_data",
 ]);
 const CAMPOS_MOEDA = new Set(["valor_total", "valor_unitario", "liquidacao_valor"]);
 const CAMPOS_QUANTIDADE = new Set(["quantidade_diarias", "liquidacao_quantidade"]);
@@ -387,10 +485,11 @@ export function formularioParaBanco(formulario) {
     secretaria_id: vazio(base.secretaria_id) ? null : base.secretaria_id,
     fornecedor_id: base.fornecedor_id ?? null,
     valor_total_manual: base.valor_total_manual === true,
+    valor_extenso_manual: base.valor_extenso_manual === true,
   };
 
-  ["data_processo", "beneficiario_nome", "beneficiario_cpf", "objeto", "valor_total"]
-    .concat(CAMPOS_SOLICITACAO, CAMPOS_LIQUIDACAO, ["destino", "finalidade", "banco", "agencia", "conta", "pix", "titular"])
+  ["data_processo", "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco", "objeto", "valor_total", "valor_extenso"]
+    .concat(CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, CAMPOS_PRESTACAO, ["destino", "finalidade", "banco", "agencia", "conta", "pix", "titular"])
     .forEach((campo) => {
       const valor = base[campo];
       if (CAMPOS_MOEDA.has(campo)) {
@@ -450,29 +549,30 @@ export function soltarVinculoDeCadastro(formulario) {
 }
 
 /* -------------------------------------------------------------------------
- * Preenchimento das duas páginas
+ * Preenchimento das três páginas
  * ---------------------------------------------------------------------- */
 
 /**
  * Se cada página já tem o essencial. É o que a lista mostra como
- * "Solicitação ✓ | Liquidação ✓" ou "Liquidação pendente".
+ * "Requisição ✓ | Liquidação ✓ | Prestação de contas pendente".
  *
  * O essencial é curto de propósito: rascunho existe justamente para o processo
- * ser salvo incompleto, e o indicador é informativo, não é trava.
+ * ser salvo incompleto, e o indicador é INFORMATIVO, não é trava. A prestação
+ * de contas pendente aparece aqui e em nenhum outro lugar: ela não impede
+ * salvar, finalizar nem imprimir a Requisição e a Liquidação.
  */
 export function preenchimentoDoProcesso(processo) {
   const p = processo ?? {};
-  const solicitacao = !vazio(p.beneficiario_nome) && !vazio(p.destino) && paraNumeroMoeda(p.valor_total) > 0;
-  const liquidacao =
-    !vazio(p.liquidacao_data)
-    || !vazio(p.liquidacao_relatorio)
-    || !vazio(p.liquidacao_responsavel)
-    || !vazio(p.liquidacao_documentos);
+  const requisicao = !vazio(p.beneficiario_nome) && !vazio(p.destino) && paraNumeroMoeda(p.valor_total) > 0;
+  const liquidacao = !vazio(p.objeto) && !vazio(p.banco) && !vazio(p.conta);
+  const prestacao = relatorioDaPrestacao(p) !== "";
 
+  const marca = (pronta) => (pronta ? "✓" : "pendente");
   return {
-    solicitacao,
+    requisicao,
     liquidacao,
-    texto: `Solicitação ${solicitacao ? "✓" : "pendente"} | Liquidação ${liquidacao ? "✓" : "pendente"}`,
+    prestacao,
+    texto: `Requisição ${marca(requisicao)} | Liquidação ${marca(liquidacao)} | Prestação de contas ${marca(prestacao)}`,
   };
 }
 
@@ -504,6 +604,18 @@ export function periodoDoProcesso(processo) {
   if (saida === "" && retorno === "") return "";
   if (saida !== "" && retorno !== "") return saida === retorno ? saida : `${saida} a ${retorno}`;
   return saida !== "" ? `A partir de ${saida}` : `Até ${retorno}`;
+}
+
+/**
+ * "Data da(s) Diária(s)" da Requisição.
+ *
+ * O modelo oficial tem uma linha escrita à mão ali ("10 e 11/03/2026"), e é ela
+ * que manda. Enquanto ninguém escreveu nada, o papel sai com o período da
+ * viagem já informado, em vez de um campo vazio.
+ */
+export function dataDasDiarias(processo) {
+  const escrita = texto(processo?.data_diarias);
+  return escrita !== "" ? escrita : periodoDoProcesso(processo);
 }
 
 /** Nome da secretaria, venha do join da consulta ou da lista da tela. */
@@ -631,16 +743,16 @@ export function anosDosProcessos(processos = []) {
  * gravação, pelo banco. O ORIGINAL NÃO É TOCADO por esta função: ela só devolve
  * um formulário. E, como toda a área, duplicar não gera pagamento nenhum.
  *
- * O andamento da liquidação NÃO vem na cópia: relatório de viagem, documentos
- * comprobatórios, datas e responsável pela conferência são fatos do processo
- * original. Copiá-los seria levar para o novo documento uma prestação de contas
- * que não aconteceu.
+ * O andamento da liquidação e a PRESTAÇÃO DE CONTAS não vêm na cópia:
+ * relatório de atividades, documentos comprobatórios, datas e responsável pela
+ * conferência são fatos do processo original. Copiá-los seria levar para o novo
+ * documento uma prestação de contas que não aconteceu.
  */
 export function duplicarProcesso(processo, { ano = new Date().getFullYear(), hoje = dataDeHoje() } = {}) {
   const copia = processoParaFormulario(processo);
   const vazioNovo = processoVazio({ ano, hoje });
 
-  CAMPOS_LIQUIDACAO.forEach((campo) => {
+  [...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO].forEach((campo) => {
     copia[campo] = vazioNovo[campo];
   });
 
@@ -663,7 +775,7 @@ export function duplicarProcesso(processo, { ano = new Date().getFullYear(), hoj
 /**
  * O que o RASCUNHO exige: praticamente nada.
  *
- * Rascunho pode ser salvo a qualquer momento, sem as duas páginas completas --
+ * Rascunho pode ser salvo a qualquer momento, sem as três páginas completas --
  * é para isso que ele existe. A única exigência é a secretaria, porque é ela
  * que diz de quem é o processo.
  */
@@ -677,9 +789,10 @@ export function validarRascunho(formulario) {
  * O que FINALIZAR exige: a página 1 completa.
  *
  * Finalizar fecha o documento para alteração, então o mínimo do papel precisa
- * estar lá. A página 2 NÃO é exigida: o normal é a liquidação ser preenchida
- * depois da viagem, e o processo finalizado com a liquidação pendente é
- * situação legítima.
+ * estar lá. As páginas 2 e 3 NÃO são exigidas: o normal é a liquidação e a
+ * prestação de contas serem preenchidas depois da viagem, e o processo
+ * finalizado com elas pendentes é situação legítima. A prestação de contas
+ * nunca impede a geração da Requisição e da Liquidação.
  *
  * E vale de novo: finalizar não é pagar.
  */
@@ -718,9 +831,10 @@ export function identificacaoDoProcesso(processo) {
 
 const CAMPOS_AUDITADOS = [
   "data_processo", "secretaria_id", "fornecedor_id", "beneficiario_nome", "beneficiario_cpf",
-  "objeto", "valor_total", "valor_total_manual", "destino", "finalidade",
+  "beneficiario_endereco", "objeto", "valor_total", "valor_total_manual",
+  "valor_extenso", "valor_extenso_manual", "destino", "finalidade",
   "banco", "agencia", "conta", "pix", "titular",
-  ...CAMPOS_SOLICITACAO, ...CAMPOS_LIQUIDACAO,
+  ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO,
 ];
 
 /**
