@@ -3,11 +3,12 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   Home, Landmark, Users, Calendar, History, BarChart2, Settings, ReceiptText,
   LogOut, ShieldCheck, ClipboardList, FileCheck2, Menu, X, PanelLeftClose,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, FolderOpen,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { CATEGORIAS } from "../lib/configuracoesSistema";
 import { useAreasVisiveisNoMenu } from "../lib/permissoesAreasFornecedores";
+import { useAreasDeProcessosNoMenu } from "../lib/permissoesProcessos";
 
 const navItems = [
   { to: "/", label: "Painel Principal", icon: Home, end: true },
@@ -19,6 +20,9 @@ const navItems = [
   { to: "/certidoes", label: "Certidões", icon: FileCheck2 },
   { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
   { to: "/baixas", label: "Baixas de Pagamentos", icon: ReceiptText },
+  // PROCESSOS: item expansível com as áreas documentais dentro. Neste envio
+  // existe Diárias; Serviços/Materiais e Arquivo entram nos envios deles.
+  { to: "/processos", label: "Processos", icon: FolderOpen, submenu: "processos" },
   { to: "/tarefas", label: "Tarefas", icon: ClipboardList },
   { to: "/historico", label: "Histórico", icon: History },
   { to: "/relatorios", label: "Relatórios", icon: BarChart2 },
@@ -33,6 +37,10 @@ const CHAVE_MENU_RECOLHIDO = "sfi.menuLateral.recolhido";
 // O submenu de Fornecedores também precisa sobreviver à troca de página: sem
 // isto ele recolheria a cada navegação, porque a tela nova monta um Layout novo.
 const CHAVE_FORNECEDORES_ABERTO = "sfi.menuLateral.fornecedoresAberto";
+
+// O submenu de PROCESSOS guarda a preferência dele em chave própria, pelo
+// mesmo motivo -- e sem interferir na de Fornecedores.
+const CHAVE_PROCESSOS_ABERTO = "sfi.menuLateral.processosAberto";
 
 // Abaixo de 768px (celular) o menu vira gaveta sobreposta; de tablet para cima
 // o usuário escolhe entre menu aberto e faixa de ícones.
@@ -65,6 +73,22 @@ function lerPreferenciaFornecedores() {
 function gravarPreferenciaFornecedores(aberto) {
   try {
     window.localStorage.setItem(CHAVE_FORNECEDORES_ABERTO, aberto ? "1" : "0");
+  } catch {
+    /* navegador sem armazenamento local: a preferência vale só para esta tela */
+  }
+}
+
+function lerPreferenciaProcessos() {
+  try {
+    return window.localStorage.getItem(CHAVE_PROCESSOS_ABERTO) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function gravarPreferenciaProcessos(aberto) {
+  try {
+    window.localStorage.setItem(CHAVE_PROCESSOS_ABERTO, aberto ? "1" : "0");
   } catch {
     /* navegador sem armazenamento local: a preferência vale só para esta tela */
   }
@@ -286,6 +310,91 @@ function ItemFornecedores({
   );
 }
 
+/**
+ * O item PROCESSOS do menu lateral, com as áreas documentais recuadas dentro.
+ *
+ * Mesmo padrão visual do submenu de Fornecedores, com uma diferença de
+ * conceito: PROCESSOS não é uma página, é uma seção. Então a linha dele
+ * EXPANDE e RECOLHE por toque, sem navegar para lugar nenhum, e quem abre uma
+ * tela é a subaba. Estando dentro de uma área, a seção fica expandida e a
+ * subaba destacada.
+ *
+ * Nada aqui depende de hover, e cada opção tem área de toque folgada: funciona
+ * de dedo no iPad.
+ *
+ * Quem não pode visualizar nenhuma área não recebe o item -- a lista de áreas
+ * chega vazia e o menu não mostra a seção.
+ */
+function ItemProcessos({ item, areas, expandido, onAlternar, onNavegar, classeItem, compacto, pathname }) {
+  const emProcessos = pathname === item.to || pathname.startsWith(`${item.to}/`);
+  if (areas.length === 0) return null;
+
+  // Faixa de ícones: o ícone leva direto para a primeira área liberada, e o
+  // submenu volta ao reabrir o menu.
+  if (compacto) {
+    return (
+      <NavLink
+        to={areas[0].to}
+        onClick={() => {
+          onAlternar(true);
+          onNavegar();
+        }}
+        className={classeItem(emProcessos)}
+        aria-label={item.label}
+        title={item.label}
+      >
+        <item.icon size={18} className="shrink-0" />
+        <Balao>{item.label}</Balao>
+      </NavLink>
+    );
+  }
+
+  const classeLinha = [
+    classeItem(emProcessos && !expandido),
+    expandido && emProcessos ? "bg-white/10" : "",
+  ].join(" ");
+
+  const classeSub = ({ isActive }) =>
+    [
+      "flex min-h-[2.5rem] items-center rounded-lg px-3 py-2 text-[13px] transition-colors",
+      "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]",
+      isActive ? "bg-white font-medium text-[#0F2A44]" : "text-white/70 hover:bg-white/10",
+    ].join(" ");
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onAlternar(!expandido)}
+        className={`${classeLinha} w-full text-left`}
+        aria-expanded={expandido}
+        aria-controls="submenu-processos"
+      >
+        <item.icon size={18} className="shrink-0" />
+        <span className="truncate">{item.label}</span>
+        {expandido ? (
+          <ChevronDown size={16} className="ml-auto shrink-0 text-white/50" />
+        ) : (
+          <ChevronRight size={16} className="ml-auto shrink-0 text-white/50" />
+        )}
+      </button>
+
+      {expandido && (
+        <div
+          id="submenu-processos"
+          className="mt-1 ml-[1.6rem] space-y-0.5 border-l border-white/15 pl-2"
+        >
+          {areas.map((area) => (
+            <NavLink key={area.id} to={area.to} onClick={onNavegar} className={classeSub}>
+              {area.rotulo}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Layout({ children, usuario }) {
   const localizacao = useLocation();
   const telaEstreita = usarTelaEstreita();
@@ -294,6 +403,8 @@ export default function Layout({ children, usuario }) {
   const [submenuAberto, definirSubmenuAberto] = React.useState(false);
   const [fornecedoresAberto, definirFornecedoresAberto] = React.useState(lerPreferenciaFornecedores);
   const areasDeFornecedores = useAreasVisiveisNoMenu();
+  const [processosAberto, definirProcessosAberto] = React.useState(lerPreferenciaProcessos);
+  const areasDeProcessos = useAreasDeProcessosNoMenu();
   const botaoFecharRef = React.useRef(null);
 
   // Faixa de ícones só existe de tablet para cima: no celular o menu, quando
@@ -320,6 +431,11 @@ export default function Layout({ children, usuario }) {
     gravarPreferenciaFornecedores(aberto);
   }
 
+  function alternarProcessos(aberto) {
+    definirProcessosAberto(aberto);
+    gravarPreferenciaProcessos(aberto);
+  }
+
   function fecharGaveta() {
     definirGavetaAberta(false);
     definirSubmenuAberto(false);
@@ -334,6 +450,15 @@ export default function Layout({ children, usuario }) {
   React.useEffect(() => {
     if (emFornecedores) definirFornecedoresAberto(true);
   }, [emFornecedores]);
+
+  // O mesmo para PROCESSOS: dentro de uma área dele, a seção aparece expandida
+  // e a subaba fica destacada.
+  const emProcessos =
+    localizacao.pathname === "/processos" || localizacao.pathname.startsWith("/processos/");
+
+  React.useEffect(() => {
+    if (emProcessos) definirProcessosAberto(true);
+  }, [emProcessos]);
 
   // Sai do modo compacto (ou vira celular): o painel flutuante perde o sentido.
   React.useEffect(() => {
@@ -454,7 +579,19 @@ export default function Layout({ children, usuario }) {
           }`}
         >
           {navItems.map((item) =>
-            item.expansivel ? (
+            item.submenu === "processos" ? (
+              <ItemProcessos
+                key={item.to}
+                item={item}
+                areas={areasDeProcessos}
+                expandido={processosAberto}
+                onAlternar={alternarProcessos}
+                onNavegar={fecharGaveta}
+                classeItem={classeItem}
+                compacto={compacto}
+                pathname={localizacao.pathname}
+              />
+            ) : item.expansivel ? (
               <ItemFornecedores
                 key={item.to}
                 item={item}

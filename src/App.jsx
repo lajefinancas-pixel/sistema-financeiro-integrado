@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Saldos from "./pages/Saldos";
 import ModuloFornecedores from "./pages/ModuloFornecedores";
+import ModuloProcessos from "./pages/ModuloProcessos";
 import Certidoes from "./pages/Certidoes";
 import Pagamentos from "./pages/Pagamentos";
 import Baixas from "./pages/Baixas";
@@ -42,6 +43,12 @@ export default function App() {
           "Todos os Fornecedores", a página de Fornecedores de sempre. */}
       <Route path="/fornecedores" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       <Route path="/fornecedores/:area" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
+      {/* PROCESSOS e as suas áreas, abertas pelo submenu de Processos no menu
+          lateral. Neste envio existe Diárias; a rota sem área e qualquer área
+          desconhecida vão para /processos/diarias. Módulo DOCUMENTAL: nada aqui
+          debita conta, dá baixa em NF, altera saldo ou cria pagamento. */}
+      <Route path="/processos" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
+      <Route path="/processos/:area" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />
