@@ -6,10 +6,15 @@ import {
   folhasDoEscopo,
   htmlDoProcesso,
 } from "../../lib/processosDiariasDocumento.js";
-import { TITULO_PAGINA_1, TITULO_PAGINA_2, tituloDoProcesso } from "../../lib/processosDiarias.js";
+import {
+  TITULO_PAGINA_1,
+  TITULO_PAGINA_2,
+  TITULO_PAGINA_3,
+  tituloDoProcesso,
+} from "../../lib/processosDiarias.js";
 
 /**
- * A pré-visualização das duas páginas antes de imprimir ou gerar o PDF.
+ * A pré-visualização das três páginas antes de imprimir ou gerar o PDF.
  *
  * O que aparece aqui é O DOCUMENTO, não uma imitação dele: o HTML desenhado é
  * exatamente o que vai para a impressora, renderizado em um quadro isolado e
@@ -17,6 +22,10 @@ import { TITULO_PAGINA_1, TITULO_PAGINA_2, tituloDoProcesso } from "../../lib/pr
  *
  * Imprimir e gerar PDF não alteram o processo, não pagam nada e não debitam
  * conta nenhuma: só registram na trilha quem levou o papel para fora.
+ *
+ * A prestação de contas costuma estar em branco quando o processo é impresso —
+ * ela é preenchida depois da viagem —, e isso não impede nada: a folha sai com
+ * as linhas pautadas para ser preenchida à mão.
  */
 export default function PreVisualizacaoProcesso({
   processo,
@@ -49,11 +58,7 @@ export default function PreVisualizacaoProcesso({
             <h2 className="mt-0.5 truncate text-lg font-semibold text-[#0F2A44]">
               {tituloDoProcesso(processo)}
             </h2>
-            <p className="mt-0.5 text-xs text-[#0F2A44]/50">
-              {folhas.length === 2
-                ? `Página 1: ${tituloCurto(TITULO_PAGINA_1)} · Página 2: ${tituloCurto(TITULO_PAGINA_2)} — a Liquidação sempre começa em folha nova.`
-                : `Uma página: ${tituloCurto(folhas[0] === "solicitacao" ? TITULO_PAGINA_1 : TITULO_PAGINA_2)}.`}
-            </p>
+            <p className="mt-0.5 text-xs text-[#0F2A44]/50">{legendaDasFolhas(folhas)}</p>
           </div>
           <button
             type="button"
@@ -177,6 +182,26 @@ function Folhas({ html, paginas }) {
       </div>
     </div>
   );
+}
+
+const TITULO_DA_FOLHA = {
+  requisicao: TITULO_PAGINA_1,
+  liquidacao: TITULO_PAGINA_2,
+  prestacao: TITULO_PAGINA_3,
+};
+
+/**
+ * A legenda do cabeçalho: quais folhas vão sair e em que ordem.
+ *
+ * Cada documento começa em folha nova, então a numeração que aparece aqui é a
+ * mesma que sai na impressora.
+ */
+function legendaDasFolhas(folhas) {
+  const partes = folhas.map(
+    (folha, indice) => `Página ${indice + 1}: ${tituloCurto(TITULO_DA_FOLHA[folha] ?? "")}`,
+  );
+  if (partes.length <= 1) return `Uma página: ${tituloCurto(TITULO_DA_FOLHA[folhas[0]] ?? "")}.`;
+  return `${partes.join(" · ")} — cada documento começa em folha nova.`;
 }
 
 function tituloCurto(titulo) {

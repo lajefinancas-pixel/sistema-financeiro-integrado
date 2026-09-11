@@ -5,6 +5,7 @@ import {
   CAMPOS_COMPARTILHADOS,
   TITULO_PAGINA_1,
   TITULO_PAGINA_2,
+  TITULO_PAGINA_3,
   TRANSPORTES,
   aplicarCalculo,
   dadosDoFornecedorParaDocumento,
@@ -29,16 +30,20 @@ import {
 } from "../../lib/nomesFornecedor.js";
 
 /**
- * O PROCESSO DE DIÁRIA: um documento administrativo com duas páginas, em uma
+ * O PROCESSO DE DIÁRIA: um documento administrativo com TRÊS páginas, em uma
  * tela só.
  *
- * Solicitação e Liquidação NÃO são registros independentes e não têm aba
- * separada na lista: são as duas páginas do MESMO processo, com o MESMO número.
- * Aqui elas aparecem como duas seções, e os Dados Gerais -- que valem para as
- * duas -- são digitados UMA VEZ.
+ * Requisição, Liquidação/Pagamento e Prestação de Contas NÃO são registros
+ * independentes e não têm aba separada na lista: são as três páginas do MESMO
+ * processo, com o MESMO número. Aqui elas aparecem como três seções, e os Dados
+ * Gerais -- que valem para as três -- são digitados UMA VEZ.
+ *
+ * A PRESTAÇÃO DE CONTAS PODE FICAR PARA DEPOIS. Ela é preenchida quando o
+ * servidor volta da viagem, e estar pendente não impede salvar, finalizar nem
+ * imprimir a Requisição e a Liquidação.
  *
  * A sincronização é estrutural: os dados compartilhados são as mesmas colunas
- * do mesmo registro, então alterar um deles na Solicitação já altera o que a
+ * do mesmo registro, então alterar um deles na Requisição já altera o que a
  * Liquidação mostra. Os quatro campos que a Liquidação tem em separado (datas,
  * quantidade e valor realizados) acompanham a página 1 enquanto estiverem
  * espelhando-a, e param de acompanhar no instante em que recebem um valor
@@ -52,8 +57,9 @@ import {
 
 const SECOES = [
   { id: "gerais", rotulo: "Dados Gerais" },
-  { id: "solicitacao", rotulo: `1. ${tituloDeSecao(TITULO_PAGINA_1)}` },
-  { id: "liquidacao", rotulo: "2. Liquidação da Diária" },
+  { id: "requisicao", rotulo: `1. ${tituloDeSecao(TITULO_PAGINA_1)}` },
+  { id: "liquidacao", rotulo: `2. ${tituloDeSecao(TITULO_PAGINA_2)}` },
+  { id: "prestacao", rotulo: `3. ${tituloDeSecao(TITULO_PAGINA_3)}` },
 ];
 
 function tituloDeSecao(titulo) {
@@ -136,13 +142,31 @@ export default function ModalProcessoDiaria({
     });
   }
 
-  /** Assumir o valor total à mão: fica registrado, e vai para a auditoria. */
+  /**
+   * Assumir o valor total à mão: fica registrado, e vai para a auditoria.
+   *
+   * Passa por `aplicarCalculo` para o VALOR POR EXTENSO acompanhar o número
+   * digitado -- o quadro do documento sairia contraditório se não acompanhasse.
+   */
   function definirTotalManual(valor) {
     setAviso(null);
     setSujo(true);
     setFormulario((atual) =>
-      sincronizarLiquidacao(atual, { ...atual, valor_total: valor, valor_total_manual: true }),
+      sincronizarLiquidacao(atual, aplicarCalculo({ ...atual, valor_total: valor, valor_total_manual: true })),
     );
+  }
+
+  /** Assumir a redação do extenso à mão: o automático para de sobrescrever. */
+  function definirExtensoManual(valor) {
+    setAviso(null);
+    setSujo(true);
+    setFormulario((atual) => ({ ...atual, valor_extenso: valor, valor_extenso_manual: true }));
+  }
+
+  function voltarAoExtensoAutomatico() {
+    setAviso(null);
+    setSujo(true);
+    setFormulario((atual) => aplicarCalculo({ ...atual, valor_extenso_manual: false }));
   }
 
   function voltarAoCalculo() {
@@ -197,7 +221,7 @@ export default function ModalProcessoDiaria({
     const impedimento = primeiroErro(erros);
     if (impedimento) {
       setAviso(impedimento);
-      setSecao(erros.secretaria_id || erros.data_processo ? "gerais" : "solicitacao");
+      setSecao(erros.secretaria_id || erros.data_processo ? "gerais" : "requisicao");
       return;
     }
     if (!criado) {
@@ -223,7 +247,7 @@ export default function ModalProcessoDiaria({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:px-4 sm:py-8">
       <div className="w-full max-w-4xl rounded-2xl border border-black/5 bg-white shadow-lg">
-        {/* Cabeçalho: o número do processo é o mesmo nas duas páginas. */}
+        {/* Cabeçalho: o número do processo é o mesmo nas três páginas. */}
         <div className="flex items-start justify-between gap-3 border-b border-black/5 px-5 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#C9A227]">
@@ -234,8 +258,8 @@ export default function ModalProcessoDiaria({
             </h2>
             <p className="mt-0.5 text-xs text-[#0F2A44]/50">
               {numero === ""
-                ? "O número é emitido no primeiro salvamento e vale para as duas páginas."
-                : "Um processo, duas páginas — as duas com este número."}
+                ? "O número é emitido no primeiro salvamento e vale para as três páginas."
+                : "Um processo, três páginas — as três com este número."}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -251,7 +275,7 @@ export default function ModalProcessoDiaria({
           </div>
         </div>
 
-        {/* As três seções do processo. */}
+        {/* As quatro seções da tela: os dados gerais e as três páginas. */}
         <div className="flex flex-wrap gap-1.5 border-b border-black/5 px-5 py-3">
           {SECOES.map((item) => (
             <button
@@ -300,14 +324,16 @@ export default function ModalProcessoDiaria({
             />
           )}
 
-          {secao === "solicitacao" && (
-            <SecaoSolicitacao
+          {secao === "requisicao" && (
+            <SecaoRequisicao
               formulario={formulario}
               secretarias={secretarias}
               somenteLeitura={somenteLeitura}
               definir={definir}
               definirTotalManual={definirTotalManual}
               voltarAoCalculo={voltarAoCalculo}
+              definirExtensoManual={definirExtensoManual}
+              voltarAoExtensoAutomatico={voltarAoExtensoAutomatico}
             />
           )}
 
@@ -315,6 +341,14 @@ export default function ModalProcessoDiaria({
             <SecaoLiquidacao
               formulario={formulario}
               secretarias={secretarias}
+              somenteLeitura={somenteLeitura}
+              definir={definir}
+            />
+          )}
+
+          {secao === "prestacao" && (
+            <SecaoPrestacao
+              formulario={formulario}
               somenteLeitura={somenteLeitura}
               definir={definir}
             />
@@ -330,7 +364,7 @@ export default function ModalProcessoDiaria({
                 ? "Alterações ainda não salvas — o salvamento automático grava em instantes."
                 : ultimoSalvamento
                   ? `Alterações salvas — último salvamento ${ultimoSalvamento}`
-                  : "Rascunho pode ser salvo a qualquer momento, sem as duas páginas completas."}
+                  : "Rascunho pode ser salvo a qualquer momento, sem as três páginas completas."}
           </div>
 
           {permissoes.imprimir && criado && (
@@ -437,7 +471,7 @@ function DadosBancarios({ formulario, somenteLeitura, definir }) {
 }
 
 /* -------------------------------------------------------------------------
- * Dados Gerais: digitados uma vez, valem para as duas páginas
+ * Dados Gerais: digitados uma vez, valem para as três páginas
  * ---------------------------------------------------------------------- */
 
 function SecaoDadosGerais({
@@ -455,9 +489,9 @@ function SecaoDadosGerais({
   return (
     <>
       <p className="rounded-lg border border-[#C9A227]/25 bg-[#FFFBEF] px-4 py-3 text-xs leading-relaxed text-[#0F2A44]/70">
-        Estes dados valem para as DUAS páginas do processo: digite uma vez e eles aparecem na
-        Solicitação e na Liquidação. Este é um documento — preencher, salvar ou finalizar não debita
-        conta, não dá baixa em NF e não altera saldo nenhum.
+        Estes dados valem para as TRÊS páginas do processo: digite uma vez e eles aparecem na
+        Requisição, na Liquidação e na Prestação de Contas. Este é um documento — preencher, salvar ou
+        finalizar não debita conta, não dá baixa em NF e não altera saldo nenhum.
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -567,15 +601,23 @@ function SecaoDadosGerais({
           onChange={(v) => definir("beneficiario_cpf", v)}
           desabilitado={somenteLeitura}
         />
+        <CampoTexto
+          rotulo="Endereço do servidor"
+          valor={formulario.beneficiario_endereco}
+          onChange={(v) => definir("beneficiario_endereco", v)}
+          desabilitado={somenteLeitura}
+          className="sm:col-span-2"
+          apoio="Sai na identificação do servidor (página 1) e no favorecido (página 2)."
+        />
       </div>
 
       <CampoArea
-        rotulo="Objeto / finalidade"
+        rotulo="Objetivando (objeto do processo)"
         valor={formulario.objeto}
         onChange={(v) => definir("objeto", v)}
         desabilitado={somenteLeitura}
         linhas={2}
-        apoio="Resumo do processo. A justificativa detalhada fica na Solicitação."
+        apoio="É o campo Objetivando das páginas 1 e 2. A justificativa detalhada fica na Requisição."
       />
 
       <div className="rounded-lg border border-black/10 bg-[#F8FAFC] px-4 py-3">
@@ -586,7 +628,7 @@ function SecaoDadosGerais({
           <strong className="text-xl text-[#0F2A44]">{formatBRL(formulario.valor_total)}</strong>
         </div>
         <p className="mt-1 text-[11px] text-[#0F2A44]/45">
-          Calculado na Solicitação (quantidade × valor unitário). É o valor do documento: nenhum
+          Calculado na Requisição (quantidade × valor unitário). É o valor do documento: nenhum
           pagamento é criado e nenhuma conta é debitada por ele.
         </p>
       </div>
@@ -595,16 +637,52 @@ function SecaoDadosGerais({
 }
 
 /* -------------------------------------------------------------------------
- * Página 1: Solicitação de Diária
+ * Página 1: Requisição de Diárias
  * ---------------------------------------------------------------------- */
 
-function SecaoSolicitacao({ formulario, secretarias, somenteLeitura, definir, definirTotalManual, voltarAoCalculo }) {
+function SecaoRequisicao({
+  formulario,
+  secretarias,
+  somenteLeitura,
+  definir,
+  definirTotalManual,
+  voltarAoCalculo,
+  definirExtensoManual,
+  voltarAoExtensoAutomatico,
+}) {
   const calculado = valorTotalCalculado(formulario);
   const diverge = totalDivergeDoCalculo(formulario);
   const secretaria = secretarias.find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "--";
 
   return (
     <>
+      <p className="rounded-lg border border-[#0F2A44]/10 bg-[#F8FAFC] px-4 py-3 text-xs leading-relaxed text-[#0F2A44]/70">
+        A página 1 do modelo oficial: <strong>Requisição de Diárias</strong>, na conformidade da Lei
+        Municipal nº 003/2005. Ela é assinada pelo servidor, pelo responsável pela secretaria e pela
+        prefeita.
+      </p>
+
+      <Bloco titulo="O que se requisita">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <CampoTexto
+            rotulo="Custeio de despesas"
+            valor={formulario.custeio_despesas}
+            onChange={(v) => definir("custeio_despesas", v)}
+            desabilitado={somenteLeitura}
+            placeholder="Ex.: alimentação e hospedagem"
+            apoio="Completa a frase “destinada(s) ao custeio de despesas ...”."
+          />
+          <CampoTexto
+            rotulo="Data da(s) diária(s)"
+            valor={formulario.data_diarias}
+            onChange={(v) => definir("data_diarias", v)}
+            desabilitado={somenteLeitura}
+            placeholder="Ex.: 10 e 11/03/2026"
+            apoio="Como no papel. Em branco, o documento imprime o período da viagem."
+          />
+        </div>
+      </Bloco>
+
       <Bloco titulo="Beneficiário">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CampoTexto
@@ -631,7 +709,22 @@ function SecaoSolicitacao({ formulario, secretarias, somenteLeitura, definir, de
             onChange={(v) => definir("beneficiario_cargo", v)}
             desabilitado={somenteLeitura}
           />
-          <Campo rotulo="Secretaria" apoio="Vem dos Dados Gerais — é a mesma nas duas páginas.">
+          <CampoTexto
+            rotulo="Endereço"
+            valor={formulario.beneficiario_endereco}
+            onChange={(v) => definir("beneficiario_endereco", v)}
+            desabilitado={somenteLeitura}
+            className="sm:col-span-2"
+            apoio="O mesmo dos Dados Gerais — é o endereço que sai nas páginas 1 e 2."
+          />
+          <CampoTexto
+            rotulo="Tipo de diária"
+            valor={formulario.tipo_diaria}
+            onChange={(v) => definir("tipo_diaria", v)}
+            desabilitado={somenteLeitura}
+            apoio="Como está escrito no formulário oficial."
+          />
+          <Campo rotulo="Secretaria" apoio="Vem dos Dados Gerais — é a mesma nas três páginas.">
             <input type="text" value={secretaria} disabled className={CLASSE_CAMPO} />
           </Campo>
           <CampoTexto
@@ -716,6 +809,30 @@ function SecaoSolicitacao({ formulario, secretarias, somenteLeitura, definir, de
           </Campo>
         </div>
 
+        {/* A coluna VALOR POR EXTENSO do quadro do documento. */}
+        <div className="mt-3">
+          <CampoTexto
+            rotulo="Valor por extenso"
+            valor={formulario.valor_extenso}
+            onChange={definirExtensoManual}
+            desabilitado={somenteLeitura}
+            apoio={
+              formulario.valor_extenso_manual
+                ? "Redação assumida à mão — o automático não sobrescreve mais."
+                : "Gerado do valor total. Digite aqui para assumir a redação."
+            }
+          />
+          {formulario.valor_extenso_manual && !somenteLeitura && (
+            <button
+              type="button"
+              onClick={voltarAoExtensoAutomatico}
+              className="mt-2 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              Voltar ao extenso automático
+            </button>
+          )}
+        </div>
+
         {formulario.valor_total_manual && !somenteLeitura && (
           <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#C9A227]/30 bg-[#FFFBEF] px-3 py-2 text-[11px] text-[#0F2A44]/70">
             <span>
@@ -791,22 +908,28 @@ function SecaoSolicitacao({ formulario, secretarias, somenteLeitura, definir, de
 }
 
 /* -------------------------------------------------------------------------
- * Página 2: Solicitação de Liquidação da Diária
+ * Página 2: Liquidação/Solicitação de Pagamento
  * ---------------------------------------------------------------------- */
 
 function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
   const secretaria = secretarias.find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "--";
+  const requisitante = secretaria === "--"
+    ? "--"
+    : /^secretaria/i.test(secretaria) ? secretaria : `Secretaria Municipal de ${secretaria}`;
 
   return (
     <>
       <p className="rounded-lg border border-[#0F2A44]/10 bg-[#F8FAFC] px-4 py-3 text-xs leading-relaxed text-[#0F2A44]/70">
-        Os dados compartilhados já estão aqui: beneficiário, CPF, secretaria, destino, finalidade,
-        valor e dados bancários vêm da página 1, sem digitação repetida. Abaixo ficam só os campos
-        próprios da liquidação. <strong>A solicitação de liquidação é um documento</strong> — não é
-        baixa de pagamento.
+        A página 2 do modelo oficial: o requisitante solicita à Senhora Prefeita a AUTORIZAÇÃO de
+        pagamento em favor do beneficiário. Os dados compartilhados já estão aqui — favorecido, CPF,
+        endereço, objetivando, valor e dados bancários vêm da página 1, sem digitação repetida.{" "}
+        <strong>É um documento</strong>: não é baixa de pagamento e não debita conta.
       </p>
 
-      <Bloco titulo="Dados do processo (das duas páginas)">
+      <Bloco titulo="Requisitante e favorecido (dados do processo)">
+        <Campo rotulo="Requisitante" className="mb-3" apoio="Como sai impresso na página 2.">
+          <input type="text" value={requisitante} disabled className={CLASSE_CAMPO} />
+        </Campo>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Campo rotulo="Beneficiário">
             <input type="text" value={formulario.beneficiario_nome ?? ""} disabled className={CLASSE_CAMPO} />
@@ -817,15 +940,18 @@ function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
           <Campo rotulo="Secretaria">
             <input type="text" value={secretaria} disabled className={CLASSE_CAMPO} />
           </Campo>
-          <Campo rotulo="Destino">
-            <input type="text" value={formulario.destino ?? ""} disabled className={CLASSE_CAMPO} />
+          <Campo rotulo="Endereço do favorecido">
+            <input type="text" value={formulario.beneficiario_endereco ?? ""} disabled className={CLASSE_CAMPO} />
           </Campo>
-          <Campo rotulo="Valor da diária concedida" className="sm:col-span-2">
+          <Campo rotulo="Valor (R$)">
             <input type="text" value={formatBRL(formulario.valor_total)} disabled className={CLASSE_CAMPO} />
+          </Campo>
+          <Campo rotulo="Valor por extenso">
+            <input type="text" value={formulario.valor_extenso ?? ""} disabled className={CLASSE_CAMPO} />
           </Campo>
         </div>
         <p className="mt-2 text-[11px] text-[#0F2A44]/40">
-          Para corrigir qualquer um destes, volte aos Dados Gerais ou à Solicitação: a alteração
+          Para corrigir qualquer um destes, volte aos Dados Gerais ou à Requisição: a alteração
           aparece aqui na hora, porque é o mesmo dado.
         </p>
       </Bloco>
@@ -874,21 +1000,16 @@ function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
         </div>
       </Bloco>
 
-      <Bloco titulo="Prestação de contas">
-        <CampoArea
-          rotulo="Relatório da viagem"
-          valor={formulario.liquidacao_relatorio}
-          onChange={(v) => definir("liquidacao_relatorio", v)}
-          desabilitado={somenteLeitura}
-          linhas={5}
-        />
+      <Bloco
+        titulo="Conferência interna"
+        apoio="Controle da secretaria. Não é impresso no modelo oficial: o relatório da viagem fica na Prestação de Contas (página 3)."
+      >
         <CampoArea
           rotulo="Documentos comprobatórios apresentados"
           valor={formulario.liquidacao_documentos}
           onChange={(v) => definir("liquidacao_documentos", v)}
           desabilitado={somenteLeitura}
           linhas={3}
-          className="mt-3"
         />
         <CampoTexto
           rotulo="Responsável pela conferência"
@@ -902,8 +1023,60 @@ function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
       <Bloco titulo="Dados bancários para crédito" apoio="Os mesmos da página 1. Editar aqui vale só para o documento.">
         <DadosBancarios formulario={formulario} somenteLeitura={somenteLeitura} definir={definir} />
       </Bloco>
+    </>
+  );
+}
 
-      <Bloco titulo="Observações da liquidação">
+/* -------------------------------------------------------------------------
+ * Página 3: Prestação de Contas de Diárias
+ * ---------------------------------------------------------------------- */
+
+/**
+ * A prestação de contas, preenchida DEPOIS da viagem.
+ *
+ * Estar pendente é o normal: nada aqui é exigido para salvar, para finalizar ou
+ * para imprimir a Requisição e a Liquidação. Em branco, a página 3 sai do jeito
+ * que o papel sai -- com as linhas impressas, para ser escrita à mão.
+ */
+function SecaoPrestacao({ formulario, somenteLeitura, definir }) {
+  const relatorio = String(formulario.prestacao_relatorio ?? "").trim();
+  const legado = String(formulario.liquidacao_relatorio ?? "").trim();
+
+  return (
+    <>
+      <p className="rounded-lg border border-[#C9A227]/25 bg-[#FFFBEF] px-4 py-3 text-xs leading-relaxed text-[#0F2A44]/70">
+        A página 3 do modelo oficial, preenchida <strong>depois da viagem</strong>. Deixar pendente não
+        impede nada: a Requisição e a Liquidação são geradas do mesmo jeito, e a página 3 sai com as
+        linhas em branco para ser completada à mão.
+      </p>
+
+      <Bloco titulo="Relatório de atividades">
+        <CampoArea
+          rotulo="Relatório"
+          valor={formulario.prestacao_relatorio}
+          onChange={(v) => definir("prestacao_relatorio", v)}
+          desabilitado={somenteLeitura}
+          linhas={10}
+          apoio="Sai impresso sobre as linhas da página 3."
+        />
+        {relatorio === "" && legado !== "" && (
+          <p className="mt-2 rounded-lg border border-black/10 bg-[#F8FAFC] px-3 py-2 text-[11px] leading-relaxed text-[#0F2A44]/60">
+            Este processo tem um relatório escrito no campo antigo da liquidação, e é ele que está
+            sendo impresso na página 3: “{legado.slice(0, 180)}{legado.length > 180 ? "…" : ""}”
+          </p>
+        )}
+        <CampoTexto
+          rotulo="Data da prestação de contas"
+          tipo="date"
+          valor={formulario.prestacao_data}
+          onChange={(v) => definir("prestacao_data", v)}
+          desabilitado={somenteLeitura}
+          className="mt-3"
+          apoio="Vai na linha “São José da Laje - AL, __ de __ de ____”. Em branco, a linha sai para completar à mão."
+        />
+      </Bloco>
+
+      <Bloco titulo="Observações da liquidação" apoio="Controle interno — não é impresso no modelo oficial.">
         <CampoArea
           rotulo="Campo livre"
           valor={formulario.liquidacao_observacoes}

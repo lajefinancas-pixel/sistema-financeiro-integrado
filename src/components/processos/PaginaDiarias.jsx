@@ -56,9 +56,11 @@ import {
 /**
  * A área de DIÁRIAS: a lista dos processos de diária e tudo o que se faz com um.
  *
- * Cada linha é UM processo com DUAS páginas (Solicitação e Liquidação). Não há
- * lista de liquidações em separado, porque não existe liquidação separada: a
- * coluna Preenchimento diz se a página 2 já foi preenchida.
+ * Cada linha é UM processo com TRÊS páginas (Requisição, Liquidação/Pagamento e
+ * Prestação de Contas). Não há lista de liquidações nem de prestações de contas
+ * em separado, porque elas não existem em separado: o indicador embaixo do nome
+ * do beneficiário diz quais páginas já foram preenchidas -- e a prestação de
+ * contas pendente é informação, não impedimento.
  *
  * NADA AQUI É FINANCEIRO. Criar, salvar, finalizar, duplicar, imprimir, gerar
  * PDF ou cancelar não debita conta, não dá baixa em NF, não altera saldo, não
@@ -317,7 +319,7 @@ export default function PaginaDiarias({
           <p className="mt-0.5 text-sm text-[#0F2A44]/60">
             {carregando
               ? "Carregando..."
-              : `${visiveis.length} ${visiveis.length === 1 ? "processo" : "processos"} — cada um com Solicitação e Liquidação`}
+              : `${visiveis.length} ${visiveis.length === 1 ? "processo" : "processos"} — cada um com Requisição, Liquidação e Prestação de Contas`}
           </p>
         </div>
         {permissoes.criar && !faltaMigration && (
@@ -507,9 +509,11 @@ export default function PaginaDiarias({
       </div>
 
       <p className="mt-2 text-[11px] leading-relaxed text-[#0F2A44]/45">
-        Cada linha é um processo com duas páginas: Solicitação de Diária e Solicitação de Liquidação
-        da Diária, com o mesmo número. Este módulo é documental — nenhuma ação aqui debita conta, dá
-        baixa em NF, altera saldo ou mexe na Programação Diária.
+        Cada linha é um processo com três páginas: Requisição de Diárias, Liquidação/Solicitação de
+        Pagamento e Prestação de Contas de Diárias, com o mesmo número. A prestação de contas é
+        preenchida depois da viagem e não impede a geração das duas primeiras. Este módulo é
+        documental — nenhuma ação aqui debita conta, dá baixa em NF, altera saldo ou mexe na
+        Programação Diária.
       </p>
 
       {aberto && (
@@ -590,7 +594,7 @@ export default function PaginaDiarias({
   );
 }
 
-/** Uma linha da lista: compacta, com o preenchimento das duas páginas. */
+/** Uma linha da lista: compacta, com o preenchimento das três páginas. */
 function Linha({
   processo,
   secretarias,
@@ -648,9 +652,9 @@ function Linha({
           )}
           {acoes.imprimir && (
             <>
-              <BotaoAcao titulo="Pré-visualizar as duas páginas" onClick={onPrevia} icone={Eye} />
-              <BotaoAcao titulo="Imprimir processo completo (2 páginas)" onClick={onImprimir} icone={Printer} />
-              <BotaoAcao titulo="Gerar PDF (arquivo único, as duas páginas)" onClick={onPdf} icone={FileDown} />
+              <BotaoAcao titulo="Pré-visualizar as três páginas" onClick={onPrevia} icone={Eye} />
+              <BotaoAcao titulo="Imprimir processo completo (3 páginas)" onClick={onImprimir} icone={Printer} />
+              <BotaoAcao titulo="Gerar PDF (arquivo único, as três páginas)" onClick={onPdf} icone={FileDown} />
             </>
           )}
           {acoes.duplicar && (
@@ -706,8 +710,14 @@ function detalhesDoProcesso(processo, secretarias) {
   ];
 }
 
+const DESCRICAO_DA_FOLHA = {
+  requisicao: "Somente a Requisição",
+  liquidacao: "Somente a Liquidação",
+  prestacao: "Somente a Prestação de Contas",
+};
+
 function descricaoDaSaida(escopo) {
   const folhas = folhasDoEscopo(escopo);
-  if (folhas.length === 2) return "Processo completo (2 páginas)";
-  return folhas[0] === "solicitacao" ? "Somente a Solicitação" : "Somente a Liquidação";
+  if (folhas.length > 1) return `Processo completo (${folhas.length} páginas)`;
+  return DESCRICAO_DA_FOLHA[folhas[0]] ?? "Processo completo";
 }

@@ -86,14 +86,17 @@ async function usuarioAtualId() {
 
 const COLUNAS = [
   "id", "ano", "numero", "data_processo", "secretaria_id", "fornecedor_id",
-  "beneficiario_nome", "beneficiario_cpf", "objeto", "valor_total", "valor_total_manual",
+  "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco",
+  "objeto", "valor_total", "valor_total_manual", "valor_extenso", "valor_extenso_manual",
   "beneficiario_matricula", "beneficiario_cargo", "beneficiario_lotacao",
+  "tipo_diaria", "custeio_despesas", "data_diarias",
   "destino", "data_saida", "hora_saida", "data_retorno", "hora_retorno",
   "quantidade_diarias", "valor_unitario", "finalidade", "transporte", "transporte_outro",
   "banco", "agencia", "conta", "pix", "titular", "observacoes",
   "liquidacao_data", "liquidacao_data_saida", "liquidacao_data_retorno",
   "liquidacao_quantidade", "liquidacao_valor", "liquidacao_relatorio",
   "liquidacao_documentos", "liquidacao_responsavel", "liquidacao_observacoes",
+  "prestacao_relatorio", "prestacao_data",
   "situacao", "finalizada_em", "cancelada_em", "motivo_cancelamento",
   "criado_em", "atualizado_em",
 ].join(",");
@@ -222,9 +225,9 @@ export async function proximoNumero(ano) {
  * ---------------------------------------------------------------------- */
 
 /**
- * Cria o processo (as duas páginas, no mesmo registro) como RASCUNHO.
+ * Cria o processo (as três páginas, no mesmo registro) como RASCUNHO.
  *
- * O número é emitido aqui, na criação, para que as duas páginas já saiam com
+ * O número é emitido aqui, na criação, para que as três páginas já saiam com
  * ele. Criar um processo NÃO gera pagamento, NÃO debita conta e NÃO altera saldo.
  *
  * @param origem quando a criação veio de uma duplicação: `{ id, numero }` do
