@@ -31,6 +31,13 @@ const textoSaldo = (valor) => (valor == null ? TEXTO_SEM_REGISTRO : formatBRL(va
  * Conta sem esse registro aparece como "--" e não é acusada de saldo
  * insuficiente, porque não há valor gravado para comparar.
  *
+ * A ATRIBUIÇÃO É GRAVADA NO ATO, E A SEÇÃO DIZ ISSO. Cada escolha de conta --
+ * individual, nos marcados ou em todos -- vai para o banco no clique, e a tela
+ * relê o que ficou gravado antes de mudar o contador. Por isso NÃO existe botão
+ * de salvar aqui: um botão desses faria parecer que o que não passou por ele se
+ * perdeu. O cabeçalho traz a frase que fecha essa dúvida, e a resposta de cada
+ * ação repete que já está gravado.
+ *
  * NENHUM BOTÃO DESTA SEÇÃO FICA EM SILÊNCIO. Quando a atribuição não pode ser
  * aplicada, o botão fica desabilitado com a RAZÃO escrita ao lado (falta
  * escolher a conta, falta marcar fornecedor, falta permissão), e a resposta de
@@ -129,6 +136,7 @@ export default function PainelExecucaoProgramacao({
           icone={<Wallet size={16} />}
           titulo="Execução da programação"
           descricao="Defina a conta de cada pagamento. Definir a conta não debita nada — o débito acontece na baixa."
+          nota="A conta de cada pagamento é salva assim que definida. Não existe botão de salvar nesta seção."
         />
 
         <div id="execucao-da-programacao" className={`border-t border-black/5 ${execucaoAberta ? "" : "hidden"}`}>
@@ -445,8 +453,12 @@ export default function PainelExecucaoProgramacao({
  * O cabeçalho inteiro é o botão — clicar em qualquer parte dele abre e recolhe.
  * O conteúdo correspondente fica escondido por CSS, nunca desmontado: nada do
  * que estiver preenchido dentro dele se perde ao recolher.
+ *
+ * `nota` é a linha discreta de gravação: fica no cabeçalho, visível com a seção
+ * aberta ou recolhida, para quem procura um botão de salvar ler ali mesmo que a
+ * gravação já aconteceu. Seção sem nota continua exatamente como era.
  */
-function CabecalhoRecolhivel({ aberta, onAlternar, id, icone, titulo, descricao, contador = null }) {
+function CabecalhoRecolhivel({ aberta, onAlternar, id, icone, titulo, descricao, nota = "", contador = null }) {
   return (
     <button
       type="button"
@@ -465,6 +477,11 @@ function CabecalhoRecolhivel({ aberta, onAlternar, id, icone, titulo, descricao,
           )}
         </span>
         <span className="mt-1 block text-[11px] text-[#17352F]/55">{descricao}</span>
+        {nota && (
+          <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[#17352F]/70">
+            <Check size={12} className="shrink-0" /> {nota}
+          </span>
+        )}
       </span>
       <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[#17352F]/60">
         {aberta ? (
