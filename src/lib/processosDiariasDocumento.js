@@ -49,22 +49,32 @@ import {
   situacaoInfo,
   valorExtensoDoProcesso,
 } from "./processosDiarias.js";
+import {
+  BRASAO_SVG,
+  IDENTIDADE_PADRAO,
+  identidadeDoProcesso,
+  normalizarIdentidade,
+} from "./processosIdentidade.js";
+import { logoDoDocumento } from "./processosIdentidade.js";
+import { tipoDiariaComposto } from "./processosDiariasTabela.js";
 
 /**
- * O cabeçalho institucional do modelo oficial.
+ * O cabeçalho institucional de fábrica.
  *
- * Repetido como texto porque este arquivo é carregado direto pelos testes, sem
- * o resolvedor de módulos do Vite.
+ * Continua exportado porque telas e testes o citam, mas o que o documento
+ * IMPRIME é `dados.identidade` -- a identidade configurada em
+ * Configurações → Processos, ou a congelada no processo quando ele já foi
+ * finalizado. Estes dois objetos são só o ponto de partida.
  */
 export const IDENTIDADE = {
-  orgao: "PREFEITURA MUNICIPAL DE SÃO JOSÉ DA LAJE",
-  estado: "ESTADO DE ALAGOAS",
+  orgao: IDENTIDADE_PADRAO.orgao,
+  estado: IDENTIDADE_PADRAO.estado,
 };
 
-/** O rodapé institucional, impresso em TODAS as páginas do processo. */
+/** O rodapé institucional de fábrica, impresso em TODAS as páginas do processo. */
 export const RODAPE_INSTITUCIONAL = {
-  endereco: "Rua Dr. Oscar Gordilho, 23 - Centro - São José da Laje - Alagoas",
-  contato: "Tel.: (82) 9.9395-5442 | E-mail: prefeitura@saojosedalaje.al.gov.br | CNPJ: 12.330.916/0001-99",
+  endereco: IDENTIDADE_PADRAO.rodape_endereco,
+  contato: IDENTIDADE_PADRAO.rodape_contato,
 };
 
 /** O município que assina o documento, nas linhas de "Local e data". */
@@ -162,6 +172,39 @@ function quantidadeTexto(valor) {
  * O prefixo não é repetido quando a secretaria já vem cadastrada com ele: o
  * papel sairia "Secretaria Municipal de Secretaria de Educação".
  */
+/**
+ * O "Tipo de Diária" que vai para o papel.
+ *
+ * Quem escolheu faixa, categoria e pernoite na tela tem o campo COMPOSTO a
+ * partir disso ("Estado de AL até 100 km — Outros Agentes — com pernoite"), que
+ * é o que o item 5 pede. O texto gravado em tipo_diaria manda quando existe:
+ * ele é a redação manual, e processo antigo (anterior à Tabela de Diárias) só
+ * tem ele.
+ */
+function tipoDiariaDoProcesso(processo) {
+  const escrito = texto(processo?.tipo_diaria);
+  if (escrito !== "") return escrito;
+  return tipoDiariaComposto({
+    faixa: processo?.diaria_faixa,
+    categoria: processo?.diaria_categoria,
+    pernoite: processo?.diaria_pernoite === true,
+  });
+}
+
+/**
+ * A imagem preparada só vale para a identidade que ela representa.
+ *
+ * É a trava do item 12 no nível do desenho: documento já finalizado imprime o
+ * brasão que congelou, e uma imagem preparada a partir de outra URL é
+ * descartada em favor do desenho vetorial.
+ */
+function logoAceito(logo, identidade) {
+  if (!logo || !logo.dataUrl) return null;
+  const origem = texto(logo.url);
+  if (origem === "") return null;
+  return origem === logoDoDocumento(identidade) ? logo : null;
+}
+
 function requisitanteDe(nome) {
   const limpo = texto(nome);
   if (limpo === "") return SEM_REGISTRO;
@@ -213,11 +256,25 @@ function localEData(data, ano) {
  * dados -- não há cópia aqui, só leitura do mesmo registro. É o que garante que
  * o nome do servidor na Requisição e o favorecido da Liquidação nunca divirjam.
  */
-export function dadosDoDocumento(processo, { secretarias = [], emissor = "", emissao = null } = {}) {
+export function dadosDoDocumento(
+  processo,
+  { secretarias = [], emissor = "", emissao = null, identidade = null, logo = null } = {},
+) {
   const p = processo ?? {};
   const secretaria = nomeDaSecretaria(p, secretarias);
 
   return {
+    // ⚠️ A IDENTIDADE VISUAL DA FOLHA. Processo já finalizado imprime a que ele
+    // congelou; rascunho imprime a vigente. Trocar o brasão ou o rodapé hoje
+    // não reescreve o documento emitido antes -- a mesma regra dos dados do
+    // secretário e da prefeita.
+    identidade: identidadeDoProcesso(p, identidade),
+    // A versão rasterizada do brasão, quando a tela conseguiu preparar uma: é o
+    // que faz o PDF sair sem serrilhado. Só é aceita se tiver sido preparada a
+    // partir da MESMA imagem que esta folha deve imprimir -- assim um processo
+    // que congelou o brasão antigo não sai com o brasão novo por atalho.
+    logo: logoAceito(logo, identidadeDoProcesso(p, identidade)),
+
     numero: numeroDoProcesso(p) || SEM_REGISTRO,
     ano: p.ano ?? null,
     situacao: situacaoInfo(p.situacao).rotulo,
@@ -247,7 +304,7 @@ export function dadosDoDocumento(processo, { secretarias = [], emissor = "", emi
       secretaria: ou(secretaria),
       cargo: ou(p.beneficiario_cargo),
       horarioSaida: ou(p.hora_saida),
-      tipoDiaria: ou(p.tipo_diaria),
+      tipoDiaria: ou(tipoDiariaDoProcesso(p)),
     },
 
     // O quadro de valores das páginas 1 e 2.
@@ -298,16 +355,28 @@ export function nomeDoArquivo(dados, extensao = "pdf", escopo = "completo") {
  * Impressão (HTML)
  * ---------------------------------------------------------------------- */
 
-// O brasão, o mesmo de public/brasao.svg, embutido no documento para que a folha
-// nunca saia sem ele por causa de uma imagem que não carregou.
+// O brasão do repositório, embutido no documento para que a folha nunca saia sem
+// ele por causa de uma imagem que não carregou na janela de impressão.
 function brasaoSvg(lado) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${lado}mm" height="${lado}mm" viewBox="0 0 512 512" role="img" aria-label="Brasão do Município de São José da Laje">`
-    + `<rect width="512" height="512" rx="48" fill="#0F2A44"/>`
-    + `<g transform="translate(76,64) scale(3)">`
-    + `<path d="M60 6 L63 15 L72 15 L65 21 L67 30 L60 25 L53 30 L55 21 L48 15 L57 15 Z" fill="#C9A227"/>`
-    + `<path d="M60 22 L92 32 V70 C92 96 78 112 60 122 C42 112 28 96 28 70 V32 Z" fill="#FBFAF7" stroke="#0F2A44" stroke-width="3.5"/>`
-    + `<text x="60" y="82" text-anchor="middle" font-size="46" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#0F2A44">F</text>`
-    + `</g></svg>`;
+  return BRASAO_SVG.replace(
+    /^<svg /,
+    `<svg width="${lado}mm" height="${lado}mm" `,
+  ).replace(/ width="512" height="512"/, "");
+}
+
+/**
+ * O brasão do CABEÇALHO, em TODAS as folhas.
+ *
+ * Brasão enviado em Configurações → Processos sai como imagem; sem imagem
+ * enviada, sai o vetor do repositório. Nos dois casos a ALTURA é a que manda e a
+ * largura é automática, com um teto de largura -- é o que impede a folha de
+ * deformar o brasão e o que o mantém discreto, sem roubar espaço do conteúdo.
+ */
+function brasaoDoDocumento(dados, lado) {
+  const url = texto(dados?.logo?.dataUrl) || texto(dados?.identidade?.logo_url);
+  if (url === "") return brasaoSvg(lado);
+  return `<img class="brasao" src="${escapar(url)}" alt="${escapar(dados?.identidade?.orgao ?? "")}"`
+    + ` style="height:${lado}mm;max-width:${(lado * 1.6).toFixed(1)}mm">`;
 }
 
 function estilos() {
@@ -329,6 +398,9 @@ function estilos() {
 
     .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
     .cabecalho svg { display: block; flex: 0 0 auto; }
+    /* O brasão enviado entra como imagem: altura fixa e largura automática, para
+       sair SEMPRE na proporção original, sem esticar nem achatar. */
+    .cabecalho img.brasao { display: block; flex: 0 0 auto; width: auto; object-fit: contain; }
     .orgao { font-size: 10pt; font-weight: bold; letter-spacing: .08em; }
     .estado { margin-top: .4mm; color: ${COR.apoio}; font-size: 7.5pt; font-weight: bold; letter-spacing: .16em; }
     .titulo { margin: 1.2mm 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; letter-spacing: .02em; }
@@ -411,9 +483,10 @@ function estilos() {
 }
 
 function cabecalhoHtml(dados, titulo, indice, total) {
-  return `<div class="cabecalho">${brasaoSvg(16)}`
-    + `<div><div class="orgao">${escapar(IDENTIDADE.orgao)}</div>`
-    + `<div class="estado">${escapar(IDENTIDADE.estado)}</div>`
+  const identidade = normalizarIdentidade(dados?.identidade);
+  return `<div class="cabecalho">${brasaoDoDocumento(dados, 16)}`
+    + `<div><div class="orgao">${escapar(identidade.orgao)}</div>`
+    + `<div class="estado">${escapar(identidade.estado)}</div>`
     + `<div class="titulo">${escapar(titulo)}</div></div>`
     + `<div class="selo"><span class="pagina-de">Processo de diária nº</span><strong>${escapar(dados.numero)}</strong>`
     + `<span class="pagina-de">Página ${indice} de ${total}</span></div>`
@@ -445,9 +518,10 @@ function campo(rotulo, valor, classe = "c50", forte = false) {
 
 /** O rodapé institucional, igual em todas as folhas. */
 function rodapeHtml(dados, indice, total) {
+  const identidade = normalizarIdentidade(dados?.identidade);
   return `<div class="rodape">`
-    + `<div class="endereco">${escapar(RODAPE_INSTITUCIONAL.endereco)}</div>`
-    + `<div>${escapar(RODAPE_INSTITUCIONAL.contato)}</div>`
+    + `<div class="endereco">${escapar(identidade.rodape_endereco)}</div>`
+    + `<div>${escapar(identidade.rodape_contato)}</div>`
     + `<div class="emissao">Processo nº ${escapar(dados.numero)} — Página ${indice} de ${total} — `
     + `Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
     + `</div>`;
@@ -613,36 +687,79 @@ export function imprimirProcesso(dados, { escopo = "completo" } = {}) {
  * PDF (arquivo único, três páginas)
  * ---------------------------------------------------------------------- */
 
-// O mesmo brasão desenhado com primitivas do PDF: nada de captura de tela, e
-// nada de imagem externa que possa faltar na hora de gerar.
-function desenharBrasaoPdf(pdf, x, y, lado) {
-  pdf.setFillColor(...TINTA.navy);
-  pdf.roundedRect(x, y, lado, lado, lado * 0.09, lado * 0.09, "F");
+/**
+ * O BRASÃO NO PDF, em todas as páginas.
+ *
+ * Quando a tela conseguiu preparar a imagem (`dados.logo`), ela é inserida
+ * RASTERIZADA EM ALTA RESOLUÇÃO -- 512 px no espaço de ~16 mm dão mais de 800
+ * dpi, então não serrilha no papel nem na tela do PDF. A proporção original é
+ * respeitada: a imagem é encaixada numa caixa quadrada de `lado`, e é o lado
+ * MAIOR dela que toca a caixa, nunca os dois -- ela não estica nem achata.
+ *
+ * Sem imagem preparada (aba sem canvas, imagem inacessível, brasão em SVG que o
+ * jsPDF não desenha), o brasão vetorial do repositório é desenhado com
+ * primitivas do PDF. Assim a folha NUNCA sai sem brasão, e nada depende de link
+ * externo na hora de gerar.
+ *
+ * @returns a largura efetivamente ocupada, para o cabeçalho posicionar o texto.
+ */
+function desenharBrasaoPdf(pdf, x, y, lado, dados = null) {
+  const preparado = dados?.logo?.dataUrl ? dados.logo : null;
+  if (preparado) {
+    const proporcao = Number(preparado.proporcao)
+      || (Number(preparado.largura) / Number(preparado.altura))
+      || 1;
+    const largura = proporcao >= 1 ? lado : lado * proporcao;
+    const altura = proporcao >= 1 ? lado / proporcao : lado;
+    try {
+      pdf.addImage(preparado.dataUrl, "PNG", x, y + (lado - altura) / 2, largura, altura);
+      return largura;
+    } catch {
+      // Imagem que o jsPDF recusou: cai no desenho vetorial abaixo.
+    }
+  }
 
-  const estrela = [[3, 9], [9, 0], [-7, 6], [2, 9], [-7, -5], [-7, 5], [2, -9], [-7, -6], [9, 0]];
-  pdf.setFillColor(...TINTA.ouro);
-  pdf.lines(
-    estrela.map(([dx, dy]) => [(dx / 24) * lado * 0.2, (dy / 24) * lado * 0.2]),
-    x + lado * 0.5, y + lado * 0.1, [1, 1], "F", true,
-  );
+  // O brasão do repositório, em primitivas. Traço escuro e cheio, para sair
+  // legível também em IMPRESSORA PRETO E BRANCO.
+  const u = lado / 512;
+  const em = (v) => v * u;
 
-  const largura = lado * 0.5;
-  const altura = lado * 0.62;
-  const escudo = [
-    [0.5 * largura, 0.1 * altura],
-    [0, 0.38 * altura],
-    [0, 0.26 * altura, -0.21875 * largura, 0.42 * altura, -0.5 * largura, 0.52 * altura],
-    [-0.28125 * largura, -0.1 * altura, -0.5 * largura, -0.26 * altura, -0.5 * largura, -0.52 * altura],
-    [0, -0.38 * altura],
-    [0.5 * largura, -0.1 * altura],
-  ];
   pdf.setFillColor(...TINTA.papel);
-  pdf.lines(escudo, x + (lado - largura) / 2 + largura / 2, y + lado * 0.26, [1, 1], "F", true);
+  pdf.setDrawColor(...TINTA.navy);
+  pdf.setLineWidth(em(16));
+  const escudo = [
+    [em(392), 0],
+    [0, em(190)],
+    [0, em(98), em(-80), em(162), em(-196), em(206)],
+    [em(-116), em(-44), em(-196), em(-108), em(-196), em(-206)],
+    [0, em(-190)],
+  ];
+  pdf.lines(escudo, x + em(60), y + em(72), [1, 1], "FD", true);
 
-  pdf.setFont("times", "bolditalic");
-  pdf.setFontSize(lado * 1.5);
+  // A faixa escura do chefe do escudo.
+  pdf.setFillColor(...TINTA.navy);
+  pdf.rect(x + em(60), y + em(72), em(392), em(78), "F");
+
+  // A estrela de cinco pontas, em dourado.
+  const estrela = [
+    [em(13), em(40)], [em(42), 0], [em(-34), em(25)], [em(13), em(40)],
+    [em(-34), em(-25)], [em(-34), em(25)], [em(13), em(-40)], [em(-34), em(-25)], [em(42), 0],
+  ];
+  pdf.setFillColor(...TINTA.ouro);
+  pdf.lines(estrela, x + em(256), y + em(78), [1, 1], "F", true);
+
+  // As três linhas de água.
+  pdf.setDrawColor(...TINTA.navy);
+  pdf.setLineWidth(em(11));
+  [200, 240, 280].forEach((base) => {
+    pdf.line(x + em(104), y + em(base), x + em(408), y + em(base));
+  });
+
+  pdf.setFont("times", "bold");
+  pdf.setFontSize(lado * 1.35);
   pdf.setTextColor(...TINTA.navy);
-  pdf.text("F", x + lado / 2, y + lado * 0.74, { align: "center" });
+  pdf.text("SJL", x + lado / 2, y + em(398), { align: "center" });
+  return lado;
 }
 
 /**
@@ -665,6 +782,27 @@ function criarPincel(pdf, dados) {
   const xEsq = () => margem + estado.recuo;
   const largUtil = () => util - estado.recuo * 2;
 
+  // A identidade que ESTA folha imprime: a congelada do processo, ou a vigente.
+  const identidade = normalizarIdentidade(dados?.identidade);
+
+  /**
+   * Escreve um texto institucional garantindo que ele CAIBA na largura dada.
+   *
+   * O órgão e as linhas do rodapé são configuráveis, então podem vir mais longos
+   * que o padrão. Aqui a fonte diminui até caber, em vez de o texto invadir a
+   * margem ou empurrar o conteúdo para uma segunda folha.
+   */
+  const textoQueCabe = (valor, xInicio, yLinha, tamanho, largMax, alinhamento = "left") => {
+    let corpo = tamanho;
+    pdf.setFontSize(corpo);
+    while (corpo > 4.5 && pdf.getTextWidth(valor) > largMax) {
+      corpo -= 0.25;
+      pdf.setFontSize(corpo);
+    }
+    pdf.text(valor, xInicio, yLinha, alinhamento === "center" ? { align: "center" } : undefined);
+    pdf.setFontSize(tamanho);
+  };
+
   /** O rodapé institucional da prefeitura, em TODAS as folhas. */
   const rodapeInstitucional = () => {
     const y = PAGINA.altura - PAGINA.margemBase;
@@ -675,11 +813,11 @@ function criarPincel(pdf, dados) {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(7);
     pdf.setTextColor(...TINTA.navy);
-    pdf.text(RODAPE_INSTITUCIONAL.endereco, largura / 2, y + 3.4, { align: "center" });
+    textoQueCabe(identidade.rodape_endereco, largura / 2, y + 3.4, 7, util, "center");
 
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(...TINTA.apoio);
-    pdf.text(RODAPE_INSTITUCIONAL.contato, largura / 2, y + 6.6, { align: "center" });
+    textoQueCabe(identidade.rodape_contato, largura / 2, y + 6.6, 7, util, "center");
 
     pdf.setFontSize(6.5);
     pdf.text(
@@ -690,20 +828,23 @@ function criarPincel(pdf, dados) {
   };
 
   const cabecalho = (continuacao) => {
+    // O brasão sai em TODAS as folhas, discreto: 16 mm na folha do documento e
+    // 10 mm na de continuação. A largura devolvida é a real, para que um brasão
+    // mais estreito que alto não abra um vão no meio do cabeçalho.
     const lado = continuacao ? 10 : 16;
     const topo = PAGINA.margemTopo;
-    desenharBrasaoPdf(pdf, margem, topo, lado);
-    const x = margem + lado + 4;
+    const largBrasao = desenharBrasaoPdf(pdf, margem, topo, lado, dados);
+    const x = margem + largBrasao + 4;
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(continuacao ? 8 : 10);
     pdf.setTextColor(...TINTA.navy);
-    pdf.text(IDENTIDADE.orgao, x, topo + (continuacao ? 3.8 : 4.6));
+    textoQueCabe(identidade.orgao, x, topo + (continuacao ? 3.8 : 4.6), continuacao ? 8 : 10, largura - margem - x - 34);
 
     if (!continuacao) {
       pdf.setFontSize(7.5);
       pdf.setTextColor(...TINTA.apoio);
-      pdf.text(IDENTIDADE.estado, x, topo + 8);
+      pdf.text(identidade.estado, x, topo + 8);
     }
 
     pdf.setFont("times", "bold");

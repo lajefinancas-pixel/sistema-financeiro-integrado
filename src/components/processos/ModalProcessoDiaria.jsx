@@ -24,6 +24,15 @@ import {
 } from "../../lib/processosDiarias.js";
 import { formatBRL } from "../../lib/moeda.js";
 import {
+  CATEGORIAS_CARGO,
+  FAIXAS_DISTANCIA,
+  aplicarTabelaDeDiarias,
+  identificacaoDaVersao,
+  textoPercentual,
+  unitarioDivergeDaTabela,
+  valorDaTabelaParaFormulario,
+} from "../../lib/processosDiariasTabela.js";
+import {
   complementoDoFornecedor,
   filtrarFornecedoresPorTermo,
   nomeExibicaoDoFornecedor,
@@ -74,6 +83,8 @@ export default function ModalProcessoDiaria({
   fornecedores = [],
   secretarias = [],
   permissoes = {},
+  // A Tabela de Diárias VIGENTE. Ela PREENCHE o valor unitário; não o tranca.
+  tabela = null,
   salvando = false,
   erro = null,
   ultimoSalvamento = null,
@@ -139,6 +150,47 @@ export default function ModalProcessoDiaria({
       return CAMPOS_COMPARTILHADOS.includes(chave) || chave === "quantidade_diarias"
         ? sincronizarLiquidacao(atual, alterado)
         : alterado;
+    });
+  }
+
+  /**
+   * Faixa, categoria e pernoite: a escolha que a TABELA DE DIÁRIAS traduz em
+   * valor unitário.
+   *
+   * Escolher aqui preenche o valor unitário a partir da tabela vigente e compõe
+   * o "Tipo de Diária" do documento ("Estado de AL até 100 km — Outros Agentes —
+   * com pernoite"). Valor já assumido à mão NÃO é sobrescrito: quem digitou
+   * continua no comando até apertar "voltar ao valor da tabela".
+   */
+  function definirDaTabela(chave, valor) {
+    setAviso(null);
+    setSujo(true);
+    setFormulario((atual) => {
+      const escolhido = { ...atual, [chave]: valor };
+      const comTabela = aplicarTabelaDeDiarias(escolhido, tabela);
+      return sincronizarLiquidacao(atual, aplicarCalculo(comTabela));
+    });
+  }
+
+  /** Assumir o valor unitário à mão. Fica registrado, e vai para a auditoria. */
+  function definirUnitarioManual(valor) {
+    setAviso(null);
+    setSujo(true);
+    setFormulario((atual) =>
+      sincronizarLiquidacao(
+        atual,
+        aplicarCalculo({ ...atual, valor_unitario: valor, valor_unitario_manual: true }),
+      ),
+    );
+  }
+
+  /** Devolve o valor unitário ao que a Tabela de Diárias diz. */
+  function voltarAoValorDaTabela() {
+    setAviso(null);
+    setSujo(true);
+    setFormulario((atual) => {
+      const solto = { ...atual, valor_unitario_manual: false };
+      return sincronizarLiquidacao(atual, aplicarCalculo(aplicarTabelaDeDiarias(solto, tabela, { forcarValor: true })));
     });
   }
 
@@ -329,7 +381,11 @@ export default function ModalProcessoDiaria({
               formulario={formulario}
               secretarias={secretarias}
               somenteLeitura={somenteLeitura}
+              tabela={tabela}
               definir={definir}
+              definirDaTabela={definirDaTabela}
+              definirUnitarioManual={definirUnitarioManual}
+              voltarAoValorDaTabela={voltarAoValorDaTabela}
               definirTotalManual={definirTotalManual}
               voltarAoCalculo={voltarAoCalculo}
               definirExtensoManual={definirExtensoManual}
@@ -448,6 +504,99 @@ function CampoArea({ rotulo, valor, onChange, desabilitado, apoio, linhas = 4, c
         className={`${CLASSE_CAMPO} resize-y`}
       />
     </Campo>
+  );
+}
+
+/**
+ * A ESCOLHA NA TABELA DE DIÁRIAS: faixa de distância × categoria do cargo, mais
+ * o pernoite.
+ *
+ * É daqui que sai o valor unitário e o "Tipo de Diária" impresso no documento.
+ * O pernoite acrescenta o percentual GRAVADO NA TABELA (hoje 30%), não um número
+ * fixo no código -- quem atualizar a tabela atualiza o acréscimo com ela.
+ *
+ * Nada aqui é financeiro: isto preenche um campo de papel.
+ */
+function EscolhaDaTabela({ formulario, tabela, somenteLeitura, definir, definirDaTabela }) {
+  const percentual = textoPercentual(tabela?.pernoite_percentual ?? 30);
+  const versao = identificacaoDaVersao(tabela);
+  const daTabela = valorDaTabelaParaFormulario(formulario, tabela);
+  const diverge = unitarioDivergeDaTabela(formulario, tabela);
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#0F2A44]/10 bg-[#F8FAFC] p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="text-xs font-medium text-[#0F2A44]/70">Tabela de Diárias</div>
+        {versao && <div className="text-[11px] text-[#0F2A44]/45">{versao}</div>}
+      </div>
+
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Campo rotulo="Faixa de distância">
+          <select
+            value={formulario.diaria_faixa ?? ""}
+            onChange={(e) => definirDaTabela("diaria_faixa", e.target.value)}
+            disabled={somenteLeitura}
+            className={CLASSE_CAMPO}
+          >
+            <option value="">Selecione...</option>
+            {FAIXAS_DISTANCIA.map((faixa) => (
+              <option key={faixa.id} value={faixa.id}>
+                {faixa.rotulo}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo rotulo="Categoria do cargo">
+          <select
+            value={formulario.diaria_categoria ?? ""}
+            onChange={(e) => definirDaTabela("diaria_categoria", e.target.value)}
+            disabled={somenteLeitura}
+            className={CLASSE_CAMPO}
+          >
+            <option value="">Selecione...</option>
+            {CATEGORIAS_CARGO.map((categoria) => (
+              <option key={categoria.id} value={categoria.id}>
+                {categoria.rotulo}
+              </option>
+            ))}
+          </select>
+        </Campo>
+      </div>
+
+      <label className="mt-3 flex items-start gap-2 text-sm text-[#0F2A44]">
+        <input
+          type="checkbox"
+          checked={formulario.diaria_pernoite === true}
+          onChange={(e) => definirDaTabela("diaria_pernoite", e.target.checked)}
+          disabled={somenteLeitura}
+          className="mt-0.5 h-4 w-4 rounded border-black/20"
+        />
+        <span>
+          Com pernoite
+          <span className="ml-1 text-[11px] text-[#0F2A44]/50">
+            (acrescenta {percentual} ao valor da tabela)
+          </span>
+        </span>
+      </label>
+
+      <div className="mt-3">
+        <CampoTexto
+          rotulo="Tipo de diária (impresso no documento)"
+          valor={formulario.tipo_diaria}
+          onChange={(v) => definir("tipo_diaria", v)}
+          desabilitado={somenteLeitura}
+          apoio="Composto da faixa, da categoria e do pernoite. Editável, para casos fora do padrão."
+        />
+      </div>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-[#0F2A44]/50">
+        {daTabela === null
+          ? "Escolha a faixa e a categoria: o valor unitário é preenchido pela tabela, e continua editável."
+          : diverge
+            ? `A tabela daria ${formatBRL(daTabela)} para esta escolha — o valor unitário foi assumido à mão, e a alteração fica na auditoria.`
+            : `Valor da tabela para esta escolha: ${formatBRL(daTabela)}.`}
+      </p>
+    </div>
   );
 }
 
@@ -644,7 +793,11 @@ function SecaoRequisicao({
   formulario,
   secretarias,
   somenteLeitura,
+  tabela,
   definir,
+  definirDaTabela,
+  definirUnitarioManual,
+  voltarAoValorDaTabela,
   definirTotalManual,
   voltarAoCalculo,
   definirExtensoManual,
@@ -653,6 +806,9 @@ function SecaoRequisicao({
   const calculado = valorTotalCalculado(formulario);
   const diverge = totalDivergeDoCalculo(formulario);
   const secretaria = secretarias.find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "--";
+  // O que a Tabela de Diárias daria para a escolha atual. null = ainda não há
+  // faixa e categoria escolhidas, e o valor unitário segue sendo digitado.
+  const daTabela = valorDaTabelaParaFormulario(formulario, tabela);
 
   return (
     <>
@@ -717,13 +873,6 @@ function SecaoRequisicao({
             className="sm:col-span-2"
             apoio="O mesmo dos Dados Gerais — é o endereço que sai nas páginas 1 e 2."
           />
-          <CampoTexto
-            rotulo="Tipo de diária"
-            valor={formulario.tipo_diaria}
-            onChange={(v) => definir("tipo_diaria", v)}
-            desabilitado={somenteLeitura}
-            apoio="Como está escrito no formulário oficial."
-          />
           <Campo rotulo="Secretaria" apoio="Vem dos Dados Gerais — é a mesma nas três páginas.">
             <input type="text" value={secretaria} disabled className={CLASSE_CAMPO} />
           </Campo>
@@ -774,6 +923,15 @@ function SecaoRequisicao({
           />
         </div>
 
+        {/* A TABELA DE DIÁRIAS: faixa × categoria, mais o pernoite. */}
+        <EscolhaDaTabela
+          formulario={formulario}
+          tabela={tabela}
+          somenteLeitura={somenteLeitura}
+          definir={definir}
+          definirDaTabela={definirDaTabela}
+        />
+
         {/* Quantidade × valor unitário = total, calculado automaticamente. */}
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <CampoTexto
@@ -784,13 +942,33 @@ function SecaoRequisicao({
             inputMode="decimal"
             placeholder="Ex.: 2 ou 1,5"
           />
-          <Campo rotulo="Valor unitário">
+          <Campo
+            rotulo="Valor unitário"
+            apoio={
+              formulario.valor_unitario_manual
+                ? daTabela === null
+                  ? "Digitado à mão."
+                  : `Digitado à mão. A tabela daria ${formatBRL(daTabela)}.`
+                : daTabela === null
+                  ? "Escolha a faixa e a categoria acima para a tabela preenchê-lo."
+                  : "Preenchido pela Tabela de Diárias."
+            }
+          >
             <CampoMoeda
               valor={formulario.valor_unitario}
-              onValorChange={(numero) => definir("valor_unitario", numero)}
+              onValorChange={(numero) => definirUnitarioManual(numero)}
               disabled={somenteLeitura}
-              className={CLASSE_CAMPO}
+              className={`${CLASSE_CAMPO} ${formulario.valor_unitario_manual ? "border-[#C9A227] bg-[#FFFBEF]" : ""}`}
             />
+            {formulario.valor_unitario_manual && !somenteLeitura && daTabela !== null && (
+              <button
+                type="button"
+                onClick={voltarAoValorDaTabela}
+                className="mt-2 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] text-[#0F2A44]/70 hover:bg-black/5"
+              >
+                Voltar ao valor da tabela ({formatBRL(daTabela)})
+              </button>
+            )}
           </Campo>
           <Campo
             rotulo="Valor total"

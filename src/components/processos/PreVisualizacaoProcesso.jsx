@@ -31,6 +31,7 @@ export default function PreVisualizacaoProcesso({
   processo,
   secretarias = [],
   emissor = "",
+  identidade = null,
   ocupado = false,
   onFechar,
   onImprimir,
@@ -39,10 +40,12 @@ export default function PreVisualizacaoProcesso({
   const [escopo, setEscopo] = React.useState("completo");
 
   // A emissão é fixada na abertura: a mesma data e hora na tela, na impressão e
-  // no PDF daquela sessão de pré-visualização.
+  // no PDF daquela sessão de pré-visualização. A identidade visual entra aqui
+  // como entra na impressão -- processo finalizado mostra a que ele congelou,
+  // rascunho mostra a vigente --, então a folha vista é a folha impressa.
   const dados = React.useMemo(
-    () => dadosDoDocumento(processo, { secretarias, emissor }),
-    [processo, secretarias, emissor],
+    () => dadosDoDocumento(processo, { secretarias, emissor, identidade }),
+    [processo, secretarias, emissor, identidade],
   );
   const html = React.useMemo(() => htmlDoProcesso(dados, { escopo }), [dados, escopo]);
   const folhas = folhasDoEscopo(escopo);

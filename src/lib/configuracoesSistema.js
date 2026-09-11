@@ -47,6 +47,12 @@ export const CATEGORIAS = [
     pronta: true,
   },
   { id: "tributario", label: "Tributário", descricao: "Alíquotas de ISS e IRPJ", pronta: true },
+  {
+    id: "processos",
+    label: "Processos",
+    descricao: "Tabela de Diárias e identidade visual dos documentos",
+    pronta: true,
+  },
   { id: "relatorios-impressao", label: "Relatórios e Impressão", descricao: "Cabeçalhos, marca d'água e formatos" },
   {
     id: "notificacoes",

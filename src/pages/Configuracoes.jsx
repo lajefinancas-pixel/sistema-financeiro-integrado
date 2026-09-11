@@ -12,6 +12,7 @@ import CategoriaUsuariosSeguranca from "../components/configuracoes/CategoriaUsu
 import CategoriaFinanceiro from "../components/configuracoes/CategoriaFinanceiro";
 import CategoriaFornecedores from "../components/configuracoes/CategoriaFornecedores";
 import CategoriaTributario from "../components/configuracoes/CategoriaTributario";
+import CategoriaProcessos from "../components/configuracoes/CategoriaProcessos";
 import CategoriaNotificacoes from "../components/configuracoes/CategoriaNotificacoes";
 import CategoriaBackup from "../components/configuracoes/CategoriaBackup";
 import CategoriaAparencia from "../components/configuracoes/CategoriaAparencia";
@@ -243,6 +244,8 @@ export default function Configuracoes() {
                 podeEditar={podeEditar}
                 onSalvo={recarregar}
               />
+            ) : categoriaAtual === "processos" ? (
+              <CategoriaProcessos podeEditar={podeEditar} />
             ) : categoriaAtual === "notificacoes" ? (
               <CategoriaNotificacoes
                 valores={configuracoes.notificacoes}

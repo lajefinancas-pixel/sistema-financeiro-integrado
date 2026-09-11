@@ -43,6 +43,16 @@ export const MIGRATION_PROCESSOS = "20260911160000_processos_modulo_diarias.sql"
  */
 export const MIGRATION_MODELO_OFICIAL = "20260911190000_processos_diarias_modelo_oficial.sql";
 
+/**
+ * A migration da TABELA DE DIÁRIAS e da IDENTIDADE VISUAL.
+ *
+ * Cria o cadastro versionado da tabela (faixa × categoria, pernoite e memória
+ * do cálculo), o módulo de permissão próprio para editá-la e as colunas do
+ * congelamento dentro do processo. Também precisa ser rodada à mão no SQL
+ * Editor do Supabase.
+ */
+export const MIGRATION_TABELA_DIARIAS = "20260911210000_processos_diarias_tabela_e_identidade.sql";
+
 export const AVISO_MIGRATION_PROCESSOS =
   `O módulo Processos ainda não tem as suas tabelas -- ou os campos do modelo oficial -- neste banco. Rode as migrations ${MIGRATION_PROCESSOS} `
   + `e ${MIGRATION_MODELO_OFICIAL} no SQL Editor do Supabase para liberar a área de Diárias. `
@@ -187,6 +197,12 @@ export const CAMPOS_REQUISICAO = [
   "tipo_diaria",
   "custeio_despesas",
   "data_diarias",
+  // A escolha que a Tabela de Diárias lê: faixa de distância, categoria do
+  // cargo e pernoite. Delas saem o valor unitário sugerido e o "Tipo de Diária"
+  // do documento impresso.
+  "diaria_faixa",
+  "diaria_categoria",
+  "diaria_pernoite",
   "data_saida",
   "hora_saida",
   "data_retorno",
@@ -429,6 +445,8 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   });
   branco.quantidade_diarias = "";
   branco.valor_unitario = 0;
+  branco.diaria_pernoite = false;
+  branco.valor_unitario_manual = false;
   return branco;
 }
 
@@ -456,6 +474,8 @@ export function processoParaFormulario(processo) {
   formulario.situacao = processo?.situacao ?? "rascunho";
   formulario.valor_total_manual = processo?.valor_total_manual === true;
   formulario.valor_extenso_manual = processo?.valor_extenso_manual === true;
+  formulario.valor_unitario_manual = processo?.valor_unitario_manual === true;
+  formulario.diaria_pernoite = processo?.diaria_pernoite === true;
   formulario.fornecedor_id = processo?.fornecedor_id ?? null;
   formulario.secretaria_id = processo?.secretaria_id ?? "";
   return formulario;
@@ -467,6 +487,8 @@ const CAMPOS_DATA = new Set([
   "prestacao_data",
 ]);
 const CAMPOS_MOEDA = new Set(["valor_total", "valor_unitario", "liquidacao_valor"]);
+/** Campos que vão para o banco como booleano, nunca como texto vazio. */
+const CAMPOS_BOOLEANOS = new Set(["diaria_pernoite"]);
 const CAMPOS_QUANTIDADE = new Set(["quantidade_diarias", "liquidacao_quantidade"]);
 
 /**
@@ -486,12 +508,17 @@ export function formularioParaBanco(formulario) {
     fornecedor_id: base.fornecedor_id ?? null,
     valor_total_manual: base.valor_total_manual === true,
     valor_extenso_manual: base.valor_extenso_manual === true,
+    valor_unitario_manual: base.valor_unitario_manual === true,
   };
 
   ["data_processo", "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco", "objeto", "valor_total", "valor_extenso"]
     .concat(CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, CAMPOS_PRESTACAO, ["destino", "finalidade", "banco", "agencia", "conta", "pix", "titular"])
     .forEach((campo) => {
       const valor = base[campo];
+      if (CAMPOS_BOOLEANOS.has(campo)) {
+        linha[campo] = valor === true;
+        return;
+      }
       if (CAMPOS_MOEDA.has(campo)) {
         linha[campo] = vazio(valor) ? (campo === "valor_total" ? 0 : null) : paraNumeroMoeda(valor);
         return;
@@ -832,7 +859,7 @@ export function identificacaoDoProcesso(processo) {
 const CAMPOS_AUDITADOS = [
   "data_processo", "secretaria_id", "fornecedor_id", "beneficiario_nome", "beneficiario_cpf",
   "beneficiario_endereco", "objeto", "valor_total", "valor_total_manual",
-  "valor_extenso", "valor_extenso_manual", "destino", "finalidade",
+  "valor_extenso", "valor_extenso_manual", "valor_unitario_manual", "destino", "finalidade",
   "banco", "agencia", "conta", "pix", "titular",
   ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO,
 ];
@@ -880,6 +907,30 @@ export function alteracaoManualDeValor(anterior = {}, novo = {}) {
   };
 }
 
+/**
+ * A alteração manual do VALOR UNITÁRIO, quando houve.
+ *
+ * O item 5 pede que o valor unitário continue editável à mão mesmo com a Tabela
+ * de Diárias preenchendo-o, e que a alteração fique na auditoria. Ela ganha
+ * evento próprio, com o que a tabela daria e o que foi digitado -- é a
+ * informação que alguém vai querer conferir depois.
+ */
+export function alteracaoManualDeValorUnitario(anterior = {}, novo = {}) {
+  const assumiu = novo?.valor_unitario_manual === true;
+  const mudou =
+    anterior?.valor_unitario_manual !== true
+    || paraNumeroMoeda(anterior?.valor_unitario) !== paraNumeroMoeda(novo?.valor_unitario);
+  if (!assumiu || !mudou) return null;
+
+  return {
+    valor_unitario: paraNumeroMoeda(novo?.valor_unitario),
+    valor_unitario_anterior: paraNumeroMoeda(anterior?.valor_unitario),
+    diaria_faixa: texto(novo?.diaria_faixa) || null,
+    diaria_categoria: texto(novo?.diaria_categoria) || null,
+    diaria_pernoite: novo?.diaria_pernoite === true,
+  };
+}
+
 /* -------------------------------------------------------------------------
  * Histórico do processo
  * ---------------------------------------------------------------------- */
@@ -894,6 +945,9 @@ export const ACOES_HISTORICO = {
   cancelou: "Processo cancelado",
   excluiu: "Rascunho excluído",
   alterou_valor_manual: "Valor total alterado manualmente",
+  alterou_valor_unitario_manual: "Valor unitário alterado manualmente",
+  alterou_tabela_diarias: "Tabela de Diárias atualizada",
+  alterou_identidade_processos: "Identidade visual dos documentos alterada",
   imprimiu: "Processo impresso",
   gerou_pdf: "PDF gerado",
 };
@@ -924,7 +978,18 @@ export function textoHistorico(registro) {
  */
 export const MODULO_DIARIAS = "processos_diarias";
 export const MODULO_DIARIAS_SAIDA = "processos_diarias_saida";
-export const MODULOS_PROCESSOS = [MODULO_DIARIAS, MODULO_DIARIAS_SAIDA];
+
+/**
+ * A TABELA DE DIÁRIAS tem módulo PRÓPRIO, e é de propósito.
+ *
+ * Ela é um PARÂMETRO que afeta valores de pagamento: quem edita um processo não
+ * passa a poder mexer na tabela que define quanto vale cada diária. Visualizar
+ * a tabela, sim, acompanha quem vê o módulo Processos -- é a informação que
+ * explica o valor do documento.
+ */
+export const MODULO_DIARIAS_TABELA = "processos_diarias_tabela";
+
+export const MODULOS_PROCESSOS = [MODULO_DIARIAS, MODULO_DIARIAS_SAIDA, MODULO_DIARIAS_TABELA];
 
 export const ACOES_DIARIAS = [
   { chave: "visualizar", modulo: MODULO_DIARIAS, coluna: "pode_visualizar", rotulo: "Visualizar" },
@@ -936,6 +1001,8 @@ export const ACOES_DIARIAS = [
   { chave: "cancelar", modulo: MODULO_DIARIAS, coluna: "pode_excluir", rotulo: "Cancelar" },
   { chave: "imprimir", modulo: MODULO_DIARIAS_SAIDA, coluna: "pode_visualizar", rotulo: "Imprimir e gerar PDF" },
   { chave: "duplicar", modulo: MODULO_DIARIAS_SAIDA, coluna: "pode_cadastrar", rotulo: "Duplicar" },
+  // Editar a Tabela de Diárias: permissão restrita, no módulo próprio dela.
+  { chave: "editar_tabela", modulo: MODULO_DIARIAS_TABELA, coluna: "pode_editar", rotulo: "Editar a Tabela de Diárias" },
 ];
 
 export const PERMISSOES_DIARIAS_NENHUMA = Object.freeze(
@@ -958,14 +1025,31 @@ export function resolverPermissoesDiarias({ linhas = [] } = {}) {
   const porModulo = new Map((linhas ?? []).filter(Boolean).map((linha) => [String(linha.modulo), linha]));
   const principal = porModulo.get(MODULO_DIARIAS) ?? null;
   const saida = porModulo.get(MODULO_DIARIAS_SAIDA) ?? null;
+  const tabela = porModulo.get(MODULO_DIARIAS_TABELA) ?? null;
   if (!principal && !saida) return { ...PERMISSOES_DIARIAS_NENHUMA };
 
   const resultado = {};
   ACOES_DIARIAS.forEach((acao) => {
+    // Editar a tabela NÃO tem herança: sem a linha do módulo próprio, ninguém
+    // edita. Permissão restrita não se deduz de outra permissão.
+    if (acao.modulo === MODULO_DIARIAS_TABELA) {
+      resultado[acao.chave] = tabela?.[acao.coluna] === true;
+      return;
+    }
     const linha = acao.modulo === MODULO_DIARIAS_SAIDA ? (saida ?? principal) : principal;
     resultado[acao.chave] = linha?.[acao.coluna] === true;
   });
   return resultado;
+}
+
+/** Ver a Tabela de Diárias acompanha quem vê o módulo Processos. */
+export function podeVerTabelaDeDiarias(permissoes) {
+  return permissoes?.visualizar === true;
+}
+
+/** Editar a Tabela de Diárias exige a permissão restrita do módulo próprio. */
+export function podeEditarTabelaDeDiarias(permissoes) {
+  return permissoes?.editar_tabela === true;
 }
 
 /** Quem não pode visualizar não vê a subaba Diárias no menu e não abre a rota. */
