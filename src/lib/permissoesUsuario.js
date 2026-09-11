@@ -35,6 +35,12 @@ export const MODULOS = [
   { id: "administracao", label: "Administração" },
   { id: "tarefas", label: "Tarefas" },
   { id: "backup", label: "Backup" },
+  // PROCESSOS · Diárias. São dois módulos porque a área tem sete ações e a
+  // tabela tem cinco colunas: o segundo módulo carrega imprimir e duplicar.
+  // Módulo DOCUMENTAL -- nenhuma destas permissões concede pagar, dar baixa,
+  // debitar conta ou mexer na Programação Diária.
+  { id: "processos_diarias", label: "Processos · Diárias" },
+  { id: "processos_diarias_saida", label: "Processos · Diárias (impressão e duplicação)" },
 ];
 
 export const ACOES = [
@@ -128,6 +134,38 @@ const ACOES_AREAS_FORNECEDORES = [
   { campo: "pode_excluir", label: "Inativar" },
 ];
 
+/**
+ * PROCESSOS · Diárias usa as mesmas cinco colunas, repartidas em dois módulos
+ * porque a área tem sete ações próprias: visualizar, criar, editar, finalizar,
+ * cancelar, imprimir e duplicar.
+ *
+ *   processos_diarias         visualizar | criar | editar | finalizar | cancelar
+ *   processos_diarias_saida   imprimir   | duplicar
+ *
+ * "Finalizar" fecha o documento -- NÃO paga, não gera pagamento, não debita
+ * conta e não altera saldo. "Cancelar" é a exclusão lógica da área: o processo
+ * e o histórico dele nunca são apagados, e o número nunca volta a ser usado.
+ *
+ * O mesmo mapa está escrito na migration
+ * 20260911160000_processos_modulo_diarias.sql e na função do banco
+ * `public.pode_em_processos`.
+ */
+export const MODULO_PROCESSOS_DIARIAS = "processos_diarias";
+export const MODULO_PROCESSOS_DIARIAS_SAIDA = "processos_diarias_saida";
+
+const ACOES_PROCESSOS_DIARIAS = [
+  { campo: "pode_visualizar", label: "Visualizar" },
+  { campo: "pode_cadastrar", label: "Criar" },
+  { campo: "pode_editar", label: "Editar" },
+  { campo: "pode_aprovar", label: "Finalizar (não é pagar)" },
+  { campo: "pode_excluir", label: "Cancelar / anular" },
+];
+
+const ACOES_PROCESSOS_DIARIAS_SAIDA = [
+  { campo: "pode_visualizar", label: "Imprimir e gerar PDF" },
+  { campo: "pode_cadastrar", label: "Duplicar" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
 /**
@@ -139,6 +177,8 @@ export function acoesDoModulo(modulo) {
   if (modulo === MODULO_COM_VALORES) return ACOES_SALDOS;
   if (modulo === MODULO_BAIXAS) return ACOES_BAIXAS;
   if (MODULOS_AREAS_FORNECEDORES.includes(modulo)) return ACOES_AREAS_FORNECEDORES;
+  if (modulo === MODULO_PROCESSOS_DIARIAS) return ACOES_PROCESSOS_DIARIAS;
+  if (modulo === MODULO_PROCESSOS_DIARIAS_SAIDA) return ACOES_PROCESSOS_DIARIAS_SAIDA;
   return ACOES;
 }
 

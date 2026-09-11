@@ -55,6 +55,11 @@ const MODULOS = {
   usuarios: "Usuários",
   tarefas: "Tarefas",
   acesso: "Acesso",
+  // PROCESSOS · Diárias. Módulo DOCUMENTAL: o que aparece aqui é a vida do
+  // documento (criação, alteração, finalização, cancelamento, duplicação), e
+  // nenhum desses eventos corresponde a pagamento, baixa de NF, débito em conta
+  // ou alteração de saldo.
+  processos_diarias: "Processos · Diárias",
 };
 
 export function moduloLabel(valor) {
@@ -112,6 +117,17 @@ const ACOES = {
   // pagamento: nenhum valor é pago, nenhuma nota recebe baixa e nenhum saldo de
   // conta é movimentado por esta ação.
   enviou_para_programacao: "Enviou para a programação",
+  // PROCESSOS · Diárias. FINALIZAR NÃO É PAGAR: fecha o documento para edição e
+  // nada mais. Cancelar é a anulação do processo (o número emitido não volta a
+  // ser usado) e reabrir devolve o rascunho para ajuste, preservando a trilha.
+  // A alteração manual do valor total fica com ação própria porque é
+  // exatamente o que se quer conferir depois: o total deixou de ser
+  // quantidade × valor unitário por decisão de alguém.
+  duplicou_processo: "Duplicou processo",
+  finalizou_processo: "Finalizou processo (não é pagamento)",
+  reabriu_processo: "Reabriu processo",
+  cancelou_processo: "Cancelou processo",
+  alterou_valor_manual: "Alterou o valor total manualmente",
 };
 
 export function acaoLabel(valor) {
@@ -565,6 +581,45 @@ const CAMPOS = {
   solicitado_em: "Solicitado em",
   executada: "Restauração executada",
   observacao: "Observação",
+  // Campos do processo de diária (as duas páginas moram no mesmo registro, por
+  // isso os da liquidação vêm com o prefixo dela). Nada aqui é campo de
+  // cadastro: editar qualquer um destes altera SÓ o documento, nunca a razão
+  // social, o CPF/CNPJ ou os dados bancários do fornecedor.
+  numero: "Número do processo",
+  ano: "Ano",
+  data_processo: "Data do processo",
+  secretaria_id: "Secretaria",
+  beneficiario_nome: "Beneficiário",
+  beneficiario_cpf: "CPF do beneficiário",
+  beneficiario_matricula: "Matrícula",
+  beneficiario_cargo: "Cargo / função",
+  beneficiario_lotacao: "Lotação",
+  objeto: "Objeto",
+  destino: "Destino",
+  data_saida: "Data de saída",
+  hora_saida: "Hora de saída",
+  data_retorno: "Data de retorno",
+  hora_retorno: "Hora de retorno",
+  quantidade_diarias: "Quantidade de diárias",
+  valor_unitario: "Valor unitário",
+  valor_total: "Valor total",
+  valor_calculado: "Valor calculado (quantidade × unitário)",
+  finalidade: "Finalidade da viagem",
+  transporte: "Meio de transporte",
+  transporte_outro: "Transporte (outro)",
+  pix: "PIX",
+  titular: "Titular",
+  liquidacao_data: "Liquidação · data",
+  liquidacao_data_saida: "Liquidação · data de saída",
+  liquidacao_data_retorno: "Liquidação · data de retorno",
+  liquidacao_quantidade: "Liquidação · quantidade de diárias",
+  liquidacao_valor: "Liquidação · valor",
+  liquidacao_relatorio: "Liquidação · relatório da viagem",
+  liquidacao_documentos: "Liquidação · documentos comprobatórios",
+  liquidacao_responsavel: "Liquidação · responsável pela conferência",
+  liquidacao_observacoes: "Liquidação · observações",
+  motivo_cancelamento: "Motivo do cancelamento",
+  finalizada_em: "Finalizada em",
 };
 
 /** Nome de campo em português; o que não estiver no dicionário vira texto simples. */
@@ -605,6 +660,11 @@ const CAMPOS_DE_MOEDA = new Set([
   "valor_ir",
   "desconto_iss",
   "desconto_ir",
+  // Processos · Diárias (documento; nenhum destes valores é pagamento).
+  "valor_unitario",
+  "valor_total",
+  "valor_calculado",
+  "liquidacao_valor",
   // Baixas e estornos (funções do banco).
   "valor_pago",
   "valor_da_baixa",

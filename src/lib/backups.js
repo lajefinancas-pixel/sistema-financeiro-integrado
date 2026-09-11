@@ -403,6 +403,13 @@ const TABELAS_ESTIMATIVA = [
   { tabela: "tarefas_historico", bytesPorLinha: 500 },
   { tabela: "auditoria_eventos", bytesPorLinha: 800 },
   { tabela: "notificacoes", bytesPorLinha: 400 },
+  // PROCESSOS · Diárias. O processo é uma linha só (as duas páginas moram
+  // nela), daí a média por linha ser maior que a das demais; a numeração e o
+  // histórico entram junto para que rascunhos, vínculos e trilha do módulo
+  // sejam contabilizados no backup diário e no "Gerar Backup Agora".
+  { tabela: "processos_diarias", bytesPorLinha: 2200 },
+  { tabela: "processos_diarias_numeracao", bytesPorLinha: 120 },
+  { tabela: "processos_diarias_historico", bytesPorLinha: 700 },
 ];
 
 /** Peso fixo do esquema (tabelas, índices, funções) no arquivo de backup. */
