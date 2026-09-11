@@ -23,6 +23,7 @@ import { AREAS } from "./areasFornecedores";
 import {
   colunasDoRelatorioDaArea,
   linhasDoRelatorioDaArea,
+  relacaoDaArea,
 } from "./relatoriosAreasFornecedores";
 
 /** Só a parte "AAAA-MM-DD" de uma data/hora do banco. */
@@ -306,6 +307,10 @@ const RELATORIOS_DAS_AREAS = AREAS.map((area) => ({
   colunas: colunasDoRelatorioDaArea(area),
   campoTotal: "valor",
   rotuloTotal: "Total contratado",
+  // As duas colunas da relação de valores desta área: o que identifica o
+  // registro e o saldo. Só diz QUAIS colunas usar -- as linhas continuam sendo
+  // as mesmas, com todas as colunas, para os outros formatos de impressão.
+  relacao: relacaoDaArea(area),
   montar: (bases, opcoes = {}) =>
     blocoUnico(
       linhasDoRelatorioDaArea(
@@ -898,6 +903,9 @@ export function gerarRelatorio(relatorio, bases, opcoes = {}) {
     rotuloGrupo: relatorio.rotuloGrupo ?? null,
     campoTotal: relatorio.campoTotal ?? null,
     rotuloTotal: relatorio.rotuloTotal ?? "Valor total",
+    // Quais colunas viram a relação de valores, quando o relatório escolhe (os
+    // demais deixam a relação decidir sozinha, por tipo de coluna).
+    relacao: relatorio.relacao ?? null,
     grupos,
     registros: todasAsLinhas.length,
     totais: totalizar(todasAsLinhas, relatorio.colunas),

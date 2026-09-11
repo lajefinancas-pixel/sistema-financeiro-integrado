@@ -90,6 +90,8 @@ export default function PainelComparativo({
   bases,
   modoImpressao,
   onModoImpressao,
+  opcoesRelacao,
+  onOpcoesRelacao,
   onDocumento,
 }) {
   const meses = React.useMemo(() => mesesDeComparacao(), []);
@@ -288,6 +290,9 @@ export default function PainelComparativo({
             modo={modoImpressao}
             onModo={onModoImpressao}
             colunas={resultado?.colunas ?? []}
+            resultado={resultado}
+            opcoesRelacao={opcoesRelacao}
+            onOpcoesRelacao={onOpcoesRelacao}
           />
         </div>
 

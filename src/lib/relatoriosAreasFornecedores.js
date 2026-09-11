@@ -278,6 +278,49 @@ export function linhasDoRelatorioDaArea(area, registros = [], filtros = {}) {
 }
 
 /* -------------------------------------------------------------------------
+ * Relação de valores (duas colunas)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Qual coluna responde pelo NOME de cada área na relação de duas colunas.
+ *
+ * É o campo que identifica o registro na tela: o patrocínio é o nome/descrição,
+ * o aluguel é o objeto com a descrição e a contratação é a banda/artista -- o
+ * fornecedor por trás não vai ao papel, porque a relação é do registro. O valor
+ * é sempre o Saldo: é o que ainda falta pagar, o número que o gestor procura.
+ */
+const RELACAO_DA_AREA = {
+  patrocinios: { nome: "nome", rotuloNome: "Patrocínio" },
+  alugueis: { nome: "objetoDescricao", rotuloNome: "Descrição do aluguel" },
+  bandas: { nome: "banda", rotuloNome: "Banda / Artista" },
+};
+
+const RELACAO_PADRAO = { nome: "fornecedor", rotuloNome: "Fornecedor" };
+
+/** As duas colunas da relação de valores da área: `{ nome, valor, rótulos }`. */
+export function relacaoDaArea(area) {
+  const escolhida = RELACAO_DA_AREA[area?.id] ?? RELACAO_PADRAO;
+  return { ...escolhida, valor: "saldo", rotuloValor: "Saldo" };
+}
+
+/**
+ * Os itens da relação a partir dos registros JÁ FILTRADOS pela tela.
+ *
+ * Cada item é só `{ nome, valor }`, e o valor é o saldo que a própria listagem
+ * mostra -- a mesma `linhaDoRelatorio`, portanto o mesmo
+ * `resumoFinanceiroDoRegistro`, que soma as baixas das NFs vinculadas. Nada é
+ * recalculado de outro jeito aqui: é isso que faz o total impresso bater com o
+ * total da tela.
+ */
+export function itensDaRelacaoDaArea(area, registros = []) {
+  const definicao = relacaoDaArea(area);
+  return (registros ?? []).map((registro) => {
+    const linha = linhaDoRelatorio(area, registro);
+    return { nome: linha[definicao.nome], valor: linha[definicao.valor] };
+  });
+}
+
+/* -------------------------------------------------------------------------
  * Os filtros em texto (chips da tela e linha de filtros do cabeçalho)
  * ---------------------------------------------------------------------- */
 
