@@ -165,6 +165,25 @@ const MIGRATION_REABERTURA = "supabase/migrations/20260910120000_reabrir_program
 const MIGRATION_CORRECAO_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
 const MIGRATION_PADRONIZACAO_USUARIO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
 const MIGRATION_APELIDO = "supabase/migrations/20260905120000_apelido_fornecedor_e_nome_exibicao_programacao.sql";
+const MIGRATION_BLINDAGEM_TIPOS = "supabase/migrations/20260911120000_blindar_tipos_legados_pagamentos.sql";
+
+// Recusa de tipo (22P02) não tem UM arquivo só: cada operação da tela é atendida
+// por uma função de banco diferente, e cada função nasceu numa migration
+// diferente. Enquanto isto era ignorado, qualquer 22P02 mandava rodar a
+// migration da aprovação -- e quem já a tinha rodado ficava sem saída, olhando
+// um aviso que apontava o arquivo errado. O mapa abaixo diz, por operação, qual
+// arquivo refaz a função que falhou. Operação fora do mapa não ganha palpite:
+// nenhum arquivo é citado -- é o caso da transferência e do estorno, que avisam
+// pela mensagem geral do sistema (src/lib/erros.js), a qual já explica o 22P02
+// sem apontar arquivo nenhum.
+const MIGRATION_DE_TIPO_POR_OPERACAO = {
+  salvar: MIGRATION_CORRECAO_APROVACAO,
+  em_analise: MIGRATION_CORRECAO_APROVACAO,
+  aprovar: MIGRATION_CORRECAO_APROVACAO,
+  reabrir: MIGRATION_REABERTURA,
+  definir_conta: MIGRATION_BLINDAGEM_TIPOS,
+  nome_exibicao: MIGRATION_BLINDAGEM_TIPOS,
+};
 
 // Ausência de id: nulo, indefinido, texto vazio ou zero. Nenhum deles é um id
 // de registro, e nenhum deles pode chegar ao banco como se fosse -- em coluna
@@ -215,7 +234,7 @@ function mensagemEstruturaAusente(objetos) {
 // A tela só afirma "falta estrutura" quando o próprio banco disse que o objeto
 // não existe (42P01/42703/42883/PGRST200/PGRST202/PGRST204/PGRST205). Permissão
 // e sessão têm mensagem própria; o resto continua com a mensagem do contexto.
-function mensagemFalhaFase1(falha, mensagemPadrao) {
+function mensagemFalhaFase1(falha, mensagemPadrao, operacao) {
   const classificacao = classificarFalhaFase1(falha);
 
   if (classificacao.tipo === "estrutura") {
@@ -236,9 +255,18 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
   // aviso antigo ("formato inválido") mandava conferir valores que estavam
   // certos. O que existe por trás é comparação entre tipos incompatíveis dentro
   // da função do banco -- texto contra enum, texto contra boolean -- e a
-  // correção é rodar a migration que refaz essas funções.
+  // correção é rodar a migration que refaz A FUNÇÃO DAQUELA OPERAÇÃO.
+  //
+  // Sem saber qual operação falhou, a tela não chuta arquivo: diz o que houve e
+  // manda ler o console. Apontar um arquivo sem relação -- já rodado, e de outra
+  // função -- é pior do que não apontar nenhum, porque faz rodar de novo algo
+  // que não muda nada e esconde a causa real.
   if (String(falha?.code ?? "") === "22P02") {
-    return `O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente. Não é o valor digitado na tela. Execute ${MIGRATION_CORRECAO_APROVACAO} no SQL Editor do mesmo projeto Supabase usado pela aplicação e tente novamente. O erro completo do banco está no console (F12).`;
+    const arquivo = MIGRATION_DE_TIPO_POR_OPERACAO[String(operacao ?? "")];
+    const oQueFazer = arquivo
+      ? `Execute ${arquivo} no SQL Editor do mesmo projeto Supabase usado pela aplicação e tente novamente.`
+      : "Nenhum saldo foi movimentado.";
+    return `O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente. Não é o valor digitado na tela. ${oQueFazer} O erro completo do banco, com a etapa e o tipo real de cada coluna, está no console (F12).`;
   }
 
   // 23503 é recusa de vínculo entre registros. A mensagem geral do sistema
@@ -259,11 +287,11 @@ function mensagemFalhaFase1(falha, mensagemPadrao) {
 // Enquanto não rodar, a tela não pode quebrar: a Fase 1 inteira continua de pé e
 // só a aprovação, a execução e a transferência ficam indisponíveis, com o aviso
 // dizendo qual arquivo executar.
-function mensagemFalhaFase2(falha, mensagemPadrao) {
+function mensagemFalhaFase2(falha, mensagemPadrao, operacao) {
   if (estruturaFase2Ausente(falha)) {
     return `A estrutura da Fase 2 (execução financeira) não está no banco conectado a esta tela. Execute ${MIGRATION_FASE_2} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo do banco está no console (F12).`;
   }
-  return mensagemFalhaFase1(falha, mensagemPadrao);
+  return mensagemFalhaFase1(falha, mensagemPadrao, operacao);
 }
 
 // Reabrir tem migration própria, também rodada à mão no SQL Editor. Enquanto ela
@@ -274,7 +302,7 @@ function mensagemFalhaReabertura(falha) {
   if (estruturaFase2Ausente(falha)) {
     return `A ação de reabrir programação ainda não está no banco conectado a esta tela. Execute ${MIGRATION_REABERTURA} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. O erro completo do banco está no console (F12).`;
   }
-  return mensagemFalhaFase2(falha, "Não foi possível reabrir a programação.");
+  return mensagemFalhaFase2(falha, "Não foi possível reabrir a programação.", "reabrir");
 }
 
 function registrarErroFase2(operacao, falha, contexto = {}) {
@@ -775,7 +803,7 @@ export default function PagamentosRedesenhado() {
       if (estruturaDeApelidoAusente(falha)) {
         setErro(`O nome de exibição por programação ainda não existe neste banco. Execute ${MIGRATION_APELIDO} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página.`);
       } else {
-        setErro(mensagemAmigavel(falha, "Não foi possível salvar o nome de exibição deste fornecedor."));
+        setErro(mensagemFalhaFase1(falha, "Não foi possível salvar o nome de exibição deste fornecedor.", "nome_exibicao"));
       }
     } finally {
       setSalvando(false);
@@ -875,7 +903,7 @@ export default function PagamentosRedesenhado() {
       return true;
     } catch (falha) {
       registrarErroFase1("Falha ao salvar programação", falha, { programacaoId: programacao?.id });
-      setErro(mensagemFalhaFase1(falha, "Não foi possível salvar a programação."));
+      setErro(mensagemFalhaFase1(falha, "Não foi possível salvar a programação.", "salvar"));
     } finally {
       setSalvando(false);
     }
@@ -889,7 +917,7 @@ export default function PagamentosRedesenhado() {
     const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: idInteiro(programacao.id, "Programação") });
     if (error) {
       registrarErroFase1("Falha ao marcar programação em análise", error, { programacaoId: programacao.id });
-      return setErro(mensagemFalhaFase1(error, "Não foi possível marcar como em análise."));
+      return setErro(mensagemFalhaFase1(error, "Não foi possível marcar como em análise.", "em_analise"));
     }
     setProgramacao((atual) => ({ ...atual, status: "em_analise" }));
     setMensagem("Programação marcada como em análise. Nenhum saldo foi movimentado.");
@@ -945,7 +973,7 @@ export default function PagamentosRedesenhado() {
       await carregarProgramacoes(programacao.id);
     } catch (falha) {
       registrarErroFase2("Falha ao aprovar programação", falha, { programacaoId: programacao.id });
-      setErro(mensagemFalhaFase2(falha, "Não foi possível aprovar a programação."));
+      setErro(mensagemFalhaFase2(falha, "Não foi possível aprovar a programação.", "aprovar"));
     } finally {
       setSalvando(false);
     }
@@ -1052,7 +1080,7 @@ export default function PagamentosRedesenhado() {
       return { ok: true, mensagem: feito };
     } catch (falha) {
       registrarErroFase2("Falha ao definir a conta do pagamento", falha, { programacaoId: programacao.id, pagamentos: alvos });
-      const recusa = mensagemFalhaFase2(falha, "Não foi possível definir a conta destes pagamentos.");
+      const recusa = mensagemFalhaFase2(falha, "Não foi possível definir a conta destes pagamentos.", "definir_conta");
       setErro(recusa);
       return { ok: false, mensagem: recusa };
     } finally {
