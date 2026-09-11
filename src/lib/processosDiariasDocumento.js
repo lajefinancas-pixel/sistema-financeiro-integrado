@@ -64,6 +64,7 @@ import {
 } from "./processosIdentidade.js";
 import { logoDoDocumento } from "./processosIdentidade.js";
 import { tipoDiariaComposto } from "./processosDiariasTabela.js";
+import { bancoDoDocumento } from "./processosBancos.js";
 
 /**
  * O cabeçalho institucional de fábrica.
@@ -78,10 +79,18 @@ export const IDENTIDADE = {
   estado: IDENTIDADE_PADRAO.estado,
 };
 
-/** O rodapé institucional de fábrica, impresso em TODAS as páginas do processo. */
+/**
+ * O rodapé institucional de fábrica, impresso em TODAS as páginas do processo.
+ *
+ * Três linhas, com o CEP no endereço e o CNPJ em linha própria. É o padrão do
+ * módulo e vale para todos os documentos dele, atuais e futuros. Continua
+ * configurável em Configurações → Processos, e processo já finalizado imprime o
+ * rodapé que congelou.
+ */
 export const RODAPE_INSTITUCIONAL = {
   endereco: IDENTIDADE_PADRAO.rodape_endereco,
   contato: IDENTIDADE_PADRAO.rodape_contato,
+  cnpj: IDENTIDADE_PADRAO.rodape_cnpj,
 };
 
 /** O município que assina o documento, nas linhas de "Local e data". */
@@ -339,11 +348,24 @@ export function dadosDoDocumento(
     },
 
     banco: {
-      banco: ou(p.banco),
+      // "001 — Banco do Brasil": número e nome juntos, como no modelo oficial.
+      // Registro antigo, gravado quando o banco era texto livre, continua
+      // saindo só com o nome -- não havia número escolhido naquela época.
+      banco: ou(bancoDoDocumento(p)),
+      codigo: texto(p.banco_codigo),
+      nome: texto(p.banco),
       agencia: ou(p.agencia),
       conta: ou(p.conta),
       pix: ou(p.pix),
       titular: ou(p.titular),
+    },
+
+    // PÁGINA 2 — a data da LIQUIDAÇÃO. Cada página assina com a data DELA: em
+    // branco, a página 2 sai com a data do processo, que é o comportamento que
+    // ela sempre teve.
+    liquidacao: {
+      data: texto(p.liquidacao_data),
+      localEData: localEData(texto(p.liquidacao_data) || p.data_processo, p.ano),
     },
 
     // PÁGINA 3 — a prestação de contas, que pode estar pendente.
@@ -551,9 +573,16 @@ function campo(rotulo, valor, classe = "c50", forte = false) {
  */
 function rodapeHtml(dados) {
   const identidade = normalizarIdentidade(dados?.identidade);
+  // A linha do CNPJ sai só quando existe. Identidade CONGELADA em processo
+  // antigo trazia o CNPJ dentro da linha de contato; ali a terceira linha vem
+  // vazia e o documento continua saindo exatamente como saiu na época.
+  const cnpj = identidade.rodape_cnpj === ""
+    ? ""
+    : `<div>${escapar(identidade.rodape_cnpj)}</div>`;
   return `<div class="rodape">`
     + `<div class="endereco">${escapar(identidade.rodape_endereco)}</div>`
     + `<div>${escapar(identidade.rodape_contato)}</div>`
+    + cnpj
     + `<div class="emissao">Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
     + `</div>`;
 }
@@ -664,7 +693,7 @@ function folhaLiquidacao(dados) {
     + `<div class="rotulo-caixa">Autorização da Prefeita</div>`
     + `<p><b>Ciente / Autorizo.</b></p>`
     + `<p>À ${escapar(SECRETARIA_DE_FINANCAS)}, para as providências de pagamento.</p>`
-    + `<p class="local-data">${escapar(dados.localEData)}</p>`
+    + `<p class="local-data">${escapar(dados.liquidacao.localEData)}</p>`
     + `<div class="assinatura-unica"><strong>&nbsp;</strong>Assinatura da Prefeita</div>`
     + `<div class="linhas-a-mao">`
     + `<div>Nome:</div>`
@@ -866,13 +895,21 @@ function criarPincel(pdf, dados) {
 
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(...TINTA.apoio);
-    textoQueCabe(identidade.rodape_contato, largura / 2, y + 6.6, 7, util, "center");
+    textoQueCabe(identidade.rodape_contato, largura / 2, y + 6.4, 7, util, "center");
+
+    // A linha do CNPJ. Sai só quando existe: identidade congelada antiga trazia
+    // o CNPJ junto do contato, e repeti-lo seria erro no documento.
+    let ultima = y + 6.4;
+    if (identidade.rodape_cnpj !== "") {
+      textoQueCabe(identidade.rodape_cnpj, largura / 2, y + 9.4, 7, util, "center");
+      ultima = y + 9.4;
+    }
 
     // A linha de emissão. SEM número de processo e SEM numeração de folha.
     pdf.setFontSize(6.5);
     pdf.text(
       `Emitido em ${dados.emissao} por ${dados.emissor}`,
-      largura / 2, y + 9.6, { align: "center" },
+      largura / 2, ultima + 3, { align: "center" },
     );
   };
 
@@ -1417,7 +1454,7 @@ function paginaLiquidacaoPdf(pincel, dados) {
   pincel.moldura("Autorização da Prefeita", () => {
     pincel.paragrafo("Ciente / Autorizo.", { negrito: true });
     pincel.paragrafo(`À ${SECRETARIA_DE_FINANCAS}, para as providências de pagamento.`);
-    pincel.localData(dados.localEData);
+    pincel.localData(dados.liquidacao.localEData);
     pincel.assinaturas([{ nome: "", papel: "Assinatura da Prefeita" }], { aoPe: false });
     pincel.linhasAMao(["Nome:", "CPF:", "Cargo:"]);
   });

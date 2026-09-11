@@ -87,18 +87,27 @@ async function usuarioAtualId() {
  * Leitura
  * ---------------------------------------------------------------------- */
 
+// ⚠️ `beneficiario_matricula` NÃO entra aqui. A matrícula saiu do formulário e
+// do documento; a coluna continua no banco com o que já foi gravado, e o sistema
+// parou de lê-la e de escrevê-la.
 const COLUNAS = [
-  "id", "ano", "numero", "data_processo", "secretaria_id", "fornecedor_id",
+  "id", "ano", "numero", "data_processo",
+  // A SOLICITANTE (cadastro próprio de Processos) e os dados dela CONGELADOS no
+  // processo. `secretaria_id` é o cadastro financeiro e fica só para o processo
+  // antigo continuar abrindo com a secretaria que gravou.
+  "solicitante_id", "solicitante_nome", "solicitante_secretario",
+  "solicitante_secretario_cpf", "solicitante_secretario_cargo",
+  "secretaria_id", "fornecedor_id",
   "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco",
   "objeto", "valor_total", "valor_total_manual", "valor_extenso", "valor_extenso_manual",
-  "beneficiario_matricula", "beneficiario_cargo", "beneficiario_lotacao",
+  "beneficiario_cargo", "beneficiario_lotacao",
   "tipo_diaria", "custeio_despesas", "data_diarias",
   "diaria_faixa", "diaria_categoria", "diaria_pernoite", "valor_unitario_manual",
   "diaria_valor_unitario", "diaria_pernoite_percentual", "diaria_tabela_versao",
   "diaria_tabela_id", "identidade_visual",
   "destino", "data_saida", "hora_saida", "data_retorno", "hora_retorno",
   "quantidade_diarias", "valor_unitario", "finalidade",
-  "banco", "agencia", "conta", "pix", "titular", "observacoes",
+  "banco_codigo", "banco", "agencia", "conta", "pix", "titular", "observacoes",
   // O vínculo interno com o cadastro de SERVIDORES e quem assinou pela
   // secretaria. As colunas `transporte` e `transporte_outro` saíram desta lista:
   // o campo não existe no modelo oficial, e elas ficam no banco só com o
@@ -113,7 +122,9 @@ const COLUNAS = [
   "criado_em", "atualizado_em",
 ].join(",");
 
-const SELECAO = `${COLUNAS}, secretaria:secretarias ( id, nome )`;
+const SELECAO = `${COLUNAS}`
+  + ", solicitante:processos_secretarias_solicitantes ( id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
+  + ", secretaria:secretarias ( id, nome )";
 
 /**
  * Os processos de diária da lista.
@@ -139,7 +150,19 @@ export async function carregarProcesso(id) {
   return data;
 }
 
-/** As secretarias JÁ CADASTRADAS no sistema. O módulo não tem lista própria. */
+/**
+ * As secretarias do cadastro FINANCEIRO (`public.secretarias`).
+ *
+ * ⚠️ Esta lista NÃO é mais a que o formulário do processo oferece para escolher:
+ * quem REQUISITA a diária vem do cadastro próprio de SECRETARIAS SOLICITANTES
+ * (`carregarSolicitantes`, em processosCadastrosDados.js). Ela continua sendo
+ * lida aqui por um motivo só: processo criado ANTES daquele cadastro existir
+ * gravou o id daqui, e precisa continuar mostrando o nome da secretaria dele.
+ *
+ * É LEITURA. Nada neste módulo altera, mescla ou apaga o cadastro financeiro de
+ * secretarias -- ele continua servindo contas bancárias, fornecedores, Saldos,
+ * Pagamentos e relatórios, exatamente como antes.
+ */
 export async function carregarSecretarias() {
   const { data, error } = await supabase.from("secretarias").select("id,nome").order("nome");
   if (error) throw error;

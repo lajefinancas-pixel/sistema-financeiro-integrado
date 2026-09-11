@@ -19,6 +19,7 @@ import { BUCKET_CONFIGURACOES, LIMITE_LOGO_MB } from "./configuracoesSistema.js"
 import { MODULO_DIARIAS } from "./processosDiarias.js";
 import {
   IDENTIDADE_PADRAO,
+  atualizarRodapeLegado,
   diferencaDaIdentidade,
   normalizarIdentidade,
   primeiroErroDaIdentidade,
@@ -75,7 +76,9 @@ export async function carregarIdentidadeProcessos() {
 
     const autor = linha.atualizado_por ? await nomeDoAutor(linha.atualizado_por) : null;
     return {
-      identidade: normalizarIdentidade(linha.valor),
+      // ⚠️ Só a identidade VIGENTE recebe o rodapé novo, com o CEP. A congelada
+      // dentro de processo finalizado nunca passa por aqui.
+      identidade: normalizarIdentidade(atualizarRodapeLegado(linha.valor)),
       ausente: false,
       autoria: { atualizado_em: linha.atualizado_em ?? null, autor },
     };

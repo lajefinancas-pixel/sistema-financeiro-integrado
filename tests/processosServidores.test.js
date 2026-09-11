@@ -121,13 +121,14 @@ function servidorCompleto(extra = {}) {
     nome: "Maria Souza da Silva",
     cpf: "123.456.789-00",
     endereco: "Rua das Acácias, 120, Centro, São José da Laje - AL",
-    matricula: "2044-1",
     cargo: "Secretária Municipal de Assistência Social",
+    solicitante_id: "sol-3",
     secretaria_id: 3,
     lotacao: "Gabinete da Secretaria",
     categoria_diaria: "secretarios",
     telefone: "(82) 9 9999-1234",
     email: "maria.souza@saojosedalaje.al.gov.br",
+    banco_codigo: "001",
     banco: "Banco do Brasil",
     agencia: "1234-5",
     conta: "98765-4",
@@ -193,23 +194,26 @@ test("1. cadastrar um servidor com todos os campos e reabrir devolve tudo", () =
   assert.equal(linha.nome, "Maria Souza da Silva");
   assert.equal(linha.pix_titular, "Maria Souza da Silva");
   assert.equal(linha.secretaria_id, 3);
+  assert.equal(linha.solicitante_id, "sol-3");
+  assert.equal(linha.banco_codigo, "001");
   assert.ok(!("situacao" in linha));
-  assert.equal(servidorParaBanco({ ...formulario, matricula: "  " }).matricula, null);
+  assert.ok(!("matricula" in linha));
+  assert.equal(servidorParaBanco({ ...formulario, lotacao: "  " }).lotacao, null);
 
-  // Matrícula, telefone e e-mail são OPCIONAIS, como pedido.
+  // Telefone e e-mail são OPCIONAIS, como pedido.
   const enxuto = servidorVazio();
   Object.assign(enxuto, {
     nome: "João Batista",
     cpf: "98765432100",
     cargo: "Motorista",
-    secretaria_id: 5,
+    solicitante_id: "sol-5",
     categoria_diaria: "outros_agentes",
   });
   assert.deepEqual(validarServidor(enxuto, { servidores: [] }), {});
 
   // Nome, CPF, cargo, secretaria e categoria são o mínimo de um documento.
   const vazio = validarServidor(servidorVazio(), { servidores: [] });
-  ["nome", "cpf", "cargo", "secretaria_id", "categoria_diaria"].forEach((campo) =>
+  ["nome", "cpf", "cargo", "solicitante_id", "categoria_diaria"].forEach((campo) =>
     assert.ok(vazio[campo], campo),
   );
   assert.ok(primeiroErroDoServidor(vazio));
@@ -375,14 +379,17 @@ test("4. escolher o beneficiário no cadastro já traz os dados preenchidos", ()
   const servidor = servidorCompleto();
   const dados = dadosDoServidorParaDocumento(servidor);
 
-  // Nome, CPF, endereço, matrícula, cargo, secretaria, lotação, banco e PIX.
+  // Nome, CPF, endereço, cargo, secretaria, lotação, banco e PIX. A MATRÍCULA
+  // não entra mais: saiu do cadastro, do formulário e do documento.
   assert.equal(dados.beneficiario_nome, "Maria Souza da Silva");
   assert.equal(dados.beneficiario_cpf, "123.456.789-00");
   assert.equal(dados.beneficiario_endereco, servidor.endereco);
-  assert.equal(dados.beneficiario_matricula, "2044-1");
+  assert.ok(!("beneficiario_matricula" in dados));
   assert.equal(dados.beneficiario_cargo, servidor.cargo);
   assert.equal(dados.beneficiario_lotacao, "Gabinete da Secretaria");
   assert.equal(dados.secretaria_id, 3);
+  assert.equal(dados.solicitante_id, "sol-3");
+  assert.equal(dados.banco_codigo, "001");
   assert.equal(dados.banco, "Banco do Brasil");
   assert.equal(dados.agencia, "1234-5");
   assert.equal(dados.conta, "98765-4");

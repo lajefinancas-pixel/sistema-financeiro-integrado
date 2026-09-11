@@ -9,6 +9,8 @@ import { podeVerDiarias } from "../lib/processosDiarias.js";
 import { podeVerServidores } from "../lib/processosServidores.js";
 import { carregarSecretarias } from "../lib/processosDiariasDados.js";
 import { carregarServidores } from "../lib/processosServidoresDados.js";
+import { carregarBancos, carregarSolicitantes } from "../lib/processosCadastrosDados.js";
+import { listaDeSecretariasDoProcesso } from "../lib/processosSecretariasSolicitantes.js";
 import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
 
 /**
@@ -25,9 +27,15 @@ import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
  *
  * PROCESSOS É DOCUMENTAL, NÃO É FINANCEIRO. Nenhuma tela deste módulo debita
  * conta, dá baixa em NF, altera saldo, marca fornecedor como pago, cria
- * pagamento ou mexe na Programação Diária. As secretarias e os fornecedores são
- * os JÁ CADASTRADOS no sistema: o módulo lê as duas listas e não cria nenhuma
- * segunda lista, nem grava nos cadastros.
+ * pagamento ou mexe na Programação Diária.
+ *
+ * ⚠️ AS SECRETARIAS SOLICITANTES SÃO UM CADASTRO À PARTE. Quem REQUISITA a
+ * diária vem de `processos_secretarias_solicitantes`, o cadastro próprio do
+ * módulo; o cadastro de secretarias do MÓDULO FINANCEIRO (`secretarias`) segue
+ * intocado, servindo contas bancárias, fornecedores, Saldos, Pagamentos e
+ * relatórios. Os dois coexistem, cada um com a sua finalidade, e este módulo só
+ * LÊ o financeiro -- e só para que processo antigo continue mostrando a
+ * secretaria que gravou. Fornecedores também são só leitura.
  */
 const AREAS = ["diarias", "servidores"];
 
@@ -38,7 +46,9 @@ export default function ModuloProcessos() {
 
   const [apoio, setApoio] = React.useState({
     fornecedores: [],
-    secretarias: [],
+    solicitantes: [],
+    secretariasFinanceiras: [],
+    bancos: [],
     servidores: [],
     carregando: true,
   });
@@ -53,19 +63,33 @@ export default function ModuloProcessos() {
 
     Promise.all([
       carregarFornecedoresDaBaixa().catch(() => []),
+      // As SOLICITANTES: o cadastro do módulo, o que o formulário oferece.
+      carregarSolicitantes().catch(() => []),
+      // As secretarias do financeiro: LEITURA, e só para o processo antigo
+      // continuar mostrando a secretaria que gravou.
       carregarSecretarias().catch(() => []),
+      carregarBancos().catch(() => []),
       // O cadastro de servidores pode ainda não existir no banco (a migration é
       // rodada à mão): sem ele, o formulário da diária continua sendo
       // preenchido à mão, como sempre foi.
       carregarServidores().catch(() => []),
-    ]).then(([fornecedores, secretarias, servidores]) => {
-      if (ativo) setApoio({ fornecedores, secretarias, servidores, carregando: false });
+    ]).then(([fornecedores, solicitantes, secretariasFinanceiras, bancos, servidores]) => {
+      if (ativo) {
+        setApoio({ fornecedores, solicitantes, secretariasFinanceiras, bancos, servidores, carregando: false });
+      }
     });
 
     return () => {
       ativo = false;
     };
   }, [area]);
+
+  // A lista única que as telas usam para RESOLVER NOME e FILTRAR: as
+  // solicitantes primeiro, as financeiras depois (só o processo antigo as usa).
+  const secretariasParaConsulta = React.useMemo(
+    () => listaDeSecretariasDoProcesso(apoio.solicitantes, apoio.secretariasFinanceiras),
+    [apoio.solicitantes, apoio.secretariasFinanceiras],
+  );
 
   const infoLayout = usuario ? { nome: usuario.nome_completo } : undefined;
 
@@ -108,7 +132,9 @@ export default function ModuloProcessos() {
         {area === "servidores" ? (
           <PaginaServidores
             permissoes={permissoesServidores}
-            secretarias={apoio.secretarias}
+            solicitantes={apoio.solicitantes}
+            secretarias={secretariasParaConsulta}
+            bancos={apoio.bancos}
             carregandoApoio={apoio.carregando}
           />
         ) : (
@@ -116,7 +142,9 @@ export default function ModuloProcessos() {
             permissoes={permissoes}
             permissoesServidores={permissoesServidores}
             fornecedores={apoio.fornecedores}
-            secretarias={apoio.secretarias}
+            solicitantes={apoio.solicitantes}
+            secretarias={secretariasParaConsulta}
+            bancos={apoio.bancos}
             servidores={apoio.servidores}
             carregandoApoio={apoio.carregando}
             usuario={usuario}

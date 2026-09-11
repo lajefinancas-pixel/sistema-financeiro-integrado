@@ -47,7 +47,13 @@ import {
  * Diária. As únicas tabelas que ela escreve são processos_servidores e a
  * auditoria.
  */
-export default function PaginaServidores({ permissoes = {}, secretarias = [], carregandoApoio = false }) {
+export default function PaginaServidores({
+  permissoes = {},
+  solicitantes = [],
+  secretarias = [],
+  bancos = [],
+  carregandoApoio = false,
+}) {
   const [servidores, setServidores] = React.useState([]);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState(null);
@@ -330,7 +336,8 @@ export default function PaginaServidores({ permissoes = {}, secretarias = [], ca
         <ModalServidor
           servidor={aberto.servidor}
           servidores={servidores}
-          secretarias={secretarias}
+          solicitantes={solicitantes}
+          bancos={bancos}
           permissoes={permissoes}
           salvando={salvando}
           erro={erroForm}
@@ -371,9 +378,6 @@ function Linha({ servidor, secretarias, permissoes, onAbrir, onInativar, onReati
     <tr className={inativo ? "opacity-60" : undefined}>
       <td className="px-3 py-2.5 text-[#0F2A44]">
         <span className="block max-w-[16rem] truncate font-medium">{servidor.nome || "--"}</span>
-        {servidor.matricula && (
-          <span className="block text-[11px] text-[#0F2A44]/45">Matrícula {servidor.matricula}</span>
-        )}
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-[#0F2A44]">{cpfFormatado(servidor.cpf) || "--"}</td>
       <td className="px-3 py-2.5 text-[#0F2A44]">

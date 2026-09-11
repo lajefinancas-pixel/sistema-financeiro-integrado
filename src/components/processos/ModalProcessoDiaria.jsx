@@ -7,6 +7,7 @@ import {
   TITULO_PAGINA_2,
   TITULO_PAGINA_3,
   aplicarCalculo,
+  nomeDaSecretaria,
   numeroDoProcesso,
   primeiroErro,
   processoParaFormulario,
@@ -34,6 +35,14 @@ import {
   complementoDoFornecedor,
   nomeExibicaoDoFornecedor,
 } from "../../lib/nomesFornecedor.js";
+import { dadosDoBancoParaDocumento } from "../../lib/processosBancos.js";
+import {
+  CAMPOS_SOLICITANTE_NO_PROCESSO,
+  dadosDoSolicitanteParaDocumento,
+  rotuloDoSolicitante,
+  solicitantesAtivos,
+} from "../../lib/processosSecretariasSolicitantes.js";
+import SeletorBanco from "./SeletorBanco.jsx";
 import {
   SIGNATARIOS_DO_DOCUMENTO,
   camposDoSignatario,
@@ -97,7 +106,15 @@ const ESPERA_AUTOSSALVAMENTO = 2500;
 export default function ModalProcessoDiaria({
   processo = null,
   fornecedores = [],
+  // ⚠️ AS SOLICITANTES SÃO O CADASTRO PRÓPRIO DO MÓDULO. Quem REQUISITA a
+  // diária vem daqui (`processos_secretarias_solicitantes`); o cadastro de
+  // secretarias do MÓDULO FINANCEIRO segue intocado e entra só em `secretarias`,
+  // por leitura, para o processo antigo continuar mostrando o que gravou.
+  solicitantes = [],
   secretarias = [],
+  // O cadastro de BANCOS, para o dado bancário sair "001 — Banco do Brasil".
+  // Vazio (banco sem a migration): o campo volta a ser texto livre.
+  bancos = [],
   // O cadastro de SERVIDORES, para escolher o beneficiário e os signatários.
   // Vazio (banco sem a migration, ou sem permissão de ver o cadastro): a tela
   // segue funcionando com o preenchimento à mão, como sempre funcionou.
@@ -265,8 +282,8 @@ export default function ModalProcessoDiaria({
   /**
    * Escolhe o BENEFICIÁRIO no cadastro de SERVIDORES.
    *
-   * COPIA os dados para o documento -- nome, CPF, endereço, matrícula, cargo,
-   * secretaria, lotação, dados bancários e PIX -- e guarda o vínculo interno
+   * COPIA os dados para o documento -- nome, CPF, endereço, cargo, secretaria,
+   * lotação, dados bancários e PIX -- e guarda o vínculo interno
    * (`beneficiario_servidor_id`). Nada é gravado no cadastro do servidor: ele
    * não é criado, não é alterado e não é marcado como nada.
    *
@@ -322,6 +339,45 @@ export default function ModalProcessoDiaria({
   }
 
   /**
+   * Escolhe a SECRETARIA SOLICITANTE -- quem REQUISITA a diária.
+   *
+   * ⚠️ Vem do cadastro PRÓPRIO do módulo Processos, não do cadastro de
+   * secretarias do módulo financeiro: quem requisita quase nunca é quem paga.
+   * Escolher aqui PUXA o nome oficial, o secretário responsável, o CPF dele e o
+   * cargo, e GRAVA tudo dentro do processo -- é o congelamento: trocar o
+   * secretário no cadastro amanhã não reescreve o documento emitido hoje. Nada é
+   * escrito no cadastro da solicitante, e nada é escrito no cadastro financeiro.
+   */
+  function escolherSolicitante(id) {
+    setAviso(null);
+    setSujo(true);
+    const solicitante = (solicitantes ?? []).find((s) => String(s.id) === String(id)) ?? null;
+    const dados = dadosDoSolicitanteParaDocumento(solicitante);
+    setFormulario((atual) => {
+      const proximo = { ...atual, solicitante_id: dados.solicitante_id ?? "" };
+      CAMPOS_SOLICITANTE_NO_PROCESSO.forEach((campo) => {
+        proximo[campo] = dados[campo] ?? "";
+      });
+      // A assinatura do responsável pela secretaria é SUGERIDA a partir do
+      // cadastro, e só quando ainda está em branco: escolha feita à mão -- ou um
+      // servidor puxado do cadastro para assinar -- nunca é sobrescrita.
+      const assinatura = camposDoSignatario("assinante_secretaria");
+      if (String(atual[assinatura.servidorId] ?? "") === "") {
+        [
+          [assinatura.nome, dados.solicitante_secretario],
+          [assinatura.cpf, dados.solicitante_secretario_cpf],
+          [assinatura.cargo, dados.solicitante_secretario_cargo],
+        ].forEach(([campo, valor]) => {
+          if (String(atual[campo] ?? "").trim() === "" && String(valor ?? "").trim() !== "") {
+            proximo[campo] = valor;
+          }
+        });
+      }
+      return proximo;
+    });
+  }
+
+  /**
    * Escolhe o SIGNATÁRIO (o responsável pela secretaria) no cadastro.
    *
    * Copia nome, CPF e cargo para o PROCESSO, e é isso que congela a assinatura:
@@ -360,7 +416,7 @@ export default function ModalProcessoDiaria({
     const impedimento = primeiroErro(erros);
     if (impedimento) {
       setAviso(impedimento);
-      setSecao(erros.secretaria_id || erros.data_processo ? "gerais" : "requisicao");
+      setSecao(erros.solicitante_id || erros.secretaria_id || erros.data_processo ? "gerais" : "requisicao");
       return;
     }
     if (!criado) {
@@ -471,7 +527,9 @@ export default function ModalProcessoDiaria({
           {secao === "gerais" && (
             <SecaoDadosGerais
               formulario={formulario}
+              solicitantes={solicitantes}
               secretarias={secretarias}
+              onEscolherSolicitante={escolherSolicitante}
               somenteLeitura={somenteLeitura}
               definir={definir}
               escolhido={escolhido}
@@ -490,6 +548,7 @@ export default function ModalProcessoDiaria({
             <SecaoRequisicao
               formulario={formulario}
               secretarias={secretarias}
+              bancos={bancos}
               somenteLeitura={somenteLeitura}
               tabela={tabela}
               definir={definir}
@@ -513,6 +572,7 @@ export default function ModalProcessoDiaria({
             <SecaoLiquidacao
               formulario={formulario}
               secretarias={secretarias}
+              bancos={bancos}
               somenteLeitura={somenteLeitura}
               definir={definir}
             />
@@ -716,11 +776,33 @@ function EscolhaDaTabela({ formulario, tabela, somenteLeitura, definir, definirD
   );
 }
 
-/** Os dados bancários do documento — não são o cadastro de ninguém. */
-function DadosBancarios({ formulario, somenteLeitura, definir }) {
+/**
+ * Os dados bancários do documento — não são o cadastro de ninguém.
+ *
+ * O BANCO É ESCOLHIDO NO CADASTRO DE BANCOS, com busca por número ou por nome,
+ * e o documento imprime o par "001 — Banco do Brasil", como no modelo oficial.
+ * O número e o nome ficam GRAVADOS no processo: renomear um banco no cadastro
+ * amanhã não reescreve o documento emitido hoje.
+ */
+function DadosBancarios({ formulario, bancos = [], somenteLeitura, definir }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <CampoTexto rotulo="Banco" valor={formulario.banco} onChange={(v) => definir("banco", v)} desabilitado={somenteLeitura} />
+      <SeletorBanco
+        bancos={bancos}
+        codigo={formulario.banco_codigo}
+        nome={formulario.banco}
+        somenteLeitura={somenteLeitura}
+        onEscolher={(banco) => {
+          const dados = dadosDoBancoParaDocumento(banco);
+          definir("banco_codigo", dados.banco_codigo);
+          definir("banco", dados.banco);
+        }}
+        onLimpar={() => {
+          definir("banco_codigo", "");
+          definir("banco", "");
+        }}
+        aoDigitarNome={(valor) => definir("banco", valor)}
+      />
       <CampoTexto rotulo="Agência" valor={formulario.agencia} onChange={(v) => definir("agencia", v)} desabilitado={somenteLeitura} />
       <CampoTexto rotulo="Conta" valor={formulario.conta} onChange={(v) => definir("conta", v)} desabilitado={somenteLeitura} />
       <CampoTexto rotulo="Chave PIX" valor={formulario.pix} onChange={(v) => definir("pix", v)} desabilitado={somenteLeitura} />
@@ -869,9 +951,11 @@ function CampoSignatario({
 
 function SecaoDadosGerais({
   formulario,
+  solicitantes = [],
   secretarias,
   somenteLeitura,
   definir,
+  onEscolherSolicitante,
   escolhido,
   onAMao,
   servidores = [],
@@ -882,6 +966,26 @@ function SecaoDadosGerais({
   onPuxarServidor,
   onSoltarServidor,
 }) {
+  // Só as ATIVAS são oferecidas -- mais a que este processo já tem gravada,
+  // para que inativar uma secretaria depois não tire o documento do ar.
+  const solicitantesOferecidas = React.useMemo(() => {
+    const vinculada = String(formulario.solicitante_id ?? "");
+    const ativas = solicitantesAtivos(solicitantes);
+    if (vinculada === "" || ativas.some((s) => String(s.id) === vinculada)) return ativas;
+    const atual = (solicitantes ?? []).find((s) => String(s.id) === vinculada);
+    return atual ? [atual, ...ativas] : ativas;
+  }, [solicitantes, formulario.solicitante_id]);
+
+  const solicitanteEscolhido = React.useMemo(
+    () => (solicitantes ?? []).find((s) => String(s.id) === String(formulario.solicitante_id)) ?? null,
+    [solicitantes, formulario.solicitante_id],
+  );
+
+  // A secretaria do cadastro FINANCEIRO que o processo antigo gravou. Leitura.
+  const secretariaLegada = String(
+    (secretarias ?? []).find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "",
+  );
+
   return (
     <>
       <p className="rounded-lg border border-[#C9A227]/25 bg-[#FFFBEF] px-4 py-3 text-xs leading-relaxed text-[#0F2A44]/70">
@@ -897,23 +1001,70 @@ function SecaoDadosGerais({
           valor={formulario.data_processo}
           onChange={(v) => definir("data_processo", v)}
           desabilitado={somenteLeitura}
+          apoio="A data de hoje é só a sugestão inicial: troque livremente, e o documento sai com a data escolhida."
         />
-        <Campo rotulo="Secretaria" apoio="As secretarias já cadastradas no sistema.">
+        <Campo
+          rotulo="Secretaria solicitante"
+          apoio="O cadastro próprio do módulo, em Configurações → Processos. Escolher aqui traz o nome oficial, o secretário, o CPF e o cargo."
+        >
           <select
-            value={formulario.secretaria_id ?? ""}
-            onChange={(e) => definir("secretaria_id", e.target.value)}
+            value={formulario.solicitante_id ?? ""}
+            onChange={(e) => onEscolherSolicitante?.(e.target.value)}
             disabled={somenteLeitura}
             className={CLASSE_CAMPO}
           >
-            <option value="">Escolha a secretaria...</option>
-            {secretarias.map((secretaria) => (
-              <option key={secretaria.id} value={secretaria.id}>
-                {secretaria.nome}
+            <option value="">Escolha a secretaria solicitante...</option>
+            {solicitantesOferecidas.map((solicitante) => (
+              <option key={solicitante.id} value={solicitante.id}>
+                {rotuloDoSolicitante(solicitante)}
               </option>
             ))}
           </select>
         </Campo>
       </div>
+
+      {/* ⚠️ Este NÃO é o cadastro de secretarias do módulo financeiro. Quem
+          requisita a diária quase nunca é quem paga, então o módulo tem o seu
+          próprio cadastro -- e o financeiro segue existindo, separado e
+          intocado, servindo Saldos, Pagamentos e contas bancárias. */}
+      {solicitanteEscolhido ? (
+        <div className="rounded-lg border border-black/10 bg-[#F8FAFC] px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+            Dados que vão gravados no documento
+          </p>
+          <p className="mt-1 text-sm font-medium text-[#0F2A44]">
+            {formulario.solicitante_nome || solicitanteEscolhido.nome || "--"}
+          </p>
+          <p className="text-[11px] text-[#0F2A44]/55">
+            {[
+              formulario.solicitante_secretario || "Secretário(a) não informado no cadastro",
+              formulario.solicitante_secretario_cpf,
+              formulario.solicitante_secretario_cargo,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          <p className="mt-1 text-[11px] text-[#0F2A44]/40">
+            Congelado no processo: trocar o secretário no cadastro depois não altera este documento.
+          </p>
+        </div>
+      ) : solicitantes.length === 0 ? (
+        <p className="rounded-lg border border-[#C9A227]/25 bg-[#FFFBEF] px-4 py-3 text-[11px] leading-relaxed text-[#0F2A44]/70">
+          Nenhuma secretaria solicitante cadastrada ainda. Cadastre em Configurações → Processos →
+          Secretarias solicitantes. Enquanto isso, o processo antigo continua abrindo e imprimindo com
+          a secretaria que já gravou.
+        </p>
+      ) : null}
+
+      {/* Processo ANTIGO, gravado antes deste cadastro existir: continua
+          mostrando a secretaria do financeiro que ele guardou. Só leitura. */}
+      {!formulario.solicitante_id && secretariaLegada !== "" && (
+        <p className="rounded-lg border border-black/10 bg-white px-4 py-3 text-[11px] leading-relaxed text-[#0F2A44]/55">
+          Este processo foi gravado com a secretaria <strong>{secretariaLegada}</strong>, do cadastro
+          do módulo financeiro, antes de as secretarias solicitantes existirem. Ele continua abrindo e
+          imprimindo assim. Escolher uma solicitante acima passa a valer no documento.
+        </p>
+      )}
 
       {/* O BENEFICIÁRIO: do cadastro de SERVIDORES ou à mão.
 
@@ -1083,6 +1234,7 @@ function SecaoDadosGerais({
 function SecaoRequisicao({
   formulario,
   secretarias,
+  bancos = [],
   somenteLeitura,
   tabela,
   definir,
@@ -1102,7 +1254,9 @@ function SecaoRequisicao({
 }) {
   const calculado = valorTotalCalculado(formulario);
   const diverge = totalDivergeDoCalculo(formulario);
-  const secretaria = secretarias.find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "--";
+  // ⚠️ A SOLICITANTE primeiro: o nome oficial gravado no processo, depois o
+  // cadastro do módulo e, só no processo antigo, a secretaria do financeiro.
+  const secretaria = nomeDaSecretaria(formulario, secretarias) || "--";
   // O que a Tabela de Diárias daria para a escolha atual. null = ainda não há
   // faixa e categoria escolhidas, e o valor unitário segue sendo digitado.
   const daTabela = valorDaTabelaParaFormulario(formulario, tabela);
@@ -1148,12 +1302,6 @@ function SecaoRequisicao({
             rotulo="CPF"
             valor={formulario.beneficiario_cpf}
             onChange={(v) => definir("beneficiario_cpf", v)}
-            desabilitado={somenteLeitura}
-          />
-          <CampoTexto
-            rotulo="Matrícula (quando aplicável)"
-            valor={formulario.beneficiario_matricula}
-            onChange={(v) => definir("beneficiario_matricula", v)}
             desabilitado={somenteLeitura}
           />
           <CampoTexto
@@ -1365,7 +1513,7 @@ function SecaoRequisicao({
       </Bloco>
 
       <Bloco titulo="Dados bancários" apoio="Do documento. Editar aqui não altera o cadastro do fornecedor nem o PIX dele.">
-        <DadosBancarios formulario={formulario} somenteLeitura={somenteLeitura} definir={definir} />
+        <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
       </Bloco>
 
       <Bloco titulo="Observações">
@@ -1385,8 +1533,8 @@ function SecaoRequisicao({
  * Página 2: Liquidação/Solicitação de Pagamento
  * ---------------------------------------------------------------------- */
 
-function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
-  const secretaria = secretarias.find((s) => String(s.id) === String(formulario.secretaria_id))?.nome ?? "--";
+function SecaoLiquidacao({ formulario, secretarias, bancos = [], somenteLeitura, definir }) {
+  const secretaria = nomeDaSecretaria(formulario, secretarias) || "--";
   const requisitante = secretaria === "--"
     ? "--"
     : /^secretaria/i.test(secretaria) ? secretaria : `Secretaria Municipal de ${secretaria}`;
@@ -1495,7 +1643,7 @@ function SecaoLiquidacao({ formulario, secretarias, somenteLeitura, definir }) {
       </Bloco>
 
       <Bloco titulo="Dados bancários para crédito" apoio="Os mesmos da página 1. Editar aqui vale só para o documento.">
-        <DadosBancarios formulario={formulario} somenteLeitura={somenteLeitura} definir={definir} />
+        <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
       </Bloco>
     </>
   );

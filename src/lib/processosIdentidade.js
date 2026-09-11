@@ -53,11 +53,29 @@ export const BRASAO_PROPORCAO = 1;
 export const IDENTIDADE_PADRAO = Object.freeze({
   orgao: "PREFEITURA MUNICIPAL DE SÃO JOSÉ DA LAJE",
   estado: "ESTADO DE ALAGOAS",
-  rodape_endereco: "Rua Dr. Oscar Gordilho, 23 - Centro - São José da Laje - Alagoas",
-  rodape_contato: "Tel.: (82) 9.9395-5442 | E-mail: prefeitura@saojosedalaje.al.gov.br | CNPJ: 12.330.916/0001-99",
+  rodape_endereco: "Rua Dr. Oscar Gordilho, 23 – Centro – CEP: 57.860-000 – São José da Laje – Alagoas",
+  rodape_contato: "Tel.: (82) 99395-5442 – E-mail: prefeitura@saojosedalaje.al.gov.br",
+  rodape_cnpj: "CNPJ: 12.330.916/0001-99",
   // null = o brasão do repositório. Uma URL aqui é a imagem enviada na tela.
   logo_url: null,
 });
+
+/**
+ * O rodapé DE FÁBRICA ANTIGO, de duas linhas e sem o CEP.
+ *
+ * Serve para uma coisa só: reconhecer a configuração que ninguém nunca editou e
+ * que só tinha o texto de fábrica antigo, para que ela receba o rodapé novo —
+ * com o CEP e o CNPJ em linha própria — sem obrigar a prefeitura a redigitar
+ * nada em Configurações → Processos. Texto REESCRITO à mão pela prefeitura é
+ * respeitado e nunca sobrescrito.
+ */
+export const RODAPE_LEGADO = Object.freeze({
+  rodape_endereco: "Rua Dr. Oscar Gordilho, 23 - Centro - São José da Laje - Alagoas",
+  rodape_contato: "Tel.: (82) 9.9395-5442 | E-mail: prefeitura@saojosedalaje.al.gov.br | CNPJ: 12.330.916/0001-99",
+});
+
+/** As três linhas do rodapé institucional, na ordem em que saem na folha. */
+export const CAMPOS_RODAPE = ["rodape_endereco", "rodape_contato", "rodape_cnpj"];
 
 export const LIMITE_TEXTO_IDENTIDADE = 200;
 
@@ -73,8 +91,45 @@ export function normalizarIdentidade(bruta) {
     estado: texto(origem.estado) || IDENTIDADE_PADRAO.estado,
     rodape_endereco: texto(origem.rodape_endereco) || IDENTIDADE_PADRAO.rodape_endereco,
     rodape_contato: texto(origem.rodape_contato) || IDENTIDADE_PADRAO.rodape_contato,
+    rodape_cnpj: cnpjDoRodape(origem),
     logo_url: texto(origem.logo_url) === "" ? null : texto(origem.logo_url),
   };
+}
+
+/**
+ * A terceira linha do rodapé.
+ *
+ * ⚠️ Identidade CONGELADA em processo antigo trazia o CNPJ dentro da linha de
+ * contato, e não em linha própria. Repetir o CNPJ nas duas linhas seria um erro
+ * no documento, então: quando a linha de contato já fala de CNPJ, a terceira
+ * linha sai VAZIA e o documento continua saindo com as duas linhas de antes.
+ */
+function cnpjDoRodape(origem) {
+  const informado = texto(origem?.rodape_cnpj);
+  if (informado !== "") return informado;
+  if (/cnpj/i.test(texto(origem?.rodape_contato))) return "";
+  return IDENTIDADE_PADRAO.rodape_cnpj;
+}
+
+/**
+ * Atualiza o rodapé de fábrica ANTIGO para o novo, com o CEP.
+ *
+ * Aplicado só na identidade VIGENTE, ao ler a configuração do banco. Identidade
+ * congelada dentro de processo finalizado nunca passa por aqui: documento antigo
+ * continua saindo exatamente como saiu no dia em que foi emitido.
+ */
+export function atualizarRodapeLegado(bruta) {
+  const origem = bruta && typeof bruta === "object" ? { ...bruta } : {};
+  const enderecoLegado = texto(origem.rodape_endereco) === RODAPE_LEGADO.rodape_endereco;
+  const contatoLegado = texto(origem.rodape_contato) === RODAPE_LEGADO.rodape_contato;
+
+  if (enderecoLegado) origem.rodape_endereco = IDENTIDADE_PADRAO.rodape_endereco;
+  if (contatoLegado) {
+    origem.rodape_contato = IDENTIDADE_PADRAO.rodape_contato;
+    if (texto(origem.rodape_cnpj) === "") origem.rodape_cnpj = IDENTIDADE_PADRAO.rodape_cnpj;
+  }
+
+  return origem;
 }
 
 /** A imagem que o documento deve usar: a enviada, ou o brasão do repositório. */
@@ -138,6 +193,7 @@ export function validarIdentidade(identidade) {
     ["estado", "Informe o estado que aparece no cabeçalho."],
     ["rodape_endereco", "Informe o endereço do rodapé institucional."],
     ["rodape_contato", "Informe a linha de contato do rodapé institucional."],
+    ["rodape_cnpj", "Informe a linha do CNPJ do rodapé institucional."],
   ].forEach(([campo, mensagem]) => {
     if (texto(identidade?.[campo]) === "" && texto(IDENTIDADE_PADRAO[campo]) === "") erros[campo] = mensagem;
     if (pronta[campo].length > LIMITE_TEXTO_IDENTIDADE) {
@@ -161,7 +217,7 @@ export function diferencaDaIdentidade(anterior, nova) {
   const antes = {};
   const depois = {};
 
-  ["orgao", "estado", "rodape_endereco", "rodape_contato", "logo_url"].forEach((campo) => {
+  ["orgao", "estado", ...CAMPOS_RODAPE, "logo_url"].forEach((campo) => {
     if (de[campo] === para[campo]) return;
     antes[campo] = de[campo];
     depois[campo] = para[campo];

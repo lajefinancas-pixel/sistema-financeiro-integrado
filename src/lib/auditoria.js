@@ -588,9 +588,22 @@ const CAMPOS = {
   numero: "Número do processo",
   ano: "Ano",
   data_processo: "Data do processo",
+  // A SOLICITANTE é quem REQUISITA, do cadastro próprio do módulo Processos;
+  // `secretaria_id` é a secretaria do módulo FINANCEIRO, e continua rotulada
+  // porque processo antigo a gravou e o histórico dele precisa seguir legível.
+  solicitante_id: "Secretaria solicitante",
+  solicitante_nome: "Secretaria solicitante (nome oficial)",
+  solicitante_secretario: "Secretário(a) da solicitante",
+  solicitante_secretario_cpf: "CPF do(a) secretário(a) da solicitante",
+  solicitante_secretario_cargo: "Cargo do(a) secretário(a) da solicitante",
+  // ⚠️ Rótulo COMPARTILHADO com Saldos, Pagamentos e contas bancárias: fica
+  // como está.
   secretaria_id: "Secretaria",
+  banco_codigo: "Número do banco",
   beneficiario_nome: "Beneficiário",
   beneficiario_cpf: "CPF do beneficiário",
+  // DESATIVADO: a matrícula saiu do sistema. O rótulo fica para que o
+  // histórico já gravado continue legível, e não vire nome de coluna na tela.
   beneficiario_matricula: "Matrícula",
   beneficiario_cargo: "Cargo / função",
   beneficiario_lotacao: "Lotação",

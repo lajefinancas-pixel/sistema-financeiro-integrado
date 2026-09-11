@@ -23,6 +23,7 @@
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
 import { CAMPOS_SIGNATARIOS, camposDoSignatario } from "./processosServidores.js";
+import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -159,6 +160,12 @@ export const LEI_DAS_DIARIAS = "Lei Municipal nº 003/2005 de 23 de fevereiro de
  */
 export const CAMPOS_COMPARTILHADOS = [
   "data_processo",
+  // ⚠️ A SECRETARIA SOLICITANTE é o cadastro PRÓPRIO do módulo Processos, e não
+  // o cadastro de secretarias do módulo financeiro: quem REQUISITA a diária
+  // quase nunca é quem PAGA. `secretaria_id` continua aqui só para o processo
+  // ANTIGO, gravado antes deste cadastro existir, continuar abrindo e imprimindo
+  // exatamente como sempre imprimiu.
+  "solicitante_id",
   "secretaria_id",
   "beneficiario_nome",
   "beneficiario_cpf",
@@ -171,6 +178,9 @@ export const CAMPOS_COMPARTILHADOS = [
   // Também vão prontos para a página 2 (item 7: sem digitação repetida).
   "destino",
   "finalidade",
+  // O NÚMERO do banco vem do cadastro de Bancos; o nome vem junto. É o par que
+  // faz o documento sair "001 — Banco do Brasil", como no modelo oficial.
+  "banco_codigo",
   "banco",
   "agencia",
   "conta",
@@ -180,7 +190,9 @@ export const CAMPOS_COMPARTILHADOS = [
 
 /** Campos PRÓPRIOS da página 1 (a Requisição de Diárias). */
 export const CAMPOS_REQUISICAO = [
-  "beneficiario_matricula",
+  // ⚠️ `beneficiario_matricula` NÃO está aqui. A matrícula saiu do formulário,
+  // do cadastro de servidores e do documento impresso. A coluna continua no
+  // banco com o que já foi gravado; o sistema parou de lê-la e de escrevê-la.
   "beneficiario_cargo",
   "beneficiario_lotacao",
   // Do modelo oficial: o tipo de diária e o custeio a que ela se destina, mais
@@ -419,7 +431,11 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   const branco = {
     ano,
     numero: null,
+    // ⚠️ A data de hoje é SUGESTÃO INICIAL, não é trava. O campo é editável no
+    // formulário e o documento imprime a data escolhida -- o processo pode ser
+    // emitido com data anterior ou posterior.
     data_processo: hoje,
+    solicitante_id: "",
     secretaria_id: "",
     fornecedor_id: null,
     // O vínculo interno com o cadastro de SERVIDORES: só um ponteiro. O
@@ -438,7 +454,12 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   // Os compartilhados entram junto: destino, finalidade e os dados bancários
   // são das TRÊS páginas, e sem eles aqui o formulário perderia esses campos ao
   // reabrir um rascunho (processoParaFormulario copia o que existe no branco).
-  [...CAMPOS_COMPARTILHADOS, ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO].forEach((campo) => {
+  // Os dados CONGELADOS da secretaria solicitante entram no formulário para que
+  // reabrir e salvar de novo um processo antigo não apague o que ele gravou.
+  [
+    ...CAMPOS_COMPARTILHADOS, ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO,
+    ...CAMPOS_SOLICITANTE_NO_PROCESSO,
+  ].forEach((campo) => {
     if (!(campo in branco)) branco[campo] = "";
   });
   branco.quantidade_diarias = "";
@@ -477,6 +498,7 @@ export function processoParaFormulario(processo) {
   formulario.fornecedor_id = processo?.fornecedor_id ?? null;
   formulario.beneficiario_servidor_id = processo?.beneficiario_servidor_id ?? null;
   formulario.assinante_secretaria_servidor_id = processo?.assinante_secretaria_servidor_id ?? null;
+  formulario.solicitante_id = processo?.solicitante_id ?? "";
   formulario.secretaria_id = processo?.secretaria_id ?? "";
   return formulario;
 }
@@ -504,6 +526,7 @@ const CAMPOS_QUANTIDADE = new Set(["quantidade_diarias", "liquidacao_quantidade"
 export function formularioParaBanco(formulario) {
   const base = aplicarCalculo(formulario ?? {});
   const linha = {
+    solicitante_id: vazio(base.solicitante_id) ? null : base.solicitante_id,
     secretaria_id: vazio(base.secretaria_id) ? null : base.secretaria_id,
     fornecedor_id: base.fornecedor_id ?? null,
     beneficiario_servidor_id: base.beneficiario_servidor_id ?? null,
@@ -514,7 +537,14 @@ export function formularioParaBanco(formulario) {
   };
 
   ["data_processo", "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco", "objeto", "valor_total", "valor_extenso"]
-    .concat(CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, CAMPOS_PRESTACAO, ["destino", "finalidade", "banco", "agencia", "conta", "pix", "titular"])
+    .concat(
+      CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, CAMPOS_PRESTACAO,
+      ["destino", "finalidade", "banco_codigo", "banco", "agencia", "conta", "pix", "titular"],
+      // Os dados da secretaria solicitante vão GRAVADOS no processo. É o
+      // congelamento: trocar o secretário no cadastro amanhã não reescreve o
+      // documento emitido hoje.
+      CAMPOS_SOLICITANTE_NO_PROCESSO,
+    )
     .forEach((campo) => {
       const valor = base[campo];
       if (CAMPOS_BOOLEANOS.has(campo)) {
@@ -647,13 +677,35 @@ export function dataDasDiarias(processo) {
   return escrita !== "" ? escrita : periodoDoProcesso(processo);
 }
 
-/** Nome da secretaria, venha do join da consulta ou da lista da tela. */
+/**
+ * O nome da secretaria SOLICITANTE do processo.
+ *
+ * A ordem é a do congelamento: primeiro o nome GRAVADO no processo, que é o que
+ * garante que o documento antigo continue igual mesmo depois de o cadastro
+ * mudar; depois o join da solicitante; depois o join da secretaria financeira e
+ * a busca por id na lista da tela, os dois só para o processo ANTIGO continuar
+ * mostrando a secretaria dele.
+ */
 export function nomeDaSecretaria(processo, secretarias = []) {
+  const congelado = texto(processo?.solicitante_nome);
+  if (congelado !== "") return congelado;
+
+  const doSolicitante = texto(processo?.solicitante?.nome);
+  if (doSolicitante !== "") return doSolicitante;
+
   const doJoin = texto(processo?.secretaria?.nome);
   if (doJoin !== "") return doJoin;
+
+  const lista = secretarias ?? [];
+  const idSolicitante = processo?.solicitante_id;
+  if (!vazio(idSolicitante)) {
+    const achada = texto(lista.find((s) => String(s.id) === String(idSolicitante))?.nome);
+    if (achada !== "") return achada;
+  }
+
   const id = processo?.secretaria_id;
   if (vazio(id)) return "";
-  return texto((secretarias ?? []).find((s) => String(s.id) === String(id))?.nome);
+  return texto(lista.find((s) => String(s.id) === String(id))?.nome);
 }
 
 /** O valor do processo no padrão brasileiro, pelo utilitário compartilhado. */
@@ -722,7 +774,14 @@ export function processoAtendeFiltros(processo, filtros = {}) {
 
   if (texto(f.ano) !== "" && String(processo?.ano ?? "") !== texto(f.ano)) return false;
   if (texto(f.situacao) !== "" && texto(processo?.situacao) !== texto(f.situacao)) return false;
-  if (texto(f.secretaria) !== "" && String(processo?.secretaria_id ?? "") !== texto(f.secretaria)) return false;
+  // O filtro de secretaria aceita as DUAS origens: a solicitante do processo
+  // novo e a secretaria financeira gravada no processo antigo.
+  if (texto(f.secretaria) !== "") {
+    const escolhida = texto(f.secretaria);
+    const daSolicitante = String(processo?.solicitante_id ?? "");
+    const daFinanceira = String(processo?.secretaria_id ?? "");
+    if (escolhida !== daSolicitante && escolhida !== daFinanceira) return false;
+  }
 
   if (texto(f.beneficiario) !== "") {
     const procurado = semAcento(f.beneficiario);
@@ -810,7 +869,11 @@ export function duplicarProcesso(processo, { ano = new Date().getFullYear(), hoj
  */
 export function validarRascunho(formulario) {
   const erros = {};
-  if (vazio(formulario?.secretaria_id)) erros.secretaria_id = "Escolha a secretaria do processo.";
+  // A SOLICITANTE é a exigida agora. Rascunho antigo, que só tem a secretaria
+  // financeira gravada, continua válido e continua salvando.
+  if (vazio(formulario?.solicitante_id) && vazio(formulario?.secretaria_id)) {
+    erros.solicitante_id = "Escolha a secretaria solicitante do processo.";
+  }
   return erros;
 }
 
@@ -859,10 +922,10 @@ export function identificacaoDoProcesso(processo) {
 }
 
 const CAMPOS_AUDITADOS = [
-  "data_processo", "secretaria_id", "fornecedor_id", "beneficiario_nome", "beneficiario_cpf",
+  "data_processo", "solicitante_id", "secretaria_id", "fornecedor_id", "beneficiario_nome", "beneficiario_cpf",
   "beneficiario_endereco", "objeto", "valor_total", "valor_total_manual",
   "valor_extenso", "valor_extenso_manual", "valor_unitario_manual", "destino", "finalidade",
-  "banco", "agencia", "conta", "pix", "titular",
+  "banco_codigo", "banco", "agencia", "conta", "pix", "titular",
   ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO,
 ];
 
