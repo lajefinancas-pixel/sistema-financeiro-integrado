@@ -25,8 +25,10 @@ import {
   LIMITE_NOME_EXIBICAO,
   apelidoDoFornecedor,
   estruturaDeApelidoAusente,
+  nomeExibicaoDoFornecedor,
   normalizarNomeExibicao,
 } from "../lib/nomesFornecedor";
+import RelacaoDeValores from "../components/relatorios/RelacaoDeValores";
 import {
   conferirDocumentoDisponivel,
   duplicidadeDeDocumento,
@@ -1120,7 +1122,7 @@ export default function Fornecedores() {
     return [];
   }
 
-  const { fornecedoresFiltrados, totalFiltrado } = React.useMemo(() => {
+  const { fornecedoresFiltrados, totalFiltrado, abertoPorFornecedor } = React.useMemo(() => {
     const busca = normalizarTexto(buscaRapida);
     const {
       nome, dataInicial, dataFinal, campoData, valorMin, valorMax, documento, situacao,
@@ -1144,6 +1146,10 @@ export default function Fornecedores() {
 
     const lista = [];
     let total = 0;
+    // O valor em aberto de cada fornecedor DEPOIS do filtro, para a relação de
+    // valores sair com os mesmos números do rodapé de filtros. É a mesma soma
+    // de `total`, só guardada por fornecedor.
+    const aberto = new Map();
 
     fornecedores.forEach((f) => {
       const digitosDoc = somenteDigitos(f.cpf_cnpj);
@@ -1206,12 +1212,14 @@ export default function Fornecedores() {
 
       lista.push(f);
       // Soma só o que sobrou do filtro, no mesmo critério do total em aberto da tela.
-      total += correspondentes
+      const abertoDoFornecedor = correspondentes
         .filter((v) => v.situacao !== "pago" && v.situacao !== "cancelado")
         .reduce((acc, v) => acc + (v.valor - (v.valor_pago ?? 0)), 0);
+      aberto.set(String(f.id), abertoDoFornecedor);
+      total += abertoDoFornecedor;
     });
 
-    return { fornecedoresFiltrados: lista, totalFiltrado: total };
+    return { fornecedoresFiltrados: lista, totalFiltrado: total, abertoPorFornecedor: aberto };
   }, [fornecedores, buscaRapida, filtrosAplicados, datasPagamento, campoTipo]);
 
   const filtrandoAlgo = buscaRapida.trim() !== "" || filtroPreenchido(filtrosAplicados);
@@ -1227,6 +1235,19 @@ export default function Fornecedores() {
   );
   // Ao imprimir "todos", a listagem completa aparece na tela só durante a impressão.
   const listaExibida = imprimindoTodos ? todosOrdenados : fornecedoresVisiveis;
+
+  // A relação de valores leva os fornecedores VISÍVEIS, na ordem da tela, com o
+  // valor em aberto que a própria tela mostra: o do filtro quando há filtro
+  // (mesma soma de `totalFiltrado`) e o total em aberto do fornecedor quando não
+  // há (mesma soma de `totalGeralAberto`). Nenhum valor novo é calculado aqui.
+  const itensDaRelacaoDeValores = React.useMemo(
+    () =>
+      fornecedoresVisiveis.map((f) => ({
+        nome: nomeExibicaoDoFornecedor(f),
+        valor: abertoPorFornecedor.get(String(f.id)) ?? f.totalAberto ?? 0,
+      })),
+    [fornecedoresVisiveis, abertoPorFornecedor]
+  );
 
   // Sem filtros ativos, cada botão exporta tudo como já funcionava; com filtros,
   // pergunta antes se o arquivo leva só os resultados filtrados.
@@ -1524,6 +1545,15 @@ export default function Fornecedores() {
             {erro}
           </div>
         )}
+
+        <RelacaoDeValores
+          className="mb-6 print:hidden"
+          titulo="Relação de valores · Fornecedores"
+          rotuloNome="Fornecedor"
+          rotuloValor="Valor em Aberto"
+          itens={itensDaRelacaoDeValores}
+          arquivo="relacao-de-valores-fornecedores"
+        />
 
         <PainelFiltros
           className="mb-6"

@@ -48,6 +48,8 @@ export default function ResultadoPersonalizado({
   onTipoGrafico,
   modoImpressao,
   onModoImpressao,
+  opcoesRelacao,
+  onOpcoesRelacao,
 }) {
   if (!resultado) return null;
 
@@ -121,6 +123,9 @@ export default function ResultadoPersonalizado({
               modo={modoImpressao}
               onModo={onModoImpressao}
               colunas={resultado.colunas}
+              resultado={resultado}
+              opcoesRelacao={opcoesRelacao}
+              onOpcoesRelacao={onOpcoesRelacao}
             />
           </div>
         )}

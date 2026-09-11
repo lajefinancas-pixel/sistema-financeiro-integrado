@@ -3,7 +3,15 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { agoraBR } from "./saldosDocumento";
 import { colunaNumerica, formatarCelula } from "./relatoriosCatalogo";
-import { modoImpressao, orientacaoSugerida } from "./relatoriosCabecalho";
+import { MODO_IMPRESSAO_PADRAO, modoImpressao, orientacaoSugerida } from "./relatoriosCabecalho";
+import { relacaoDisponivel, relacaoDoResultado } from "./relacaoDeValores";
+import {
+  exportarExcelRelacaoDeValores,
+  gerarPdfRelacaoDeValores,
+  imprimirRelacaoDeValores,
+  montarHtmlRelacaoDeValores,
+} from "./relacaoValoresDocumento";
+import { imprimirDocumentoHtml } from "./impressaoNavegador";
 import { colunasPorCabecalho, formatBRL, formatBRLSimples, marcarColunasDeMoeda, paraNumeroMoeda } from "./moeda";
 
 // Impressão, PDF e planilha da Central de Relatórios.
@@ -13,12 +21,16 @@ import { colunasPorCabecalho, formatBRL, formatBRLSimples, marcarColunasDeMoeda,
 // número de páginas pedido, e a menor faixa ainda fica legível em A4. A diferença é
 // que aqui as colunas são as que o relatório declarou, e não uma lista fixa.
 //
-// Dois formatos, escolhidos por quem emite:
+// Três formatos, escolhidos por quem emite:
 //
 //   compacta  -- aproveita o máximo da folha (o padrão): a densidade diminui até o
 //                relatório caber em poucas páginas, sem espaço em branco sobrando.
 //   detalhada -- fonte maior e texto completo, sem cortar o conteúdo das células;
 //                usa quantas páginas precisar.
+//   valores   -- a relação de duas colunas (nome e valor, mais o total). Esse modo
+//                tem documento próprio, em `relacaoValoresDocumento.js`: as três
+//                funções exportadas aqui apenas o repassam, para que a tela
+//                continue chamando um único ponto de impressão.
 //
 // A orientação é automática: relatórios com muitas colunas saem em paisagem, o
 // resto em retrato -- ninguém precisa escolher isso na tela.
@@ -46,7 +58,11 @@ function alinhamento(coluna) {
 
 /** Formato pedido (densidade + orientação) resolvido a partir do que a tela mandou. */
 function formatoDoDocumento({ modo, orientacao, colunas, maxPaginas }) {
-  const escolhido = modoImpressao(modo);
+  const pedido = modoImpressao(modo);
+  // A relação de valores tem documento próprio. Quando ela é pedida para um
+  // relatório que não tem as duas colunas, o documento sai na densidade padrão
+  // -- a mesma de sempre --, e não em uma mistura das duas.
+  const escolhido = pedido.duasColunas ? modoImpressao(MODO_IMPRESSAO_PADRAO) : pedido;
   return {
     maxPaginas: maxPaginas ?? escolhido.maxPaginas,
     quebrarTexto: escolhido.quebrarTexto,
@@ -211,13 +227,28 @@ function cabecalhoHtml(dados) {
 }
 
 /**
+ * A relação de valores pedida, ou `null` quando o modo não é esse (ou quando o
+ * relatório não tem as duas colunas de que ela precisa -- aí o documento sai no
+ * formato normal, como sempre saiu).
+ */
+function relacaoPedida({ resultado, modo, relacao, titulo }) {
+  if (!modoImpressao(modo).duasColunas || !relacaoDisponivel(resultado)) return null;
+  return relacaoDoResultado(resultado, relacao, { titulo });
+}
+
+/**
  * Documento HTML do relatório selecionado.
  *
  * `cabecalho` é o bloco padronizado (montarCabecalho); `modo` escolhe entre a
  * impressão compacta e a detalhada; `orientacao` normalmente não é informada --
  * ela sai da quantidade de colunas do relatório.
  */
-export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas }) {
+export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas, relacao }) {
+  const daRelacao = relacaoPedida({ resultado, modo, relacao, titulo: cabecalho?.relatorio ?? titulo });
+  if (daRelacao) {
+    return montarHtmlRelacaoDeValores({ relacao: daRelacao, geradoEm: cabecalho?.geradoEm });
+  }
+
   const formato = formatoDoDocumento({ modo, orientacao, colunas: resultado.colunas, maxPaginas });
   const grupos = resultado.grupos.filter((g) => g.linhas.length > 0);
   const faixa = escolherFaixaHtml(grupos, formato.maxPaginas, formato.orientacao);
@@ -320,40 +351,26 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, m
  * Imprime o relatório em um documento próprio, sem interferir no CSS de impressão
  * das outras páginas do sistema.
  */
-export function imprimirRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas }) {
+export function imprimirRelatorio({ titulo, subtitulo, resultado, cabecalho, modo, orientacao, maxPaginas, relacao }) {
   if (!resultado || resultado.registros === 0) return;
 
-  const html = montarHtmlRelatorio({
-    titulo,
-    subtitulo,
-    resultado,
-    cabecalho,
-    modo,
-    orientacao,
-    maxPaginas,
-  });
+  const daRelacao = relacaoPedida({ resultado, modo, relacao, titulo: cabecalho?.relatorio ?? titulo });
+  if (daRelacao) {
+    imprimirRelacaoDeValores({ relacao: daRelacao, geradoEm: cabecalho?.geradoEm });
+    return;
+  }
 
-  const quadro = document.createElement("iframe");
-  quadro.setAttribute("aria-hidden", "true");
-  quadro.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
-  document.body.appendChild(quadro);
-
-  const remover = () => {
-    if (quadro.parentNode) quadro.parentNode.removeChild(quadro);
-  };
-
-  const doc = quadro.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  const janela = quadro.contentWindow;
-  janela.onafterprint = () => setTimeout(remover, 300);
-  setTimeout(() => {
-    janela.focus();
-    janela.print();
-  }, 120);
-  setTimeout(remover, 60000); // rede de segurança caso o navegador não dispare onafterprint
+  imprimirDocumentoHtml(
+    montarHtmlRelatorio({
+      titulo,
+      subtitulo,
+      resultado,
+      cabecalho,
+      modo,
+      orientacao,
+      maxPaginas,
+    })
+  );
 }
 
 // --- PDF ---
@@ -391,8 +408,15 @@ export function gerarPdfRelatorio({
   modo,
   orientacao,
   maxPaginas,
+  relacao,
 }) {
   if (!resultado || resultado.registros === 0) return;
+
+  const daRelacao = relacaoPedida({ resultado, modo, relacao, titulo: cabecalho?.relatorio ?? titulo });
+  if (daRelacao) {
+    gerarPdfRelacaoDeValores({ relacao: daRelacao, arquivo, geradoEm: cabecalho?.geradoEm });
+    return;
+  }
 
   const colunas = resultado.colunas;
   const formato = formatoDoDocumento({ modo, orientacao, colunas, maxPaginas });
@@ -587,8 +611,21 @@ export function gerarPdfRelatorio({
  * Baixas: quem recebe o arquivo vê "R$ 1.234,56" e a coluna soma na planilha,
  * porque nenhum valor viaja como texto.
  */
-export function exportarExcelRelatorio({ titulo, resultado, arquivo }) {
+export function exportarExcelRelatorio({
+  titulo,
+  resultado,
+  arquivo,
+  modo,
+  relacao,
+  cabecalho: identificacao,
+}) {
   if (!resultado || resultado.registros === 0) return;
+
+  const daRelacao = relacaoPedida({ resultado, modo, relacao, titulo: identificacao?.relatorio ?? titulo });
+  if (daRelacao) {
+    exportarExcelRelacaoDeValores({ relacao: daRelacao, arquivo });
+    return;
+  }
 
   const temGrupo = resultado.grupos.some((g) => g.nome);
   const rotuloGrupo = resultado.rotuloGrupo ?? "Grupo";

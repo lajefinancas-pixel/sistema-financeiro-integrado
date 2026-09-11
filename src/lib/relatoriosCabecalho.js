@@ -80,34 +80,61 @@ export function linhaDeEmissao(cabecalho) {
  * ---------------------------------------------------------------------- */
 
 /**
- * Os dois modos de impressão oferecidos em todos os relatórios.
+ * Os três modos de impressão oferecidos em todos os relatórios, na ordem em que
+ * a tela os mostra -- do mais completo ao mais enxuto.
  *
- * "compacta" é o padrão e segue o mesmo aproveitamento de folha da tela de
- * Saldos: a densidade diminui até o relatório caber em poucas páginas, sem
- * espaços em branco sobrando. "detalhada" prioriza a leitura -- fonte maior e
- * texto completo, sem cortar o conteúdo das células -- e aceita mais páginas.
+ * "detalhada" prioriza a leitura: fonte maior e texto completo, sem cortar o
+ * conteúdo das células, usando quantas páginas precisar. "compacta" segue o
+ * mesmo aproveitamento de folha da tela de Saldos -- a densidade diminui até o
+ * relatório caber em poucas páginas, sem espaços em branco sobrando. As duas
+ * levam ao papel TODAS as colunas do relatório e continuam exatamente como
+ * eram: só o rótulo mostrado na tela mudou.
+ *
+ * "valores" é a relação de duas colunas (nome e valor, mais o TOTAL): a forma
+ * mais enxuta de levar a área ao gestor. `duasColunas` é o que avisa os
+ * documentos de que esse modo tem layout próprio, e por isso ele não declara
+ * densidade -- não há colunas a apertar nem texto a cortar.
  */
 export const MODOS_IMPRESSAO = [
   {
+    id: "detalhada",
+    rotulo: "Relatório detalhado",
+    descricao: "Fonte maior e texto completo, sem cortes -- usa quantas páginas precisar.",
+    maxPaginas: 14,
+    quebrarTexto: true,
+  },
+  {
     id: "compacta",
-    rotulo: "Impressão compacta",
+    rotulo: "Relação compacta",
     descricao: "Aproveita o máximo da folha: fonte menor e linhas justas, em poucas páginas.",
     maxPaginas: 3,
     quebrarTexto: false,
   },
   {
-    id: "detalhada",
-    rotulo: "Impressão detalhada",
-    descricao: "Fonte maior e texto completo, sem cortes -- usa quantas páginas precisar.",
+    id: "valores",
+    rotulo: "Relação de valores",
+    descricao: "Só nome e valor, com o total no fim -- o formato mais enxuto para levar ao gestor.",
     maxPaginas: 14,
-    quebrarTexto: true,
+    quebrarTexto: false,
+    duasColunas: true,
   },
 ];
 
-export const MODO_IMPRESSAO_PADRAO = MODOS_IMPRESSAO[0].id;
+/**
+ * O padrão continua sendo a impressão compacta, escrito por extenso de
+ * propósito: vários documentos do sistema (auditoria, baixas, certidões,
+ * histórico) chamam a impressão sem dizer o modo e contam com essa densidade.
+ * Amarrar o padrão à posição na lista faria a ordem mostrada na tela mudar o
+ * formato desses documentos.
+ */
+export const MODO_IMPRESSAO_PADRAO = "compacta";
 
+/** O modo pedido; qualquer valor desconhecido cai no padrão (compacta). */
 export function modoImpressao(id) {
-  return MODOS_IMPRESSAO.find((m) => m.id === id) ?? MODOS_IMPRESSAO[0];
+  return (
+    MODOS_IMPRESSAO.find((m) => m.id === id) ??
+    MODOS_IMPRESSAO.find((m) => m.id === MODO_IMPRESSAO_PADRAO)
+  );
 }
 
 // Acima disso a tabela não cabe em retrato sem apertar as colunas.

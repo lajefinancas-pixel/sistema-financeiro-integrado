@@ -35,6 +35,7 @@ import {
 } from "../lib/relatoriosFavoritos";
 import { imprimirRelatorio, gerarPdfRelatorio, exportarExcelRelatorio } from "../lib/relatoriosDocumento";
 import { MODO_IMPRESSAO_PADRAO, montarCabecalho, textoPeriodo } from "../lib/relatoriosCabecalho";
+import { OPCOES_PADRAO_DA_RELACAO } from "../lib/relacaoDeValores";
 import { comparativoDoRelatorio } from "../lib/relatoriosComparativo";
 import { dadosDoGrafico } from "../lib/relatoriosGrafico";
 import { agoraBR } from "../lib/saldosDocumento";
@@ -238,6 +239,12 @@ export default function Relatorios() {
   // O formato escolhido vale para todos os documentos da tela (pronto,
   // personalizado e comparativo), então quem emite escolhe uma vez.
   const [modoDeImpressao, setModoDeImpressao] = React.useState(MODO_IMPRESSAO_PADRAO);
+  // Opções da relação de valores (ordem e recorte). Como o formato, valem para
+  // todos os documentos da tela e só têm efeito quando o formato escolhido é a
+  // relação de valores.
+  const [opcoesDaRelacaoDeValores, setOpcoesDaRelacaoDeValores] = React.useState(
+    OPCOES_PADRAO_DA_RELACAO,
+  );
   const [mostrarGraficoPersonalizado, setMostrarGraficoPersonalizado] = React.useState(false);
   const [tipoGraficoPersonalizado, setTipoGraficoPersonalizado] = React.useState("barras");
 
@@ -463,6 +470,7 @@ export default function Relatorios() {
       resultado,
       cabecalho: cabecalhoDoRelatorio,
       modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
     });
   }
 
@@ -477,6 +485,7 @@ export default function Relatorios() {
       resultado,
       cabecalho: cabecalhoDoRelatorio,
       modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
       arquivo: `${nomeDoArquivo(relatorio)}.pdf`,
     });
   }
@@ -489,6 +498,9 @@ export default function Relatorios() {
     exportarExcelRelatorio({
       titulo: resultado.nome,
       resultado,
+      cabecalho: cabecalhoDoRelatorio,
+      modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
       arquivo: `${nomeDoArquivo(relatorio)}.xlsx`,
     });
   }
@@ -517,6 +529,7 @@ export default function Relatorios() {
         resultado: resultadoComparativo,
         cabecalho,
         modo: modoDeImpressao,
+        relacao: opcoesDaRelacaoDeValores,
       });
       return;
     }
@@ -526,6 +539,7 @@ export default function Relatorios() {
         resultado: resultadoComparativo,
         cabecalho,
         modo: modoDeImpressao,
+        relacao: opcoesDaRelacaoDeValores,
         arquivo: `${arquivo}.pdf`,
       });
       return;
@@ -533,6 +547,9 @@ export default function Relatorios() {
     exportarExcelRelatorio({
       titulo: resultadoComparativo.nome,
       resultado: resultadoComparativo,
+      cabecalho,
+      modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
       arquivo: `${arquivo}.xlsx`,
     });
   }
@@ -688,6 +705,7 @@ export default function Relatorios() {
       resultado: resultadoPersonalizado,
       cabecalho: cabecalhoPersonalizado,
       modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
     });
   }
 
@@ -699,6 +717,7 @@ export default function Relatorios() {
       resultado: resultadoPersonalizado,
       cabecalho: cabecalhoPersonalizado,
       modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
       arquivo: `${nomeArquivoPersonalizado()}.pdf`,
     });
   }
@@ -708,6 +727,9 @@ export default function Relatorios() {
     exportarExcelRelatorio({
       titulo: resultadoPersonalizado.nome,
       resultado: resultadoPersonalizado,
+      cabecalho: cabecalhoPersonalizado,
+      modo: modoDeImpressao,
+      relacao: opcoesDaRelacaoDeValores,
       arquivo: `${nomeArquivoPersonalizado()}.xlsx`,
     });
   }
@@ -935,6 +957,8 @@ export default function Relatorios() {
             onTipoGrafico={setTipoGraficoPersonalizado}
             modoImpressao={modoDeImpressao}
             onModoImpressao={setModoDeImpressao}
+            opcoesRelacao={opcoesDaRelacaoDeValores}
+            onOpcoesRelacao={setOpcoesDaRelacaoDeValores}
           />
         )}
 
@@ -1066,6 +1090,9 @@ export default function Relatorios() {
                   modo={modoDeImpressao}
                   onModo={setModoDeImpressao}
                   colunas={resultado.colunas}
+                  resultado={resultado}
+                  opcoesRelacao={opcoesDaRelacaoDeValores}
+                  onOpcoesRelacao={setOpcoesDaRelacaoDeValores}
                 />
               </div>
             </header>
@@ -1195,6 +1222,8 @@ export default function Relatorios() {
               bases={bases}
               modoImpressao={modoDeImpressao}
               onModoImpressao={setModoDeImpressao}
+              opcoesRelacao={opcoesDaRelacaoDeValores}
+              onOpcoesRelacao={setOpcoesDaRelacaoDeValores}
               onDocumento={documentoComparativo}
             />
           </div>

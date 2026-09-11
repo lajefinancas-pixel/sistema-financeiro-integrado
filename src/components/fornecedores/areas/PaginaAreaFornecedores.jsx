@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import PainelFiltros from "../../comuns/PainelFiltros.jsx";
 import ModalRegistroArea from "./ModalRegistroArea.jsx";
 import ModalNotasDoRegistro from "./ModalNotasDoRegistro.jsx";
+import RelacaoDeValores from "../../relatorios/RelacaoDeValores.jsx";
 import { formatBRL } from "../../../lib/moeda.js";
 import { mensagemAmigavel } from "../../../lib/erros.js";
 import {
@@ -31,6 +32,7 @@ import {
   vincularNota,
 } from "../../../lib/areasFornecedoresDados.js";
 import { envioParaProgramacao, guardarEnvio } from "../../../lib/programacaoDeAreas.js";
+import { itensDaRelacaoDaArea, relacaoDaArea } from "../../../lib/relatoriosAreasFornecedores.js";
 import { apelidoDoFornecedor, nomeOficialDoFornecedor } from "../../../lib/nomesFornecedor.js";
 
 /**
@@ -129,6 +131,10 @@ export default function PaginaAreaFornecedores({
     [area, doFornecedorEscolhido, busca, filtros],
   );
   const totais = React.useMemo(() => totaisDaLista(visiveis), [visiveis]);
+  // A relação de valores sai dos registros VISÍVEIS -- os mesmos que a tabela
+  // mostra e que `totais` soma -- então o total impresso é o total da tela.
+  const definicaoDaRelacao = React.useMemo(() => relacaoDaArea(area), [area]);
+  const itensDaRelacao = React.useMemo(() => itensDaRelacaoDaArea(area, visiveis), [area, visiveis]);
   const ativos = totalFiltrosAtivos(area, filtros) + (fornecedorRecorte === "" ? 0 : 1);
   const nomeDoRecorte =
     fornecedorRecorte === ""
@@ -381,6 +387,17 @@ export default function PaginaAreaFornecedores({
           ))}
         </div>
       </PainelFiltros>
+
+      {!faltaMigration && !carregando && (
+        <RelacaoDeValores
+          className="mb-6"
+          titulo={`Relação de valores · ${area.rotulo}`}
+          rotuloNome={definicaoDaRelacao.rotuloNome}
+          rotuloValor={definicaoDaRelacao.rotuloValor}
+          itens={itensDaRelacao}
+          arquivo={`relacao-de-valores-${area.id}`}
+        />
+      )}
 
       <div className="overflow-x-auto rounded-2xl border border-black/5 bg-white shadow-sm">
         <table className="w-full text-sm">
