@@ -52,6 +52,12 @@ import {
   gerarPdfDoProcesso,
   imprimirProcesso,
 } from "../../lib/processosDiariasDocumento.js";
+import { carregarTabelaVigente } from "../../lib/processosDiariasTabelaDados.js";
+import {
+  carregarIdentidadeProcessos,
+  prepararLogoParaDocumento,
+} from "../../lib/processosIdentidadeDados.js";
+import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdentidade.js";
 
 /**
  * A área de DIÁRIAS: a lista dos processos de diária e tudo o que se faz com um.
@@ -94,6 +100,34 @@ export default function PaginaDiarias({
   const [previa, setPrevia] = React.useState(null);
   const [historico, setHistorico] = React.useState(null);
   const [confirmacao, setConfirmacao] = React.useState(null);
+
+  // A Tabela de Diárias VIGENTE e a IDENTIDADE VISUAL vigente, lidas uma vez.
+  // Elas alimentam o formulário (valor unitário) e a folha (brasão e rodapé).
+  // Nenhuma das duas é reescrita aqui: esta tela só as lê.
+  const [tabela, setTabela] = React.useState(null);
+  const [identidade, setIdentidade] = React.useState(null);
+
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { tabela: vigente } = await carregarTabelaVigente();
+        if (vivo) setTabela(vigente);
+      } catch {
+        // Tabela indisponível não impede nada: o valor unitário continua
+        // digitável à mão e o documento continua saindo.
+      }
+      try {
+        const { identidade: atual } = await carregarIdentidadeProcessos();
+        if (vivo) setIdentidade(atual);
+      } catch {
+        // Identidade indisponível: a folha sai com o cabeçalho e o brasão padrão.
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   const carregar = React.useCallback(async () => {
     setCarregando(true);
@@ -207,7 +241,11 @@ export default function PaginaDiarias({
     setSalvando(true);
     setErroForm(null);
     try {
-      const atualizado = await finalizarProcesso(aberto?.processo, formulario);
+      // ⚠️ O congelamento vai JUNTO com a finalização: valor unitário, faixa,
+      // categoria, percentual de pernoite, versão da tabela e identidade visual
+      // ficam guardados dentro do processo. Atualizar a tabela ou trocar o
+      // brasão depois disto não altera este documento.
+      const atualizado = await finalizarProcesso(aberto?.processo, formulario, { tabela, identidade });
       setAberto(null);
       marcarSalvamento();
       setAviso(
@@ -255,9 +293,26 @@ export default function PaginaDiarias({
     setPrevia(processo);
   }
 
-  function imprimir(processo, escopo) {
-    const dados = dadosDoDocumento(processo, { secretarias, emissor: usuario?.nome_completo ?? "" });
-    imprimirProcesso(dados, { escopo });
+  /**
+   * Os dados da folha, com a IDENTIDADE CORRETA e o brasão em alta resolução.
+   *
+   * Processo finalizado imprime a identidade que ele congelou; rascunho imprime
+   * a vigente. O brasão é rasterizado a partir da imagem DESSA identidade, e é
+   * isso que dá PDF sem serrilhado sem trocar o brasão de documento antigo.
+   */
+  async function dadosParaSaida(processo) {
+    const daFolha = identidadeDoProcesso(processo, identidade);
+    const logo = await prepararLogoParaDocumento(logoDoDocumento(daFolha));
+    return dadosDoDocumento(processo, {
+      secretarias,
+      emissor: usuario?.nome_completo ?? "",
+      identidade: daFolha,
+      logo,
+    });
+  }
+
+  async function imprimir(processo, escopo) {
+    imprimirProcesso(await dadosParaSaida(processo), { escopo });
     // Imprimir não altera o processo; o registro é de quem levou o papel.
     registrarSaidaDoDocumento(processo, {
       acao: "imprimiu",
@@ -265,9 +320,8 @@ export default function PaginaDiarias({
     });
   }
 
-  function gerarPdf(processo, escopo) {
-    const dados = dadosDoDocumento(processo, { secretarias, emissor: usuario?.nome_completo ?? "" });
-    gerarPdfDoProcesso(dados, { escopo });
+  async function gerarPdf(processo, escopo) {
+    gerarPdfDoProcesso(await dadosParaSaida(processo), { escopo });
     registrarSaidaDoDocumento(processo, {
       acao: "gerou_pdf",
       detalhes: { descricao: descricaoDaSaida(escopo) },
@@ -523,6 +577,7 @@ export default function PaginaDiarias({
           fornecedores={fornecedores}
           secretarias={secretarias}
           permissoes={permissoes}
+          tabela={tabela}
           salvando={salvando}
           erro={erroForm}
           ultimoSalvamento={ultimoSalvamento}
@@ -541,6 +596,7 @@ export default function PaginaDiarias({
           processo={previa}
           secretarias={secretarias}
           emissor={usuario?.nome_completo ?? ""}
+          identidade={identidade}
           onFechar={() => setPrevia(null)}
           onImprimir={(escopo) => imprimir(previa, escopo)}
           onGerarPdf={(escopo) => gerarPdf(previa, escopo)}

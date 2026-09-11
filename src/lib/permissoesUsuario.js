@@ -41,6 +41,7 @@ export const MODULOS = [
   // debitar conta ou mexer na Programação Diária.
   { id: "processos_diarias", label: "Processos · Diárias" },
   { id: "processos_diarias_saida", label: "Processos · Diárias (impressão e duplicação)" },
+  { id: "processos_diarias_tabela", label: "Processos · Tabela de Diárias" },
 ];
 
 export const ACOES = [
@@ -141,6 +142,8 @@ const ACOES_AREAS_FORNECEDORES = [
  *
  *   processos_diarias         visualizar | criar | editar | finalizar | cancelar
  *   processos_diarias_saida   imprimir   | duplicar
+ *   processos_diarias_tabela  editar a Tabela de Diárias (permissão RESTRITA:
+ *                             é o parâmetro que define o valor das diárias)
  *
  * "Finalizar" fecha o documento -- NÃO paga, não gera pagamento, não debita
  * conta e não altera saldo. "Cancelar" é a exclusão lógica da área: o processo
@@ -152,6 +155,7 @@ const ACOES_AREAS_FORNECEDORES = [
  */
 export const MODULO_PROCESSOS_DIARIAS = "processos_diarias";
 export const MODULO_PROCESSOS_DIARIAS_SAIDA = "processos_diarias_saida";
+export const MODULO_PROCESSOS_DIARIAS_TABELA = "processos_diarias_tabela";
 
 const ACOES_PROCESSOS_DIARIAS = [
   { campo: "pode_visualizar", label: "Visualizar" },
@@ -164,6 +168,14 @@ const ACOES_PROCESSOS_DIARIAS = [
 const ACOES_PROCESSOS_DIARIAS_SAIDA = [
   { campo: "pode_visualizar", label: "Imprimir e gerar PDF" },
   { campo: "pode_cadastrar", label: "Duplicar" },
+];
+
+// A Tabela de Diárias tem DUAS ações e nenhuma a mais: ver (que acompanha quem
+// vê o módulo Processos) e EDITAR, que é restrita — quem edita a tabela mexe no
+// parâmetro que define o valor das diárias de todo mundo.
+const ACOES_PROCESSOS_DIARIAS_TABELA = [
+  { campo: "pode_visualizar", label: "Consultar a tabela" },
+  { campo: "pode_editar", label: "Editar a tabela (afeta valores de diária)" },
 ];
 
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
@@ -179,6 +191,7 @@ export function acoesDoModulo(modulo) {
   if (MODULOS_AREAS_FORNECEDORES.includes(modulo)) return ACOES_AREAS_FORNECEDORES;
   if (modulo === MODULO_PROCESSOS_DIARIAS) return ACOES_PROCESSOS_DIARIAS;
   if (modulo === MODULO_PROCESSOS_DIARIAS_SAIDA) return ACOES_PROCESSOS_DIARIAS_SAIDA;
+  if (modulo === MODULO_PROCESSOS_DIARIAS_TABELA) return ACOES_PROCESSOS_DIARIAS_TABELA;
   return ACOES;
 }
 

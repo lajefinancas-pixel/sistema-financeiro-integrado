@@ -11,13 +11,18 @@ import {
 /**
  * As permissões próprias do módulo PROCESSOS, lidas do banco para a tela.
  *
- * São sete ações -- visualizar, criar, editar, finalizar, imprimir, duplicar e
- * cancelar -- sobre as cinco colunas que a Matriz de Permissões tem, então o
- * módulo aparece nela como DUAS linhas, no mesmo recurso que 'baixas' e
- * 'backup' já usam para renomear as ações:
+ * São oito ações -- visualizar, criar, editar, finalizar, cancelar, imprimir,
+ * duplicar e editar a Tabela de Diárias -- sobre as cinco colunas que a Matriz
+ * de Permissões tem, então o módulo aparece nela como TRÊS linhas, no mesmo
+ * recurso que 'baixas' e 'backup' já usam para renomear as ações:
  *
- *   processos_diarias         visualizar | criar | editar | FINALIZAR | CANCELAR
- *   processos_diarias_saida   IMPRIMIR   | DUPLICAR
+ *   processos_diarias          visualizar | criar | editar | FINALIZAR | CANCELAR
+ *   processos_diarias_saida    IMPRIMIR   | DUPLICAR
+ *   processos_diarias_tabela   EDITAR A TABELA DE DIÁRIAS
+ *
+ * A terceira linha é restrita de propósito: a Tabela de Diárias é o parâmetro
+ * que define quanto vale cada diária, e quem edita um processo não passa a
+ * poder mexer nela. Consultar a tabela, sim, acompanha quem vê o módulo.
  *
  * A ordem de decisão é da função pura `resolverPermissoesDiarias`, em
  * lib/processosDiarias.js. Nenhuma permissão existente muda: isto só acrescenta
@@ -65,7 +70,7 @@ export async function carregarPermissoesDeProcessos() {
 
 /**
  * Hook da página de Diárias: `{ carregando, usuario, permissoes, erro }`.
- * `permissoes` traz sempre as sete ações booleanas.
+ * `permissoes` traz sempre as oito ações booleanas.
  */
 export function usePermissoesProcessos() {
   const [estado, setEstado] = React.useState({

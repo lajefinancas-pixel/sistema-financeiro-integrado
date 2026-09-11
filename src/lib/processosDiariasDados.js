@@ -17,11 +17,14 @@ import {
   TABELA_HISTORICO,
   TABELA_PROCESSOS,
   alteracaoManualDeValor,
+  alteracaoManualDeValorUnitario,
   diferencaParaAuditoria,
   formularioParaBanco,
   identificacaoDoProcesso,
   numeroDoProcesso,
 } from "./processosDiarias.js";
+import { congelarTabelaNoProcesso } from "./processosDiariasTabela.js";
+import { congelarIdentidadeNoProcesso } from "./processosIdentidade.js";
 
 /* -------------------------------------------------------------------------
  * Banco sem a migration deste envio
@@ -90,6 +93,9 @@ const COLUNAS = [
   "objeto", "valor_total", "valor_total_manual", "valor_extenso", "valor_extenso_manual",
   "beneficiario_matricula", "beneficiario_cargo", "beneficiario_lotacao",
   "tipo_diaria", "custeio_despesas", "data_diarias",
+  "diaria_faixa", "diaria_categoria", "diaria_pernoite", "valor_unitario_manual",
+  "diaria_valor_unitario", "diaria_pernoite_percentual", "diaria_tabela_versao",
+  "diaria_tabela_id", "identidade_visual",
   "destino", "data_saida", "hora_saida", "data_retorno", "hora_retorno",
   "quantidade_diarias", "valor_unitario", "finalidade", "transporte", "transporte_outro",
   "banco", "agencia", "conta", "pix", "titular", "observacoes",
@@ -292,6 +298,23 @@ export async function salvarProcesso(processoAnterior, formulario, { silencioso 
 
   const diferenca = diferencaParaAuditoria(processoAnterior ?? {}, { ...formulario, ...linha });
   const manual = alteracaoManualDeValor(processoAnterior ?? {}, { ...formulario, ...linha });
+  const manualUnitario = alteracaoManualDeValorUnitario(processoAnterior ?? {}, { ...formulario, ...linha });
+
+  // O valor unitário digitado à mão, por cima do que a Tabela de Diárias daria,
+  // também é registrado SEMPRE -- é o que o item 5 pede que fique na auditoria.
+  if (manualUnitario) {
+    await registrarTrilha({
+      processo: data,
+      processoId: id,
+      acao: "alterou_valor_unitario_manual",
+      acaoAuditoria: "alterou_valor_unitario_manual",
+      anterior: { valor_unitario: manualUnitario.valor_unitario_anterior },
+      novo: manualUnitario,
+      detalhes: { descricao: "Valor unitário digitado à mão, por cima do valor da Tabela de Diárias" },
+      nivel: "atencao",
+      usuarioId: autor,
+    });
+  }
 
   // A alteração manual do total é registrada SEMPRE, mesmo no salvamento
   // automático: é exatamente o que o item 6 pede que fique na auditoria.
@@ -325,14 +348,47 @@ export async function salvarProcesso(processoAnterior, formulario, { silencioso 
 }
 
 /**
+ * As colunas de congelamento que a FINALIZAÇÃO grava.
+ *
+ * A faixa, a categoria e o pernoite escolhidos já foram gravados no salvamento
+ * do conteúdo -- eles são campos do formulário. O que entra aqui é só o que o
+ * gatilho trata como controle, para que quem tem permissão de finalizar não
+ * precise também de permissão de editar.
+ */
+const CAMPOS_CONGELADOS = [
+  "diaria_valor_unitario",
+  "diaria_pernoite_percentual",
+  "diaria_tabela_versao",
+  "diaria_tabela_id",
+  "identidade_visual",
+];
+
+function colunasDeCongelamento(congelado) {
+  const linha = {};
+  CAMPOS_CONGELADOS.forEach((campo) => {
+    if (campo in congelado) linha[campo] = congelado[campo];
+  });
+  return linha;
+}
+
+/**
  * FINALIZA o processo. FINALIZAR NÃO É PAGAR.
  *
  * Fecha o documento para alteração e nada mais: não gera pagamento, não debita
  * conta, não altera saldo, não dá baixa em nota e não mexe na Programação
  * Diária. Salva o conteúdo atual junto, para que o que foi finalizado seja
  * exatamente o que estava na tela.
+ *
+ * CONGELA, no mesmo update, o valor unitário usado, a faixa, a categoria, o
+ * percentual de pernoite, a identificação da versão da Tabela de Diárias vigente
+ * e a identidade visual em vigor. É o item 6 e o item 12: atualizar a tabela ou
+ * trocar o brasão depois disto NÃO altera este processo -- ele passa a imprimir
+ * do que guardou, e o gatilho do banco recusa qualquer reescrita do congelado.
+ *
+ * @param tabela     a Tabela de Diárias vigente no momento da finalização.
+ * @param identidade a identidade visual vigente no momento da finalização.
  */
-export async function finalizarProcesso(processoAnterior, formulario) {
+export async function finalizarProcesso(processoAnterior, formulario, { tabela = null, identidade = null } = {}) {
   const id = processoAnterior?.id ?? formulario?.id;
   if (!id) throw new Error("Processo sem identificador: não há o que finalizar.");
 
@@ -344,9 +400,18 @@ export async function finalizarProcesso(processoAnterior, formulario) {
   // permissões de quem só pode finalizar.
   await salvarProcesso(processoAnterior, formulario, { silencioso: true });
 
+  // O congelamento entra JUNTO com a situação, e não no salvamento de conteúdo:
+  // as colunas dele estão na lista de controle do gatilho, então quem tem
+  // permissão de finalizar consegue gravá-las sem precisar de permissão de editar.
+  const congelado = colunasDeCongelamento({
+    ...(tabela ? congelarTabelaNoProcesso(formulario, tabela) : {}),
+    ...(identidade ? congelarIdentidadeNoProcesso(identidade) : {}),
+  });
+
   const { data, error } = await supabase
     .from(TABELA_PROCESSOS)
     .update({
+      ...congelado,
       situacao: "finalizada",
       finalizada_em: agora,
       finalizada_por: autor,
@@ -364,7 +429,7 @@ export async function finalizarProcesso(processoAnterior, formulario) {
     acao: "finalizou",
     acaoAuditoria: "finalizou_processo",
     anterior: { situacao: processoAnterior?.situacao ?? "rascunho" },
-    novo: { situacao: "finalizada", finalizada_em: agora },
+    novo: { situacao: "finalizada", finalizada_em: agora, ...congelado },
     detalhes: { descricao: "Documento fechado. Finalizar não é pagar: nenhum valor foi pago." },
     nivel: "atencao",
     usuarioId: autor,
