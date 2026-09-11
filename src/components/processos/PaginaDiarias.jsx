@@ -27,6 +27,7 @@ import {
   duplicarProcesso,
   filtrarProcessos,
   filtrosVazios,
+  nomeDaSecretaria,
   numeroDoProcesso,
   periodoDoProcesso,
   preenchimentoDoProcesso,
@@ -79,7 +80,12 @@ export default function PaginaDiarias({
   permissoes = {},
   permissoesServidores = {},
   fornecedores = [],
+  // ⚠️ O cadastro PRÓPRIO do módulo: quem REQUISITA a diária. `secretarias` é a
+  // lista de CONSULTA (solicitantes + as do financeiro, só leitura), usada para
+  // resolver nome e filtrar -- inclusive no processo antigo.
+  solicitantes = [],
   secretarias = [],
+  bancos = [],
   servidores = [],
   carregandoApoio = false,
   usuario = null,
@@ -578,7 +584,9 @@ export default function PaginaDiarias({
           processo={aberto.processo}
           inicial={aberto.inicial}
           fornecedores={fornecedores}
+          solicitantes={solicitantes}
           secretarias={secretarias}
+          bancos={bancos}
           servidores={podeVerServidores(permissoesServidores) ? servidores : []}
           permissoes={permissoes}
           tabela={tabela}
@@ -686,9 +694,7 @@ function Linha({
       </td>
       <td className="px-3 py-2.5 text-[#0F2A44]">
         <span className="block max-w-[12rem] truncate">
-          {processo.secretaria?.nome ??
-            secretarias.find((s) => String(s.id) === String(processo.secretaria_id))?.nome ??
-            "--"}
+          {nomeDaSecretaria(processo, secretarias) || "--"}
         </span>
       </td>
       <td className="px-3 py-2.5 text-[#0F2A44]">
@@ -759,10 +765,7 @@ function detalhesDoProcesso(processo, secretarias) {
     { rotulo: "Beneficiário", valor: processo?.beneficiario_nome || "--" },
     {
       rotulo: "Secretaria",
-      valor:
-        processo?.secretaria?.nome ??
-        secretarias.find((s) => String(s.id) === String(processo?.secretaria_id))?.nome ??
-        "--",
+      valor: nomeDaSecretaria(processo, secretarias) || "--",
     },
     { rotulo: "Destino", valor: processo?.destino || "--" },
     { rotulo: "Valor do documento", valor: valorDoProcesso(processo) },

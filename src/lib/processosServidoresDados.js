@@ -91,15 +91,22 @@ async function usuarioAtualId() {
  * Leitura
  * ---------------------------------------------------------------------- */
 
+// ⚠️ `matricula` NÃO entra aqui. O campo saiu da interface e do documento; a
+// coluna continua no banco com o que já foi gravado, e o sistema simplesmente
+// parou de lê-la e de escrevê-la.
 const COLUNAS = [
-  "id", "nome", "cpf", "endereco", "matricula", "cargo", "secretaria_id", "lotacao",
+  "id", "nome", "cpf", "endereco", "cargo", "solicitante_id", "secretaria_id", "lotacao",
   "categoria_diaria", "telefone", "email",
-  "banco", "agencia", "conta", "pix", "pix_titular",
+  "banco_codigo", "banco", "agencia", "conta", "pix", "pix_titular",
   "situacao", "inativado_em", "motivo_inativacao",
   "criado_em", "atualizado_em",
 ].join(",");
 
-const SELECAO = `${COLUNAS}, secretaria:secretarias ( id, nome )`;
+// Os dois vínculos de secretaria vêm juntos: a SOLICITANTE (o cadastro do
+// módulo) e a financeira, esta só para o cadastro antigo continuar legível.
+const SELECAO = `${COLUNAS}`
+  + ", solicitante:processos_secretarias_solicitantes ( id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
+  + ", secretaria:secretarias ( id, nome )";
 
 /**
  * Os servidores do cadastro -- ATIVOS E INATIVOS.

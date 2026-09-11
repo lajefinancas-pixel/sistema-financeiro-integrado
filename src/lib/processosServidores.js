@@ -109,12 +109,14 @@ export const CAMPOS_SERVIDOR = [
   "nome",
   "cpf",
   "endereco",
-  "matricula",
   "cargo",
   "lotacao",
   "categoria_diaria",
   "telefone",
   "email",
+  // O NÚMERO do banco, do cadastro de Bancos: é ele que faz o documento sair
+  // "001 — Banco do Brasil", como no modelo oficial.
+  "banco_codigo",
   "banco",
   "agencia",
   "conta",
@@ -123,7 +125,7 @@ export const CAMPOS_SERVIDOR = [
 ];
 
 export function servidorVazio() {
-  const formulario = { id: null, secretaria_id: "", situacao: "ativo" };
+  const formulario = { id: null, solicitante_id: "", secretaria_id: "", situacao: "ativo" };
   CAMPOS_SERVIDOR.forEach((campo) => {
     formulario[campo] = "";
   });
@@ -136,6 +138,7 @@ export function servidorParaFormulario(servidor) {
   if (!servidor) return formulario;
 
   formulario.id = servidor.id ?? null;
+  formulario.solicitante_id = servidor.solicitante_id ?? "";
   formulario.secretaria_id = servidor.secretaria_id ?? "";
   formulario.situacao = texto(servidor.situacao) || "ativo";
   CAMPOS_SERVIDOR.forEach((campo) => {
@@ -154,6 +157,10 @@ export function servidorParaFormulario(servidor) {
 export function servidorParaBanco(formulario) {
   const base = formulario ?? {};
   const linha = {
+    // A SOLICITANTE é o cadastro do módulo. `secretaria_id` (o cadastro
+    // financeiro) continua sendo gravado como está para não perder o vínculo de
+    // quem foi cadastrado antes deste cadastro existir.
+    solicitante_id: vazio(base.solicitante_id) ? null : base.solicitante_id,
     secretaria_id: vazio(base.secretaria_id) ? null : base.secretaria_id,
   };
   CAMPOS_SERVIDOR.forEach((campo) => {
@@ -242,7 +249,11 @@ export function validarServidor(formulario, { servidores = [] } = {}) {
   }
 
   if (texto(base.cargo) === "") erros.cargo = "Informe o cargo ou a função.";
-  if (vazio(base.secretaria_id)) erros.secretaria_id = "Escolha a secretaria.";
+  // A secretaria SOLICITANTE é a exigida agora. Cadastro antigo, que só tem a
+  // secretaria financeira gravada, continua válido e continua salvando.
+  if (vazio(base.solicitante_id) && vazio(base.secretaria_id)) {
+    erros.solicitante_id = "Escolha a secretaria solicitante.";
+  }
   if (texto(base.categoria_diaria) === "") {
     erros.categoria_diaria = "Escolha a categoria para fins de diária.";
   }
@@ -282,7 +293,6 @@ export function servidorAtendeBusca(servidor, termo, secretarias = []) {
     servidor?.nome,
     servidor?.cpf,
     servidor?.cargo,
-    servidor?.matricula,
     servidor?.lotacao,
     nomeDaSecretariaDoServidor(servidor, secretarias),
     rotuloDaCategoria(servidor?.categoria_diaria),
@@ -303,7 +313,12 @@ export function totalFiltrosDeServidoresAtivos(filtros = {}) {
 /** Filtros recolhíveis: secretaria, categoria e situação. */
 export function servidorAtendeFiltros(servidor, filtros = {}) {
   const f = filtros ?? {};
-  if (texto(f.secretaria) !== "" && String(servidor?.secretaria_id ?? "") !== texto(f.secretaria)) return false;
+  if (texto(f.secretaria) !== "") {
+    const escolhida = texto(f.secretaria);
+    const daSolicitante = String(servidor?.solicitante_id ?? "");
+    const daFinanceira = String(servidor?.secretaria_id ?? "");
+    if (escolhida !== daSolicitante && escolhida !== daFinanceira) return false;
+  }
   if (texto(f.categoria) !== "" && texto(servidor?.categoria_diaria) !== texto(f.categoria)) return false;
   if (texto(f.situacao) !== "" && (texto(servidor?.situacao) || "ativo") !== texto(f.situacao)) return false;
   return true;
@@ -325,13 +340,29 @@ export function ordenarServidores(servidores = []) {
   });
 }
 
-/** O nome da secretaria do servidor, da lista JÁ CADASTRADA no sistema. */
+/**
+ * O nome da secretaria do servidor.
+ *
+ * A SOLICITANTE vem primeiro, porque é o cadastro do módulo. A secretaria
+ * financeira só é consultada para o cadastro ANTIGO, feito antes de a
+ * solicitante existir: ele continua mostrando a secretaria dele, como sempre.
+ */
 export function nomeDaSecretariaDoServidor(servidor, secretarias = []) {
+  const daSolicitante = texto(servidor?.solicitante?.nome);
+  if (daSolicitante !== "") return daSolicitante;
   const embutida = texto(servidor?.secretaria?.nome);
   if (embutida !== "") return embutida;
+
+  const lista = secretarias ?? [];
+  const idSolicitante = String(servidor?.solicitante_id ?? "");
+  if (idSolicitante !== "") {
+    const achada = texto(lista.find((s) => String(s?.id) === idSolicitante)?.nome);
+    if (achada !== "") return achada;
+  }
+
   const id = String(servidor?.secretaria_id ?? "");
   if (id === "") return "";
-  return texto((secretarias ?? []).find((s) => String(s?.id) === id)?.nome);
+  return texto(lista.find((s) => String(s?.id) === id)?.nome);
 }
 
 /** Só os ativos -- é a lista que o formulário da diária oferece para escolher. */
@@ -364,11 +395,12 @@ export function dadosDoServidorParaDocumento(servidor) {
     beneficiario_nome: texto(servidor.nome),
     beneficiario_cpf: texto(servidor.cpf),
     beneficiario_endereco: texto(servidor.endereco),
-    beneficiario_matricula: texto(servidor.matricula),
     beneficiario_cargo: texto(servidor.cargo),
     beneficiario_lotacao: texto(servidor.lotacao),
+    solicitante_id: servidor.solicitante_id ?? "",
     secretaria_id: servidor.secretaria_id ?? "",
     diaria_categoria: texto(servidor.categoria_diaria),
+    banco_codigo: texto(servidor.banco_codigo),
     banco: texto(servidor.banco),
     agencia: texto(servidor.agencia),
     conta: texto(servidor.conta),
@@ -565,13 +597,14 @@ export const ROTULOS_SERVIDOR = {
   nome: "Nome completo",
   cpf: "CPF",
   endereco: "Endereço",
-  matricula: "Matrícula",
   cargo: "Cargo/Função",
-  secretaria_id: "Secretaria",
+  solicitante_id: "Secretaria solicitante",
+  secretaria_id: "Secretaria (cadastro financeiro)",
   lotacao: "Lotação",
   categoria_diaria: "Categoria para diária",
   telefone: "Telefone",
   email: "E-mail",
+  banco_codigo: "Número do banco",
   banco: "Banco",
   agencia: "Agência",
   conta: "Conta",

@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, History, Image, Table2 } from "lucide-react";
+import { Building2, CalendarClock, History, Image, Landmark, Pencil, Plus, Table2 } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA } from "../equipe/comuns";
 import { Cartao, RodapeFormulario, SeletorLogomarca } from "./comuns";
 import CampoMoeda from "../CampoMoeda";
@@ -42,6 +42,38 @@ import {
   limparCacheDoLogo,
   salvarIdentidadeProcessos,
 } from "../../lib/processosIdentidadeDados";
+import {
+  AVISO_MIGRATION_SOLICITANTES,
+  ROTULOS_SOLICITANTE,
+  SITUACOES_SOLICITANTE,
+  nomeOficialDoSolicitante,
+  ordenarSolicitantes,
+  rotuloDoSolicitante,
+  solicitanteParaFormulario,
+  solicitanteVazio,
+  validarSolicitante,
+} from "../../lib/processosSecretariasSolicitantes";
+import {
+  AVISO_MIGRATION_BANCOS,
+  BANCOS_INICIAIS,
+  SITUACOES_BANCO,
+  bancoParaFormulario,
+  bancoVazio,
+  numeroDoBancoFormatado,
+  ordenarBancos,
+  rotuloDoBanco,
+  validarBanco,
+} from "../../lib/processosBancos";
+import {
+  alternarSituacaoDoBanco,
+  alternarSituacaoDoSolicitante,
+  carregarBancos,
+  carregarSolicitantes,
+  criarBanco,
+  criarSolicitante,
+  salvarBanco,
+  salvarSolicitante,
+} from "../../lib/processosCadastrosDados";
 
 /**
  * Configurações → PROCESSOS: a Tabela de Diárias e a identidade visual dos
@@ -76,8 +108,517 @@ export default function CategoriaProcessos({ podeEditar = false }) {
         podeEditar={podeEditarTabela}
         verificando={verificando}
       />
+      <BlocoSecretariasSolicitantes podeEditar={podeEditar} />
+      <BlocoBancos podeEditar={podeEditar} />
       <BlocoIdentidadeVisual podeEditar={podeEditar} />
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------
+ * SECRETARIAS SOLICITANTES
+ * ---------------------------------------------------------------------- */
+
+/**
+ * O cadastro das secretarias que REQUISITAM os processos.
+ *
+ * ⚠️ ELE NÃO É — E NÃO TOCA — O CADASTRO DE SECRETARIAS DO MÓDULO FINANCEIRO.
+ * Os dois coexistem, cada um com a sua finalidade: lá ficam as secretarias
+ * usadas em contas bancárias, fornecedores, pagamentos e relatórios; aqui ficam
+ * as que pedem a diária. Quem REQUISITA quase nunca é quem PAGA, e é por isso
+ * que a lista é outra.
+ *
+ * Guarda também quem responde pela secretaria — secretário(a), CPF e cargo —
+ * porque é essa pessoa que assina a requisição. Escolher a secretaria no
+ * processo traz esses dados prontos.
+ *
+ * ⚠️ Trocar o secretário aqui NÃO altera documento antigo: o processo grava
+ * dentro dele os dados vigentes no momento.
+ */
+function BlocoSecretariasSolicitantes({ podeEditar }) {
+  const [lista, setLista] = React.useState([]);
+  const [carregando, setCarregando] = React.useState(true);
+  const [faltaMigration, setFaltaMigration] = React.useState(false);
+  const [formulario, setFormulario] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const [sucesso, setSucesso] = React.useState(null);
+
+  const carregar = React.useCallback(async () => {
+    setCarregando(true);
+    try {
+      const linhas = await carregarSolicitantes();
+      setLista(linhas);
+      setFaltaMigration(linhas.length === 0);
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível carregar as secretarias solicitantes."));
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  function abrirNovo() {
+    setErro(null);
+    setSucesso(null);
+    setFormulario(solicitanteVazio());
+  }
+
+  function abrirEdicao(registro) {
+    setErro(null);
+    setSucesso(null);
+    setFormulario(solicitanteParaFormulario(registro));
+  }
+
+  function definir(campo, valor) {
+    setFormulario((atual) => ({ ...(atual ?? {}), [campo]: valor }));
+  }
+
+  async function salvar(evento) {
+    evento.preventDefault();
+    setErro(null);
+    setSucesso(null);
+
+    const erros = validarSolicitante(formulario, { solicitantes: lista });
+    const chaves = Object.keys(erros);
+    if (chaves.length > 0) {
+      setErro(erros[chaves[0]]);
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const anterior = lista.find((s) => String(s.id) === String(formulario.id)) ?? null;
+      if (formulario.id) await salvarSolicitante(formulario.id, formulario, { anterior });
+      else await criarSolicitante(formulario);
+      setFormulario(null);
+      await carregar();
+      setSucesso(
+        formulario.id
+          ? "Secretaria solicitante atualizada. Ela vale para os processos daqui para a frente — os já "
+            + "finalizados continuam com os dados que congelaram."
+          : "Secretaria solicitante cadastrada. Ela já pode ser escolhida nos processos e no cadastro de servidores.",
+      );
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível salvar a secretaria solicitante."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function alternar(registro) {
+    setErro(null);
+    setSucesso(null);
+    const destino = (registro?.situacao ?? "ativo") === "ativo" ? "inativo" : "ativo";
+    try {
+      await alternarSituacaoDoSolicitante(registro.id, destino, { anterior: registro });
+      await carregar();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível alterar a situação da secretaria solicitante."));
+    }
+  }
+
+  const ordenadas = React.useMemo(() => ordenarSolicitantes(lista), [lista]);
+
+  return (
+    <div className="mt-5">
+      <Cartao
+        titulo="Secretarias solicitantes"
+        descricao={
+          "As secretarias que REQUISITAM os processos, com quem responde por elas. Cadastro próprio do "
+          + "módulo: o cadastro de secretarias do financeiro (contas, fornecedores, pagamentos e "
+          + "relatórios) continua existindo, separado e intocado."
+        }
+        icone={Building2}
+      >
+        <div className="space-y-4">
+          {erro && <Alerta tipo="erro">{erro}</Alerta>}
+          {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
+          {faltaMigration && !carregando && <Alerta tipo="erro">{AVISO_MIGRATION_SOLICITANTES}</Alerta>}
+
+          {carregando ? (
+            <p className="text-sm text-[#0F2A44]/45">Carregando as secretarias solicitantes...</p>
+          ) : (
+            <>
+              {ordenadas.length === 0 ? (
+                <p className="text-sm text-[#0F2A44]/45">
+                  Nenhuma secretaria solicitante cadastrada. Cadastre a primeira para que ela apareça
+                  no formulário do processo e no cadastro de servidores.
+                </p>
+              ) : (
+                <ul className="divide-y divide-black/5 rounded-xl border border-black/10">
+                  {ordenadas.map((registro) => {
+                    const inativa = (registro.situacao ?? "ativo") !== "ativo";
+                    return (
+                      <li key={registro.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className={`truncate text-sm ${inativa ? "text-[#0F2A44]/40 line-through" : "text-[#0F2A44]"}`}>
+                            {nomeOficialDoSolicitante(registro)}
+                          </p>
+                          <p className="truncate text-[11px] text-[#0F2A44]/45">
+                            {[
+                              rotuloDoSolicitante(registro) !== nomeOficialDoSolicitante(registro)
+                                ? rotuloDoSolicitante(registro)
+                                : "",
+                              registro.secretario,
+                              registro.secretario_cargo,
+                            ].filter(Boolean).join(" · ") || "Sem secretário(a) informado(a)"}
+                          </p>
+                        </div>
+                        {podeEditar && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => abrirEdicao(registro)}
+                              className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
+                              title="Editar"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => alternar(registro)}
+                              className="rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
+                              title="A exclusão é lógica: a linha nunca é apagada, porque processos antigos apontam para ela."
+                            >
+                              {inativa ? "Reativar" : "Inativar"}
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {podeEditar && formulario === null && (
+                <button
+                  type="button"
+                  onClick={abrirNovo}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90"
+                >
+                  <Plus size={15} /> Nova secretaria solicitante
+                </button>
+              )}
+
+              {formulario !== null && (
+                <form onSubmit={salvar} noValidate className="rounded-xl border border-black/10 bg-[#F8FAFC] p-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Campo label={ROTULOS_SOLICITANTE.nome} obrigatorio dica="Como sai impresso: &quot;Secretaria Municipal de Educação&quot;.">
+                      <input
+                        type="text"
+                        value={formulario.nome}
+                        onChange={(e) => definir("nome", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_SOLICITANTE.nome_curto} dica="Para listas e filtros: &quot;Educação&quot;.">
+                      <input
+                        type="text"
+                        value={formulario.nome_curto}
+                        onChange={(e) => definir("nome_curto", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_SOLICITANTE.secretario}>
+                      <input
+                        type="text"
+                        value={formulario.secretario}
+                        onChange={(e) => definir("secretario", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_SOLICITANTE.secretario_cpf}>
+                      <input
+                        type="text"
+                        value={formulario.secretario_cpf}
+                        onChange={(e) => definir("secretario_cpf", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_SOLICITANTE.secretario_cargo}>
+                      <input
+                        type="text"
+                        value={formulario.secretario_cargo}
+                        onChange={(e) => definir("secretario_cargo", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    {formulario.id && (
+                      <Campo label={ROTULOS_SOLICITANTE.situacao}>
+                        <select
+                          value={formulario.situacao}
+                          onChange={(e) => definir("situacao", e.target.value)}
+                          disabled
+                          className={CLASSE_ENTRADA}
+                        >
+                          {SITUACOES_SOLICITANTE.map((situacao) => (
+                            <option key={situacao.id} value={situacao.id}>{situacao.rotulo}</option>
+                          ))}
+                        </select>
+                      </Campo>
+                    )}
+                  </div>
+
+                  <p className="mt-3 text-[11px] leading-relaxed text-[#0F2A44]/45">
+                    Escolher esta secretaria no processo traz o nome oficial, o secretário(a), o CPF e o
+                    cargo prontos. Alterar estes dados depois NÃO altera documento já finalizado.
+                  </p>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={salvando}
+                      className="rounded-lg bg-[#0F2A44] px-5 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
+                    >
+                      {salvando ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormulario(null)}
+                      className="rounded-lg border border-black/10 px-4 py-2 text-sm text-[#0F2A44]/70 hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+      </Cartao>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------
+ * BANCOS
+ * ---------------------------------------------------------------------- */
+
+/**
+ * O cadastro de BANCOS do módulo: número e nome.
+ *
+ * Antes o banco era texto livre nos dados bancários do servidor. Agora é uma
+ * lista com busca, e o documento sai "001 — Banco do Brasil", como no modelo
+ * oficial. Banco novo entra por aqui, sem deploy.
+ *
+ * ⚠️ Este cadastro NÃO é o card "Bancos utilizados" do módulo financeiro, que
+ * continua sendo a leitura das contas bancárias cadastradas.
+ */
+function BlocoBancos({ podeEditar }) {
+  const [lista, setLista] = React.useState([]);
+  const [carregando, setCarregando] = React.useState(true);
+  const [faltaMigration, setFaltaMigration] = React.useState(false);
+  const [formulario, setFormulario] = React.useState(null);
+  const [busca, setBusca] = React.useState("");
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const [sucesso, setSucesso] = React.useState(null);
+
+  const carregar = React.useCallback(async () => {
+    setCarregando(true);
+    try {
+      const linhas = await carregarBancos();
+      setLista(linhas);
+      setFaltaMigration(linhas.length === 0);
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível carregar o cadastro de bancos."));
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  function definir(campo, valor) {
+    setFormulario((atual) => ({ ...(atual ?? {}), [campo]: valor }));
+  }
+
+  async function salvar(evento) {
+    evento.preventDefault();
+    setErro(null);
+    setSucesso(null);
+
+    const erros = validarBanco(formulario, { bancos: lista });
+    const chaves = Object.keys(erros);
+    if (chaves.length > 0) {
+      setErro(erros[chaves[0]]);
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const anterior = lista.find((b) => String(b.id) === String(formulario.id)) ?? null;
+      if (formulario.id) await salvarBanco(formulario.id, formulario, { anterior });
+      else await criarBanco(formulario);
+      setFormulario(null);
+      await carregar();
+      setSucesso("Banco salvo. Ele já aparece na lista de escolha dos dados bancários.");
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível salvar o banco."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function alternar(registro) {
+    setErro(null);
+    setSucesso(null);
+    const destino = (registro?.situacao ?? "ativo") === "ativo" ? "inativo" : "ativo";
+    try {
+      await alternarSituacaoDoBanco(registro.id, destino, { anterior: registro });
+      await carregar();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível alterar a situação do banco."));
+    }
+  }
+
+  const visiveis = React.useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    const ordenados = ordenarBancos(lista);
+    if (termo === "") return ordenados;
+    return ordenados.filter((b) => rotuloDoBanco(b).toLowerCase().includes(termo));
+  }, [lista, busca]);
+
+  return (
+    <div className="mt-5">
+      <Cartao
+        titulo="Bancos"
+        descricao={
+          "Número e nome dos bancos usados nos dados bancários dos documentos. O documento imprime os "
+          + `dois juntos — "001 — Banco do Brasil". Já vêm cadastrados os ${BANCOS_INICIAIS.length} mais usados; `
+          + "novos entram por aqui, sem precisar de deploy."
+        }
+        icone={Landmark}
+      >
+        <div className="space-y-4">
+          {erro && <Alerta tipo="erro">{erro}</Alerta>}
+          {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
+          {faltaMigration && !carregando && <Alerta tipo="erro">{AVISO_MIGRATION_BANCOS}</Alerta>}
+
+          {carregando ? (
+            <p className="text-sm text-[#0F2A44]/45">Carregando o cadastro de bancos...</p>
+          ) : (
+            <>
+              {lista.length > 0 && (
+                <input
+                  type="text"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar por número ou nome..."
+                  className={CLASSE_ENTRADA}
+                />
+              )}
+
+              {visiveis.length === 0 ? (
+                <p className="text-sm text-[#0F2A44]/45">
+                  Nenhum banco encontrado. Cadastre-o abaixo para que ele apareça na lista de escolha.
+                </p>
+              ) : (
+                <ul className="max-h-72 divide-y divide-black/5 overflow-y-auto rounded-xl border border-black/10">
+                  {visiveis.map((registro) => {
+                    const inativo = (registro.situacao ?? "ativo") !== "ativo";
+                    return (
+                      <li key={registro.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                        <span className={`min-w-0 flex-1 truncate text-sm ${inativo ? "text-[#0F2A44]/40 line-through" : "text-[#0F2A44]"}`}>
+                          {rotuloDoBanco(registro)}
+                        </span>
+                        {podeEditar && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => { setErro(null); setSucesso(null); setFormulario(bancoParaFormulario(registro)); }}
+                              className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
+                              title="Editar"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => alternar(registro)}
+                              className="rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
+                              title="Exclusão lógica: o número e o nome já gravados em documentos continuam intactos."
+                            >
+                              {inativo ? "Reativar" : "Inativar"}
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {podeEditar && formulario === null && (
+                <button
+                  type="button"
+                  onClick={() => { setErro(null); setSucesso(null); setFormulario(bancoVazio()); }}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90"
+                >
+                  <Plus size={15} /> Novo banco
+                </button>
+              )}
+
+              {formulario !== null && (
+                <form onSubmit={salvar} noValidate className="rounded-xl border border-black/10 bg-[#F8FAFC] p-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Campo label="Número do banco" obrigatorio dica="Três dígitos, como 001, 104 ou 237.">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formulario.numero}
+                        onChange={(e) => definir("numero", e.target.value)}
+                        onBlur={(e) => definir("numero", numeroDoBancoFormatado(e.target.value))}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label="Nome do banco" obrigatorio>
+                      <input
+                        type="text"
+                        value={formulario.nome}
+                        onChange={(e) => definir("nome", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    {formulario.id && (
+                      <Campo label="Situação">
+                        <select value={formulario.situacao} disabled className={CLASSE_ENTRADA}>
+                          {SITUACOES_BANCO.map((situacao) => (
+                            <option key={situacao.id} value={situacao.id}>{situacao.rotulo}</option>
+                          ))}
+                        </select>
+                      </Campo>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={salvando}
+                      className="rounded-lg bg-[#0F2A44] px-5 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
+                    >
+                      {salvando ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormulario(null)}
+                      className="rounded-lg border border-black/10 px-4 py-2 text-sm text-[#0F2A44]/70 hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+      </Cartao>
+    </div>
   );
 }
 
@@ -564,7 +1105,7 @@ function BlocoIdentidadeVisual({ podeEditar }) {
                 className={CLASSE_ENTRADA}
               />
             </Campo>
-            <Campo label="Contato e CNPJ (rodapé)" obrigatorio>
+            <Campo label="Telefone e e-mail (rodapé)" obrigatorio>
               <input
                 type="text"
                 maxLength={LIMITE_TEXTO_IDENTIDADE}
@@ -574,11 +1115,23 @@ function BlocoIdentidadeVisual({ podeEditar }) {
                 className={CLASSE_ENTRADA}
               />
             </Campo>
+            <Campo label="CNPJ (3ª linha do rodapé)">
+              <input
+                type="text"
+                maxLength={LIMITE_TEXTO_IDENTIDADE}
+                value={rascunho?.rodape_cnpj ?? ""}
+                onChange={(e) => definir("rodape_cnpj", e.target.value)}
+                disabled={!podeEditar}
+                className={CLASSE_ENTRADA}
+              />
+            </Campo>
           </div>
 
           <p className="flex items-start gap-2 text-[11px] leading-relaxed text-[#0F2A44]/45">
             <CalendarClock size={13} className="mt-0.5 shrink-0" />
             <span>
+              O rodapé sai em TRÊS linhas em todas as páginas dos documentos de Processos: endereço
+              com CEP, telefone e e-mail, e o CNPJ.{" "}
               A alteração vale para os documentos emitidos de agora em diante. Processo já finalizado
               continua saindo com o brasão e o rodapé que estavam em vigor quando ele foi fechado — a
               mesma regra já usada para os dados do secretário e da prefeita. Toda troca fica na

@@ -9,6 +9,9 @@ import {
   servidorParaFormulario,
   validarServidor,
 } from "../../lib/processosServidores.js";
+import { dadosDoBancoParaDocumento } from "../../lib/processosBancos.js";
+import { nomeOficialDoSolicitante } from "../../lib/processosSecretariasSolicitantes.js";
+import SeletorBanco from "./SeletorBanco.jsx";
 
 /**
  * O formulário do cadastro de um SERVIDOR do município.
@@ -29,7 +32,8 @@ import {
 export default function ModalServidor({
   servidor = null,
   servidores = [],
-  secretarias = [],
+  solicitantes = [],
+  bancos = [],
   permissoes = {},
   salvando = false,
   erro = null,
@@ -60,6 +64,16 @@ export default function ModalServidor({
     () => validarServidor(formulario, { servidores }),
     [formulario, servidores],
   );
+
+  // Só as ATIVAS podem ser escolhidas -- mais a que este cadastro já tem
+  // gravada, para que inativar uma secretaria não pareça apagar o dado de quem
+  // já estava vinculado a ela.
+  const solicitantesDisponiveis = React.useMemo(() => {
+    const vinculada = String(formulario.solicitante_id ?? "");
+    return (solicitantes ?? []).filter(
+      (s) => (s?.situacao ?? "ativo") === "ativo" || String(s?.id) === vinculada,
+    );
+  }, [solicitantes, formulario.solicitante_id]);
 
   // O CPF repetido é avisado ENQUANTO SE DIGITA, com o nome de quem já o usa:
   // quem preenche descobre o conflito antes de perder o resto do formulário.
@@ -144,15 +158,6 @@ export default function ModalServidor({
                   className={CLASSE_CAMPO}
                 />
               </Campo>
-              <Campo rotulo="Matrícula (opcional)">
-                <input
-                  type="text"
-                  value={formulario.matricula}
-                  onChange={(e) => definir("matricula", e.target.value)}
-                  disabled={somenteLeitura}
-                  className={CLASSE_CAMPO}
-                />
-              </Campo>
               <Campo rotulo="Endereço completo" className="sm:col-span-2">
                 <input
                   type="text"
@@ -184,19 +189,29 @@ export default function ModalServidor({
                   className={CLASSE_CAMPO}
                 />
               </Campo>
-              {/* As secretarias são as JÁ CADASTRADAS no sistema. O módulo não
-                  cria nenhuma segunda lista de secretarias. */}
-              <Campo rotulo="Secretaria" erro={mostrarErro("secretaria_id")}>
+              {/* ⚠️ A lista é a das SECRETARIAS SOLICITANTES, o cadastro
+                  PRÓPRIO do módulo Processos (Configurações → Processos). Não é
+                  o cadastro de secretarias do módulo financeiro, que continua
+                  existindo separado, para contas, fornecedores e pagamentos. */}
+              <Campo
+                rotulo="Secretaria solicitante"
+                erro={mostrarErro("solicitante_id")}
+                ajuda={
+                  solicitantesDisponiveis.length === 0
+                    ? "Nenhuma cadastrada ainda. Cadastre em Configurações → Processos."
+                    : undefined
+                }
+              >
                 <select
-                  value={formulario.secretaria_id}
-                  onChange={(e) => definir("secretaria_id", e.target.value)}
+                  value={formulario.solicitante_id}
+                  onChange={(e) => definir("solicitante_id", e.target.value)}
                   disabled={somenteLeitura}
                   className={CLASSE_CAMPO}
                 >
                   <option value="">Selecione...</option>
-                  {secretarias.map((secretaria) => (
-                    <option key={secretaria.id} value={secretaria.id}>
-                      {secretaria.nome}
+                  {solicitantesDisponiveis.map((solicitante) => (
+                    <option key={solicitante.id} value={solicitante.id}>
+                      {nomeOficialDoSolicitante(solicitante)}
                     </option>
                   ))}
                 </select>
@@ -261,15 +276,25 @@ export default function ModalServidor({
             nota="Vão para o documento da diária quando este servidor for o beneficiário. Informação de papel — nada aqui paga, debita conta ou dá baixa."
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Campo rotulo="Banco">
-                <input
-                  type="text"
-                  value={formulario.banco}
-                  onChange={(e) => definir("banco", e.target.value)}
-                  disabled={somenteLeitura}
-                  className={CLASSE_CAMPO}
-                />
-              </Campo>
+              {/* O banco vem do CADASTRO DE BANCOS: lista rolável com busca por
+                  número ou nome. O documento imprime "001 — Banco do Brasil". */}
+              <SeletorBanco
+                bancos={bancos}
+                codigo={formulario.banco_codigo}
+                nome={formulario.banco}
+                somenteLeitura={somenteLeitura}
+                ajuda="Do cadastro de Bancos"
+                onEscolher={(banco) => {
+                  const dados = dadosDoBancoParaDocumento(banco);
+                  setAviso(null);
+                  setFormulario((atual) => ({ ...atual, banco_codigo: dados.banco_codigo, banco: dados.banco }));
+                }}
+                onLimpar={() => {
+                  setAviso(null);
+                  setFormulario((atual) => ({ ...atual, banco_codigo: "", banco: "" }));
+                }}
+                aoDigitarNome={(valor) => definir("banco", valor)}
+              />
               <Campo rotulo="Agência">
                 <input
                   type="text"
