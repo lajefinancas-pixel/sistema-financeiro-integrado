@@ -42,6 +42,11 @@ export const MODULOS = [
   { id: "processos_diarias", label: "Processos · Diárias" },
   { id: "processos_diarias_saida", label: "Processos · Diárias (impressão e duplicação)" },
   { id: "processos_diarias_tabela", label: "Processos · Tabela de Diárias" },
+  // PROCESSOS · Servidores: o CADASTRO dos servidores do município. Módulo
+  // próprio porque é cadastro, não é processo -- quem preenche uma diária não
+  // passa a poder criar, editar ou inativar servidores. Não é o cadastro de
+  // fornecedores e não concede nada sobre ele.
+  { id: "processos_servidores", label: "Processos · Servidores" },
 ];
 
 export const ACOES = [
@@ -157,6 +162,20 @@ export const MODULO_PROCESSOS_DIARIAS = "processos_diarias";
 export const MODULO_PROCESSOS_DIARIAS_SAIDA = "processos_diarias_saida";
 export const MODULO_PROCESSOS_DIARIAS_TABELA = "processos_diarias_tabela";
 
+/**
+ * PROCESSOS · Servidores é o CADASTRO dos servidores do município, e tem módulo
+ * próprio: as quatro ações dele cabem nas colunas existentes.
+ *
+ *   processos_servidores  visualizar | criar | editar | INATIVAR
+ *
+ * "Inativar" ocupa a coluna de exclusão porque inativar É a exclusão deste
+ * cadastro: a linha nunca é apagada, já que processos antigos apontam para ela.
+ *
+ * ⚠️ Isto NÃO é permissão sobre o cadastro de fornecedores. São dois cadastros
+ * distintos: liberar servidores não libera nada em Fornecedores, e vice-versa.
+ */
+export const MODULO_PROCESSOS_SERVIDORES = "processos_servidores";
+
 const ACOES_PROCESSOS_DIARIAS = [
   { campo: "pode_visualizar", label: "Visualizar" },
   { campo: "pode_cadastrar", label: "Criar" },
@@ -178,6 +197,13 @@ const ACOES_PROCESSOS_DIARIAS_TABELA = [
   { campo: "pode_editar", label: "Editar a tabela (afeta valores de diária)" },
 ];
 
+const ACOES_PROCESSOS_SERVIDORES = [
+  { campo: "pode_visualizar", label: "Visualizar" },
+  { campo: "pode_cadastrar", label: "Criar" },
+  { campo: "pode_editar", label: "Editar" },
+  { campo: "pode_excluir", label: "Inativar e reativar" },
+];
+
 const CAMPOS_PERMISSAO = [...ACOES.map((a) => a.campo), CAMPO_VALORES];
 
 /**
@@ -192,6 +218,7 @@ export function acoesDoModulo(modulo) {
   if (modulo === MODULO_PROCESSOS_DIARIAS) return ACOES_PROCESSOS_DIARIAS;
   if (modulo === MODULO_PROCESSOS_DIARIAS_SAIDA) return ACOES_PROCESSOS_DIARIAS_SAIDA;
   if (modulo === MODULO_PROCESSOS_DIARIAS_TABELA) return ACOES_PROCESSOS_DIARIAS_TABELA;
+  if (modulo === MODULO_PROCESSOS_SERVIDORES) return ACOES_PROCESSOS_SERVIDORES;
   return ACOES;
 }
 

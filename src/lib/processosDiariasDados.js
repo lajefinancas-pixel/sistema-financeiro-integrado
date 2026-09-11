@@ -97,8 +97,14 @@ const COLUNAS = [
   "diaria_valor_unitario", "diaria_pernoite_percentual", "diaria_tabela_versao",
   "diaria_tabela_id", "identidade_visual",
   "destino", "data_saida", "hora_saida", "data_retorno", "hora_retorno",
-  "quantidade_diarias", "valor_unitario", "finalidade", "transporte", "transporte_outro",
+  "quantidade_diarias", "valor_unitario", "finalidade",
   "banco", "agencia", "conta", "pix", "titular", "observacoes",
+  // O vínculo interno com o cadastro de SERVIDORES e quem assinou pela
+  // secretaria. As colunas `transporte` e `transporte_outro` saíram desta lista:
+  // o campo não existe no modelo oficial, e elas ficam no banco só com o
+  // histórico já gravado.
+  "beneficiario_servidor_id", "assinante_secretaria_servidor_id",
+  "assinante_secretaria_nome", "assinante_secretaria_cpf", "assinante_secretaria_cargo",
   "liquidacao_data", "liquidacao_data_saida", "liquidacao_data_retorno",
   "liquidacao_quantidade", "liquidacao_valor", "liquidacao_relatorio",
   "liquidacao_documentos", "liquidacao_responsavel", "liquidacao_observacoes",

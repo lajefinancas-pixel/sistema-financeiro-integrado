@@ -434,8 +434,12 @@ test("o processo completo sai em três folhas, cada documento começando em folh
   assert.match(html, /page-break-after: always/);
   assert.ok(html.indexOf(TITULO_PAGINA_1) < html.indexOf(TITULO_PAGINA_2));
   assert.ok(html.indexOf(TITULO_PAGINA_2) < html.indexOf(TITULO_PAGINA_3));
-  // O mesmo número nas três páginas.
-  assert.equal((html.match(/0001\/2026/g) ?? []).length >= 3, true);
+  // O NÚMERO DO PROCESSO NÃO SAI NO PAPEL. Ele continua no sistema -- é o que
+  // controla, busca e lista o processo, e nomeia o arquivo do PDF --, mas
+  // nenhuma das três folhas o imprime. Numeração de folha também não sai.
+  assert.equal(dados.numero, "0001/2026");
+  assert.doesNotMatch(html, /0001\/2026/);
+  assert.doesNotMatch(html, /Página \d|Folha \d/);
 });
 
 test("o papel traz a lei, o rodapé institucional em toda folha e a pauta da prestação", () => {
@@ -648,11 +652,13 @@ test("PROCESSOS é um item expansível próprio e o submenu de Fornecedores não
   assert.match(layout, /min-h-\[2\.5rem\]/);
 
   const menu = await read("src/lib/permissoesProcessos.js");
+  // O submenu tem DUAS entradas: Diárias e Servidores.
   assert.match(menu, /\/processos\/diarias/);
+  assert.match(menu, /\/processos\/servidores/);
   // Serviços/Materiais e Arquivo são de outros envios: não existe rota nem item
   // de menu para eles neste.
   assert.doesNotMatch(menu, /\/processos\/(servicos|materiais|arquivo)/i);
-  assert.equal((menu.match(/rotulo: "/g) ?? []).length, 1);
+  assert.equal((menu.match(/rotulo: "/g) ?? []).length, 2);
 });
 
 /* -------------------------------------------------------------------------

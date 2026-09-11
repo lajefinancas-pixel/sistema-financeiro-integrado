@@ -17,11 +17,18 @@
 // Não é captura de tela: é o documento desenhado em A4 retrato, com o rodapé
 // institucional da prefeitura em TODAS as páginas.
 //
-// PAGINAÇÃO. Cada documento começa em folha PRÓPRIA -- na impressão pelo
-// `page-break-after` da folha, no PDF por um `addPage()` incondicional. No uso
-// normal o processo completo sai em exatamente três páginas; conteúdo
-// excepcionalmente grande transborda para uma folha a mais em vez de ser
-// cortado: informação do documento não é truncada para forçar três páginas.
+// O PAPEL NÃO TRAZ O NÚMERO DO PROCESSO NEM NUMERAÇÃO DE FOLHAS. O número
+// continua existindo no sistema -- é por ele que se controla, se busca e se
+// lista o processo, e é ele que nomeia o arquivo do PDF --, mas não é impresso
+// em lugar nenhum do documento, nem no cabeçalho nem no rodapé. "Página 1 de 3"
+// e "Folha 1" também não saem: o modelo oficial da prefeitura não os tem.
+//
+// PAGINAÇÃO. A regra de quebra não mudou: cada documento começa em folha
+// PRÓPRIA -- na impressão pelo `page-break-after` da folha, no PDF por um
+// `addPage()` incondicional. No uso normal o processo completo sai em exatamente
+// três páginas; conteúdo excepcionalmente grande transborda para uma folha a
+// mais em vez de ser cortado: informação do documento não é truncada para
+// forçar três páginas.
 //
 // A PRESTAÇÃO DE CONTAS PENDENTE NÃO IMPEDE NADA. Ela é preenchida depois da
 // viagem: enquanto isso, a página 3 sai com as linhas em branco e as páginas 1
@@ -307,6 +314,20 @@ export function dadosDoDocumento(
       tipoDiaria: ou(tipoDiariaDoProcesso(p)),
     },
 
+    // QUEM ASSINA, quando o processo identificou a pessoa.
+    //
+    // É conteúdo GRAVADO no processo, não uma leitura do cadastro de
+    // servidores: documento antigo continua mostrando quem assinou naquele
+    // momento, mesmo que o cargo da pessoa mude depois. Em branco, a linha sai
+    // só com o traço, para assinar à mão -- como sempre saiu.
+    assinaturas: {
+      secretaria: {
+        nome: texto(p.assinante_secretaria_nome),
+        cpf: texto(p.assinante_secretaria_cpf),
+        cargo: texto(p.assinante_secretaria_cargo),
+      },
+    },
+
     // O quadro de valores das páginas 1 e 2.
     valor: {
       quantidade: quantidadeNumero(p.quantidade_diarias),
@@ -404,9 +425,7 @@ function estilos() {
     .orgao { font-size: 10pt; font-weight: bold; letter-spacing: .08em; }
     .estado { margin-top: .4mm; color: ${COR.apoio}; font-size: 7.5pt; font-weight: bold; letter-spacing: .16em; }
     .titulo { margin: 1.2mm 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; letter-spacing: .02em; }
-    .selo { margin-left: auto; text-align: right; font-size: 7.5pt; color: ${COR.apoio}; white-space: nowrap; }
-    .selo strong { display: block; font-family: Georgia, "Times New Roman", serif; font-size: 12pt; color: ${COR.navy}; }
-    .pagina-de { font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; }
+    /* O cabeçalho não tem selo: o número do processo NÃO é impresso. */
 
     .aviso { margin-top: 2.5mm; border: .8pt solid ${COR.navy}; padding: 1.6mm 2mm; font-size: 8pt; }
     .aviso strong { letter-spacing: .06em; text-transform: uppercase; }
@@ -459,10 +478,14 @@ function estilos() {
     .fecho { margin-top: 4mm; text-align: justify; }
     .local-data { margin-top: 8mm; text-align: center; font-size: 10pt; }
 
-    .assinaturas { display: flex; gap: 6mm; margin-top: 12mm; }
-    .assinaturas div { flex: 1; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm; text-align: center;
-      font-size: 7.5pt; color: ${COR.apoio}; }
+    /* AS ASSINATURAS DA REQUISIÇÃO SAEM UMA EMBAIXO DA OUTRA, não lado a lado:
+       é o modelo oficial da prefeitura. O vão acima de cada traço é o espaço
+       para assinar à mão, e é medido para as três caberem na MESMA folha. */
+    .assinaturas { margin-top: 6mm; }
+    .assinaturas div { width: 95mm; margin: 9mm auto 0; border-top: .7pt solid ${COR.navy};
+      padding-top: 1.4mm; text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
     .assinaturas strong { display: block; font-size: 8.5pt; color: ${COR.navy}; }
+    .assinaturas .cargo { display: block; font-size: 7pt; }
     .assinatura-unica { margin: 12mm auto 0; width: 90mm; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm;
       text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
     .assinatura-unica strong { display: block; font-size: 9pt; color: ${COR.navy}; }
@@ -482,14 +505,18 @@ function estilos() {
   `;
 }
 
-function cabecalhoHtml(dados, titulo, indice, total) {
+/**
+ * O cabeçalho da folha: brasão, órgão, estado e o título do documento.
+ *
+ * SEM o número do processo e SEM numeração de folha. Os dois existem no
+ * sistema, para controle e busca, e nenhum dos dois vai para o papel.
+ */
+function cabecalhoHtml(dados, titulo) {
   const identidade = normalizarIdentidade(dados?.identidade);
   return `<div class="cabecalho">${brasaoDoDocumento(dados, 16)}`
     + `<div><div class="orgao">${escapar(identidade.orgao)}</div>`
     + `<div class="estado">${escapar(identidade.estado)}</div>`
     + `<div class="titulo">${escapar(titulo)}</div></div>`
-    + `<div class="selo"><span class="pagina-de">Processo de diária nº</span><strong>${escapar(dados.numero)}</strong>`
-    + `<span class="pagina-de">Página ${indice} de ${total}</span></div>`
     + `</div>`;
 }
 
@@ -516,21 +543,32 @@ function campo(rotulo, valor, classe = "c50", forte = false) {
     + `<span class="valor">${escapar(valor)}</span></div>`;
 }
 
-/** O rodapé institucional, igual em todas as folhas. */
-function rodapeHtml(dados, indice, total) {
+/**
+ * O rodapé institucional, igual em todas as folhas.
+ *
+ * Endereço, contato e a linha de emissão. Sem número de processo e sem
+ * numeração de folha.
+ */
+function rodapeHtml(dados) {
   const identidade = normalizarIdentidade(dados?.identidade);
   return `<div class="rodape">`
     + `<div class="endereco">${escapar(identidade.rodape_endereco)}</div>`
     + `<div>${escapar(identidade.rodape_contato)}</div>`
-    + `<div class="emissao">Processo nº ${escapar(dados.numero)} — Página ${indice} de ${total} — `
-    + `Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
+    + `<div class="emissao">Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
+    + `</div>`;
+}
+
+/** Uma linha de assinatura da folha empilhada: nome, rótulo e cargo. */
+function assinaturaHtml(nome, papel, cargo = "") {
+  return `<div><strong>${nome ? escapar(nome) : "&nbsp;"}</strong>${escapar(papel)}`
+    + (cargo ? `<span class="cargo">${escapar(cargo)}</span>` : "")
     + `</div>`;
 }
 
 /** Página 1: REQUISIÇÃO DE DIÁRIAS. */
-function folhaRequisicao(dados, indice, total) {
+function folhaRequisicao(dados) {
   return `<div class="folha">`
-    + cabecalhoHtml(dados, TITULO_PAGINA_1, indice, total)
+    + cabecalhoHtml(dados, TITULO_PAGINA_1)
     + avisoHtml(dados)
 
     + `<p class="abertura">O(a) servidor(a) abaixo identificado(a), na conformidade da `
@@ -565,20 +603,28 @@ function folhaRequisicao(dados, indice, total) {
 
     + `<p class="local-data">${escapar(dados.localEData)}</p>`
 
+    // AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA.
     + `<div class="assinaturas">`
-    + `<div><strong>${escapar(dados.servidor.nome === SEM_REGISTRO ? "&nbsp;" : dados.servidor.nome)}</strong>Assinatura do Servidor</div>`
-    + `<div><strong>&nbsp;</strong>Responsável pela Secretaria</div>`
-    + `<div><strong>&nbsp;</strong>Assinatura da Prefeita</div>`
+    + assinaturaHtml(
+      dados.servidor.nome === SEM_REGISTRO ? "" : dados.servidor.nome,
+      "Assinatura do Servidor",
+    )
+    + assinaturaHtml(
+      dados.assinaturas.secretaria.nome,
+      "Responsável pela Secretaria",
+      dados.assinaturas.secretaria.cargo,
+    )
+    + assinaturaHtml("", "Assinatura da Prefeita")
     + `</div>`
 
-    + rodapeHtml(dados, indice, total)
+    + rodapeHtml(dados)
     + `</div>`;
 }
 
 /** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO (sempre em folha nova). */
-function folhaLiquidacao(dados, indice, total) {
+function folhaLiquidacao(dados) {
   return `<div class="folha">`
-    + cabecalhoHtml(dados, TITULO_PAGINA_2, indice, total)
+    + cabecalhoHtml(dados, TITULO_PAGINA_2)
     + avisoHtml(dados)
 
     + `<p class="linha-doc"><b>Requisitante:</b> <span class="preenchido">${escapar(dados.requisitante)}</span></p>`
@@ -627,14 +673,14 @@ function folhaLiquidacao(dados, indice, total) {
     + `</div>`
     + `</div>`
 
-    + rodapeHtml(dados, indice, total)
+    + rodapeHtml(dados)
     + `</div>`;
 }
 
 /** Página 3: PRESTAÇÃO DE CONTAS DE DIÁRIAS (sempre em folha nova). */
-function folhaPrestacao(dados, indice, total) {
+function folhaPrestacao(dados) {
   return `<div class="folha">`
-    + cabecalhoHtml(dados, TITULO_PAGINA_3, indice, total)
+    + cabecalhoHtml(dados, TITULO_PAGINA_3)
     + avisoHtml(dados)
 
     + `<h2>Relatório de Atividades</h2>`
@@ -650,7 +696,7 @@ function folhaPrestacao(dados, indice, total) {
     + `${escapar(dados.servidor.cargo === SEM_REGISTRO ? "Cargo do(a) servidor(a)" : dados.servidor.cargo)}`
     + `</div>`
 
-    + rodapeHtml(dados, indice, total)
+    + rodapeHtml(dados)
     + `</div>`;
 }
 
@@ -668,12 +714,13 @@ const FOLHAS_HTML = {
  */
 export function htmlDoProcesso(dados, { escopo = "completo" } = {}) {
   const folhas = folhasDoEscopo(escopo);
-  const total = folhas.length;
   const corpo = folhas
-    .map((folha, indice) => (FOLHAS_HTML[folha] ?? folhaRequisicao)(dados, indice + 1, total))
+    .map((folha) => (FOLHAS_HTML[folha] ?? folhaRequisicao)(dados))
     .join("");
 
-  const titulo = `Processo de Diária nº ${dados.numero}`;
+  // O título da janela de impressão. Sem o número do processo: o navegador pode
+  // imprimir o título no cabeçalho da folha, e ele não deve sair no papel.
+  const titulo = "Processo de Diária";
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapar(titulo)}</title>`
     + `<style>${estilos()}</style></head><body>${corpo}</body></html>`;
 }
@@ -775,7 +822,9 @@ function criarPincel(pdf, dados) {
   const margem = PAGINA.margemLado;
   const util = largura - margem * 2;
   const limite = PAGINA.altura - PAGINA.margemBase - 4;
-  const estado = { y: 0, titulo: "", pagina: 0, totalFolhas: 0, folhasUsadas: 0, recuo: 0 };
+  // `folhasUsadas` existe só para saber se já há folha aberta (o `addPage()` do
+  // documento seguinte). NÃO é numeração: o papel não traz número de folha.
+  const estado = { y: 0, titulo: "", folhasUsadas: 0, recuo: 0 };
 
   // O recuo é o que permite desenhar conteúdo DENTRO de uma moldura sem que o
   // texto encoste na borda dela.
@@ -819,10 +868,10 @@ function criarPincel(pdf, dados) {
     pdf.setTextColor(...TINTA.apoio);
     textoQueCabe(identidade.rodape_contato, largura / 2, y + 6.6, 7, util, "center");
 
+    // A linha de emissão. SEM número de processo e SEM numeração de folha.
     pdf.setFontSize(6.5);
     pdf.text(
-      `Processo nº ${dados.numero} — Página ${estado.pagina} de ${estado.totalFolhas} — `
-      + `Emitido em ${dados.emissao} por ${dados.emissor}`,
+      `Emitido em ${dados.emissao} por ${dados.emissor}`,
       largura / 2, y + 9.6, { align: "center" },
     );
   };
@@ -839,7 +888,8 @@ function criarPincel(pdf, dados) {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(continuacao ? 8 : 10);
     pdf.setTextColor(...TINTA.navy);
-    textoQueCabe(identidade.orgao, x, topo + (continuacao ? 3.8 : 4.6), continuacao ? 8 : 10, largura - margem - x - 34);
+    // Sem o selo do número à direita, o nome do órgão usa a largura inteira.
+    textoQueCabe(identidade.orgao, x, topo + (continuacao ? 3.8 : 4.6), continuacao ? 8 : 10, largura - margem - x);
 
     if (!continuacao) {
       pdf.setFontSize(7.5);
@@ -852,14 +902,9 @@ function criarPincel(pdf, dados) {
     pdf.setTextColor(...TINTA.navy);
     pdf.text(continuacao ? `${estado.titulo} (continuação)` : estado.titulo, x, topo + (continuacao ? 8 : 13.2));
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(7);
-    pdf.setTextColor(...TINTA.apoio);
-    pdf.text("PROCESSO DE DIÁRIA Nº", largura - margem, topo + 3.4, { align: "right" });
-    pdf.setFont("times", "bold");
-    pdf.setFontSize(12);
-    pdf.setTextColor(...TINTA.navy);
-    pdf.text(dados.numero, largura - margem, topo + 8.2, { align: "right" });
+    // ⚠️ O NÚMERO DO PROCESSO NÃO É IMPRESSO. Ele fica no sistema, para
+    // controle, busca e listagem, e nomeia o arquivo do PDF -- mas não sai no
+    // cabeçalho nem em nenhum outro canto da folha.
 
     const base = topo + (continuacao ? 11 : 17.5);
     pdf.setDrawColor(...TINTA.navy);
@@ -876,12 +921,10 @@ function criarPincel(pdf, dados) {
     limite,
 
     /** Abre a primeira folha de um documento do processo. */
-    abrirPagina(titulo, pagina, totalFolhas) {
+    abrirPagina(titulo) {
       if (estado.folhasUsadas > 0) pdf.addPage();
       estado.folhasUsadas += 1;
       estado.titulo = titulo;
-      estado.pagina = pagina;
-      estado.totalFolhas = totalFolhas;
       estado.recuo = 0;
       cabecalho(false);
     },
@@ -892,8 +935,6 @@ function criarPincel(pdf, dados) {
       rodapeInstitucional();
       pdf.addPage();
       estado.folhasUsadas += 1;
-      estado.pagina += 1;
-      estado.totalFolhas += 1;
       cabecalho(true);
     },
 
@@ -1107,8 +1148,64 @@ function criarPincel(pdf, dados) {
       this.paragrafo(conteudo, { centralizado: true });
     },
 
-    /** Área de assinaturas lado a lado, como no papel. */
-    assinaturas(nomes, { aoPe = true } = {}) {
+    /**
+     * Área de assinaturas.
+     *
+     * `empilhadas` desenha uma EMBAIXO DA OUTRA, cada uma com o seu traço, o
+     * nome e o rótulo, e com um vão acima do traço para assinar à mão -- é como
+     * a Requisição de Diárias sai no papel da prefeitura. A medida do vão é
+     * escolhida para as três caberem na MESMA folha.
+     *
+     * Sem `empilhadas`, o desenho lado a lado de antes: é o que as folhas de uma
+     * assinatura só (Liquidação e Prestação de Contas) continuam usando.
+     */
+    assinaturas(nomes, { aoPe = true, empilhadas = false } = {}) {
+      const nomeDaLinha = (item) => {
+        const valor = texto(item.nome);
+        return valor === SEM_REGISTRO || valor === "" ? " " : valor;
+      };
+
+      if (empilhadas) {
+        const vaoDaCaneta = 9;   // o espaço acima do traço, para assinar à mão
+        const peDaLinha = 8;     // o traço, o nome e o rótulo embaixo dele
+        const linhaDoCargo = (item) => (texto(item.cargo) ? 3 : 0);
+        const altura = nomes.reduce(
+          (soma, item) => soma + vaoDaCaneta + peDaLinha + linhaDoCargo(item),
+          0,
+        );
+        this.espaco(altura + 2);
+        // Havendo folga, o bloco desce para o pé da folha, como no formulário.
+        const piso = limite - altura;
+        if (aoPe && estado.y < piso) estado.y = piso;
+
+        const larguraCampo = Math.min(95, largUtil());
+        const centro = xEsq() + largUtil() / 2;
+
+        nomes.forEach((item) => {
+          estado.y += vaoDaCaneta;
+          pdf.setDrawColor(...TINTA.navy);
+          pdf.setLineWidth(0.3);
+          pdf.line(centro - larguraCampo / 2, estado.y, centro + larguraCampo / 2, estado.y);
+
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(8.5);
+          pdf.setTextColor(...TINTA.navy);
+          pdf.text(nomeDaLinha(item), centro, estado.y + 3.4, { align: "center" });
+
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(7.5);
+          pdf.setTextColor(...TINTA.apoio);
+          pdf.text(item.papel, centro, estado.y + 7, { align: "center" });
+          if (texto(item.cargo)) {
+            pdf.setFontSize(7);
+            pdf.text(texto(item.cargo), centro, estado.y + 10, { align: "center" });
+          }
+
+          estado.y += peDaLinha + linhaDoCargo(item);
+        });
+        return;
+      }
+
       const altura = 14;
       this.espaco(altura + 4);
       // Se ainda há folga, as assinaturas descem para perto do rodapé.
@@ -1126,8 +1223,7 @@ function criarPincel(pdf, dados) {
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(8.5);
         pdf.setTextColor(...TINTA.navy);
-        pdf.text(texto(item.nome) === SEM_REGISTRO ? " " : (texto(item.nome) || " "),
-          x + larguraCampo / 2, estado.y + 3.4, { align: "center" });
+        pdf.text(nomeDaLinha(item), x + larguraCampo / 2, estado.y + 3.4, { align: "center" });
 
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(7.5);
@@ -1208,8 +1304,8 @@ function textoDoAviso(dados) {
 }
 
 /** Página 1: REQUISIÇÃO DE DIÁRIAS. */
-function paginaRequisicaoPdf(pincel, dados, pagina, total) {
-  pincel.abrirPagina(TITULO_PAGINA_1, pagina, total);
+function paginaRequisicaoPdf(pincel, dados) {
+  pincel.abrirPagina(TITULO_PAGINA_1);
   pincel.aviso(textoDoAviso(dados));
 
   pincel.respiro(2);
@@ -1248,17 +1344,25 @@ function paginaRequisicaoPdf(pincel, dados, pagina, total) {
   ]);
 
   pincel.localData(dados.localEData);
-  pincel.assinaturas([
-    { nome: dados.servidor.nome, papel: "Assinatura do Servidor" },
-    { nome: "", papel: "Responsável pela Secretaria" },
-    { nome: "", papel: "Assinatura da Prefeita" },
-  ]);
+  // AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA, na mesma folha.
+  pincel.assinaturas(
+    [
+      { nome: dados.servidor.nome, papel: "Assinatura do Servidor" },
+      {
+        nome: dados.assinaturas.secretaria.nome,
+        papel: "Responsável pela Secretaria",
+        cargo: dados.assinaturas.secretaria.cargo,
+      },
+      { nome: "", papel: "Assinatura da Prefeita" },
+    ],
+    { empilhadas: true },
+  );
   pincel.fecharPagina();
 }
 
 /** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO. */
-function paginaLiquidacaoPdf(pincel, dados, pagina, total) {
-  pincel.abrirPagina(TITULO_PAGINA_2, pagina, total);
+function paginaLiquidacaoPdf(pincel, dados) {
+  pincel.abrirPagina(TITULO_PAGINA_2);
   pincel.aviso(textoDoAviso(dados));
 
   pincel.respiro(2);
@@ -1322,8 +1426,8 @@ function paginaLiquidacaoPdf(pincel, dados, pagina, total) {
 }
 
 /** Página 3: PRESTAÇÃO DE CONTAS DE DIÁRIAS. */
-function paginaPrestacaoPdf(pincel, dados, pagina, total) {
-  pincel.abrirPagina(TITULO_PAGINA_3, pagina, total);
+function paginaPrestacaoPdf(pincel, dados) {
+  pincel.abrirPagina(TITULO_PAGINA_3);
   pincel.aviso(textoDoAviso(dados));
 
   pincel.secao("Relatório de Atividades");
@@ -1361,8 +1465,8 @@ export function montarPdfDoProcesso(dados, { escopo = "completo" } = {}) {
   const folhas = folhasDoEscopo(escopo);
   const pincel = criarPincel(pdf, dados);
 
-  folhas.forEach((folha, indice) => {
-    (FOLHAS_PDF[folha] ?? paginaRequisicaoPdf)(pincel, dados, indice + 1, folhas.length);
+  folhas.forEach((folha) => {
+    (FOLHAS_PDF[folha] ?? paginaRequisicaoPdf)(pincel, dados);
   });
 
   return pdf;

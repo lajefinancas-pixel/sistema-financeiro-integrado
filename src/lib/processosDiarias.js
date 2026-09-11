@@ -22,6 +22,7 @@
 
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
+import { CAMPOS_SIGNATARIOS, camposDoSignatario } from "./processosServidores.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -94,23 +95,13 @@ export function situacaoInfo(valor) {
   return SITUACOES.find((s) => s.id === valor) ?? SITUACOES[0];
 }
 
-/** Meio de transporte da viagem (página 1). */
-export const TRANSPORTES = [
-  { id: "veiculo_oficial", rotulo: "Veículo oficial" },
-  { id: "veiculo_proprio", rotulo: "Veículo próprio" },
-  { id: "onibus", rotulo: "Ônibus" },
-  { id: "aviao", rotulo: "Avião" },
-  { id: "outro", rotulo: "Outro" },
-];
-
-export function transporteRotulo(processo) {
-  const id = String(processo?.transporte ?? "");
-  if (id === "outro") {
-    const complemento = texto(processo?.transporte_outro);
-    return complemento ? `Outro — ${complemento}` : "Outro";
-  }
-  return TRANSPORTES.find((t) => t.id === id)?.rotulo ?? "";
-}
+// O campo TRANSPORTE foi REMOVIDO: ele não existe no modelo oficial da
+// prefeitura e havia entrado por engano. Não sai no formulário, não sai no
+// documento impresso e não é mais gravado. As colunas `transporte` e
+// `transporte_outro` continuam no banco, com o que já tiverem, para que nenhum
+// registro existente seja quebrado -- elas apenas não são mais escritas nem
+// lidas por nada. A restrição de valores delas foi retirada pela migration
+// 20260911230000_processos_servidores_e_ajustes_documento.sql.
 
 /* -------------------------------------------------------------------------
  * Numeração
@@ -209,9 +200,12 @@ export const CAMPOS_REQUISICAO = [
   "hora_retorno",
   "quantidade_diarias",
   "valor_unitario",
-  "transporte",
-  "transporte_outro",
   "observacoes",
+  // Quem ASSINA como responsável pela secretaria. É conteúdo do DOCUMENTO: o
+  // nome, o CPF e o cargo ficam gravados no processo, e não são lidos do
+  // cadastro na hora de imprimir -- é assim que documento antigo continua
+  // mostrando quem assinou naquele momento.
+  ...CAMPOS_SIGNATARIOS.filter((campo) => !campo.endsWith("_servidor_id")),
 ];
 
 /** Campos PRÓPRIOS da página 2 (a Liquidação/Solicitação de Pagamento). */
@@ -428,6 +422,10 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
     data_processo: hoje,
     secretaria_id: "",
     fornecedor_id: null,
+    // O vínculo interno com o cadastro de SERVIDORES: só um ponteiro. O
+    // documento guarda o próprio texto, e editá-lo não altera o cadastro.
+    beneficiario_servidor_id: null,
+    assinante_secretaria_servidor_id: null,
     beneficiario_nome: "",
     beneficiario_cpf: "",
     objeto: "",
@@ -477,6 +475,8 @@ export function processoParaFormulario(processo) {
   formulario.valor_unitario_manual = processo?.valor_unitario_manual === true;
   formulario.diaria_pernoite = processo?.diaria_pernoite === true;
   formulario.fornecedor_id = processo?.fornecedor_id ?? null;
+  formulario.beneficiario_servidor_id = processo?.beneficiario_servidor_id ?? null;
+  formulario.assinante_secretaria_servidor_id = processo?.assinante_secretaria_servidor_id ?? null;
   formulario.secretaria_id = processo?.secretaria_id ?? "";
   return formulario;
 }
@@ -506,6 +506,8 @@ export function formularioParaBanco(formulario) {
   const linha = {
     secretaria_id: vazio(base.secretaria_id) ? null : base.secretaria_id,
     fornecedor_id: base.fornecedor_id ?? null,
+    beneficiario_servidor_id: base.beneficiario_servidor_id ?? null,
+    assinante_secretaria_servidor_id: base.assinante_secretaria_servidor_id ?? null,
     valor_total_manual: base.valor_total_manual === true,
     valor_extenso_manual: base.valor_extenso_manual === true,
     valor_unitario_manual: base.valor_unitario_manual === true,

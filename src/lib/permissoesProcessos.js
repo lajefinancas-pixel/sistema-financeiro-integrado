@@ -7,6 +7,12 @@ import {
   podeVerDiarias,
   resolverPermissoesDiarias,
 } from "./processosDiarias.js";
+import {
+  MODULO_SERVIDORES,
+  PERMISSOES_SERVIDORES_NENHUMA,
+  podeVerServidores,
+  resolverPermissoesServidores,
+} from "./processosServidores.js";
 
 /**
  * As permissões próprias do módulo PROCESSOS, lidas do banco para a tela.
@@ -24,24 +30,38 @@ import {
  * que define quanto vale cada diária, e quem edita um processo não passa a
  * poder mexer nela. Consultar a tabela, sim, acompanha quem vê o módulo.
  *
- * A ordem de decisão é da função pura `resolverPermissoesDiarias`, em
- * lib/processosDiarias.js. Nenhuma permissão existente muda: isto só acrescenta
- * módulos, e o perfil + exceções individuais continua sendo o mesmo modelo.
+ * A subaba SERVIDORES tem a QUARTA linha, e também é de propósito:
+ *
+ *   processos_servidores       visualizar | criar | editar | INATIVAR
+ *
+ * É um CADASTRO, não é um processo: quem preenche uma diária não passa a poder
+ * criar, editar ou inativar servidores do município. Escolher um servidor já
+ * cadastrado ao montar o documento exige só a permissão de visualizar.
+ *
+ * A ordem de decisão é das funções puras `resolverPermissoesDiarias` e
+ * `resolverPermissoesServidores`, em lib/processosDiarias.js e
+ * lib/processosServidores.js. Nenhuma permissão existente muda: isto só
+ * acrescenta módulos, e o perfil + exceções individuais continua sendo o mesmo
+ * modelo.
  *
  * O que a tela mostra ou esconde é conveniência. A recusa que vale é a do
  * banco: a RLS das tabelas do módulo confere `pode_em_processos` antes de
- * devolver ou gravar qualquer linha, e o gatilho de alteração separa editar de
- * finalizar e de cancelar.
+ * devolver ou gravar qualquer linha, e os gatilhos separam editar de finalizar,
+ * de cancelar e de inativar.
  */
 
 const COLUNAS_PERMISSAO =
   "modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_excluir, pode_aprovar";
 
+/** Todos os módulos do menu PROCESSOS, consultados de uma vez. */
+const MODULOS_DO_MENU = [...MODULOS_PROCESSOS, MODULO_SERVIDORES];
+
 /**
- * As permissões de Diárias do usuário logado: `{ usuario, permissoes }`.
+ * As permissões de Processos do usuário logado:
+ * `{ usuario, permissoes, permissoesServidores }`.
  *
- * Vive fora do hook porque o menu lateral e a página precisam da MESMA
- * resposta. Sem usuário na sessão, `permissoes` nega tudo.
+ * Vive fora do hook porque o menu lateral e as páginas precisam da MESMA
+ * resposta. Sem usuário na sessão, as permissões negam tudo.
  */
 export async function carregarPermissoesDeProcessos() {
   const { data: auth, error: erroAuth } = await supabase.auth.getUser();
@@ -56,27 +76,40 @@ export async function carregarPermissoesDeProcessos() {
   if (erroUsuario) throw erroUsuario;
 
   const usuario = usuarios?.[0] ?? null;
-  if (!usuario) return { usuario: null, permissoes: PERMISSOES_DIARIAS_NENHUMA };
+  if (!usuario) {
+    return {
+      usuario: null,
+      permissoes: PERMISSOES_DIARIAS_NENHUMA,
+      permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
+    };
+  }
 
   const { data: linhas, error: erroModulos } = await supabase
     .from("permissoes_efetivas")
     .select(COLUNAS_PERMISSAO)
     .eq("usuario_id", usuario.id)
-    .in("modulo", MODULOS_PROCESSOS);
+    .in("modulo", MODULOS_DO_MENU);
   if (erroModulos) throw erroModulos;
 
-  return { usuario, permissoes: resolverPermissoesDiarias({ linhas: linhas ?? [] }) };
+  return {
+    usuario,
+    permissoes: resolverPermissoesDiarias({ linhas: linhas ?? [] }),
+    permissoesServidores: resolverPermissoesServidores({ linhas: linhas ?? [] }),
+  };
 }
 
 /**
- * Hook da página de Diárias: `{ carregando, usuario, permissoes, erro }`.
- * `permissoes` traz sempre as oito ações booleanas.
+ * Hook das páginas de Processos:
+ * `{ carregando, usuario, permissoes, permissoesServidores, erro }`.
+ * `permissoes` traz sempre as oito ações de Diárias e `permissoesServidores` as
+ * quatro do cadastro, todas booleanas.
  */
 export function usePermissoesProcessos() {
   const [estado, setEstado] = React.useState({
     carregando: true,
     usuario: null,
     permissoes: PERMISSOES_DIARIAS_NENHUMA,
+    permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
     erro: null,
   });
 
@@ -85,8 +118,10 @@ export function usePermissoesProcessos() {
 
     async function carregar() {
       try {
-        const { usuario, permissoes } = await carregarPermissoesDeProcessos();
-        if (ativo) setEstado({ carregando: false, usuario, permissoes, erro: null });
+        const { usuario, permissoes, permissoesServidores } = await carregarPermissoesDeProcessos();
+        if (ativo) {
+          setEstado({ carregando: false, usuario, permissoes, permissoesServidores, erro: null });
+        }
       } catch (falha) {
         console.error("[Processos] Não foi possível verificar as permissões.", falha);
         if (ativo) {
@@ -94,6 +129,7 @@ export function usePermissoesProcessos() {
             carregando: false,
             usuario: null,
             permissoes: PERMISSOES_DIARIAS_NENHUMA,
+            permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
             erro: mensagemAmigavel(falha, "Não foi possível verificar suas permissões."),
           });
         }
@@ -120,19 +156,27 @@ export function usePermissoesProcessos() {
  *
  * Cache de CONVENIÊNCIA de exibição, não de autorização.
  */
-const CHAVE_PROCESSOS_NO_MENU = "sfi.menuLateral.processosVisivel";
+const CHAVE_PROCESSOS_NO_MENU = "sfi.menuLateral.processosAreas";
+
+/** As subabas do módulo, na ordem em que aparecem no submenu. */
+const AREAS = [
+  { id: "diarias", rotulo: "Diárias", to: "/processos/diarias" },
+  { id: "servidores", rotulo: "Servidores", to: "/processos/servidores" },
+];
 
 function lerCache() {
   try {
-    return window.sessionStorage.getItem(CHAVE_PROCESSOS_NO_MENU) === "1";
+    const guardado = window.sessionStorage.getItem(CHAVE_PROCESSOS_NO_MENU);
+    if (guardado === null) return [];
+    return guardado.split(",").filter((id) => AREAS.some((area) => area.id === id));
   } catch {
-    return false;
+    return [];
   }
 }
 
-function gravarCache(visivel) {
+function gravarCache(ids) {
   try {
-    window.sessionStorage.setItem(CHAVE_PROCESSOS_NO_MENU, visivel ? "1" : "0");
+    window.sessionStorage.setItem(CHAVE_PROCESSOS_NO_MENU, ids.join(","));
   } catch {
     /* navegador sem armazenamento: o menu apenas reconsulta a cada página */
   }
@@ -141,12 +185,14 @@ function gravarCache(visivel) {
 /**
  * As áreas de PROCESSOS que a pessoa pode ver no menu lateral.
  *
- * Neste envio existe só Diárias; Serviços/Materiais e Arquivo entram nos envios
- * próprios deles. Enquanto a primeira consulta da sessão não responde, nada é
- * mostrado -- o menu nunca exibe uma área que a pessoa talvez não possa abrir.
+ * Neste envio existem duas: Diárias e Servidores. Serviços/Materiais e Arquivo
+ * entram nos envios próprios deles. Cada subaba aparece só para quem tem a
+ * permissão de visualizar DELA -- quem vê Diárias não passa a ver Servidores, e
+ * vice-versa. Enquanto a primeira consulta da sessão não responde, nada é
+ * mostrado: o menu nunca exibe uma área que a pessoa talvez não possa abrir.
  */
 export function useAreasDeProcessosNoMenu() {
-  const [visivel, setVisivel] = React.useState(lerCache);
+  const [liberadas, setLiberadas] = React.useState(lerCache);
 
   React.useEffect(() => {
     let ativo = true;
@@ -168,12 +214,15 @@ export function useAreasDeProcessosNoMenu() {
           .from("permissoes_efetivas")
           .select(COLUNAS_PERMISSAO)
           .eq("usuario_id", usuario.id)
-          .in("modulo", MODULOS_PROCESSOS);
+          .in("modulo", MODULOS_DO_MENU);
         if (error) throw error;
 
-        const liberado = podeVerDiarias(resolverPermissoesDiarias({ linhas: linhas ?? [] }));
-        gravarCache(liberado);
-        if (ativo) setVisivel(liberado);
+        const ids = [];
+        if (podeVerDiarias(resolverPermissoesDiarias({ linhas: linhas ?? [] }))) ids.push("diarias");
+        if (podeVerServidores(resolverPermissoesServidores({ linhas: linhas ?? [] }))) ids.push("servidores");
+
+        gravarCache(ids);
+        if (ativo) setLiberadas(ids);
       } catch (falha) {
         // Menu é conveniência: falha de consulta mantém o que já se sabia.
         console.error("[Processos] Não foi possível montar o menu.", falha);
@@ -186,8 +235,5 @@ export function useAreasDeProcessosNoMenu() {
     };
   }, []);
 
-  return React.useMemo(
-    () => (visivel ? [{ id: "diarias", rotulo: "Diárias", to: "/processos/diarias" }] : []),
-    [visivel],
-  );
+  return React.useMemo(() => AREAS.filter((area) => liberadas.includes(area.id)), [liberadas]);
 }
