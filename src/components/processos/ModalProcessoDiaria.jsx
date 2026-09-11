@@ -6,9 +6,7 @@ import {
   TITULO_PAGINA_1,
   TITULO_PAGINA_2,
   TITULO_PAGINA_3,
-  TRANSPORTES,
   aplicarCalculo,
-  dadosDoFornecedorParaDocumento,
   numeroDoProcesso,
   primeiroErro,
   processoParaFormulario,
@@ -34,9 +32,20 @@ import {
 } from "../../lib/processosDiariasTabela.js";
 import {
   complementoDoFornecedor,
-  filtrarFornecedoresPorTermo,
   nomeExibicaoDoFornecedor,
 } from "../../lib/nomesFornecedor.js";
+import {
+  SIGNATARIOS_DO_DOCUMENTO,
+  camposDoSignatario,
+  dadosDoServidorParaDocumento,
+  dadosDoSignatarioParaDocumento,
+  filtrarServidores,
+  nomeDaSecretariaDoServidor,
+  rotuloDaCategoria,
+  servidoresAtivos,
+  soltarVinculoDoServidor,
+  soltarVinculoDoSignatario,
+} from "../../lib/processosServidores.js";
 
 /**
  * O PROCESSO DE DIÁRIA: um documento administrativo com TRÊS páginas, em uma
@@ -57,6 +66,13 @@ import {
  * quantidade e valor realizados) acompanham a página 1 enquanto estiverem
  * espelhando-a, e param de acompanhar no instante em que recebem um valor
  * próprio -- `sincronizarLiquidacao` nunca apaga o que a Liquidação já tem.
+ *
+ * O BENEFICIÁRIO E OS SIGNATÁRIOS vêm do cadastro de SERVIDORES, que é o
+ * cadastro das pessoas que trabalham no município -- NÃO é o de fornecedores, e
+ * os dois não se misturam. Escolher alguém ali COPIA os dados para cá, num só
+ * sentido: editar um campo deste documento não altera o cadastro de ninguém, e
+ * preencher à mão continua valendo para quem não está cadastrado (e não cria
+ * cadastro nenhum).
  *
  * ESTE DOCUMENTO NÃO É FINANCEIRO. Preencher, salvar ou finalizar não debita
  * conta, não dá baixa em NF, não altera saldo, não marca fornecedor como pago,
@@ -82,6 +98,10 @@ export default function ModalProcessoDiaria({
   processo = null,
   fornecedores = [],
   secretarias = [],
+  // O cadastro de SERVIDORES, para escolher o beneficiário e os signatários.
+  // Vazio (banco sem a migration, ou sem permissão de ver o cadastro): a tela
+  // segue funcionando com o preenchimento à mão, como sempre funcionou.
+  servidores = [],
   permissoes = {},
   // A Tabela de Diárias VIGENTE. Ela PREENCHE o valor unitário; não o tranca.
   tabela = null,
@@ -100,7 +120,8 @@ export default function ModalProcessoDiaria({
     processo ? processoParaFormulario(processo) : (inicial ?? processoParaFormulario(null)),
   );
   const [secao, setSecao] = React.useState("gerais");
-  const [buscaFornecedor, setBuscaFornecedor] = React.useState("");
+  const [buscaServidor, setBuscaServidor] = React.useState("");
+  const [buscaSignatario, setBuscaSignatario] = React.useState("");
   const [aviso, setAviso] = React.useState(null);
   const [sujo, setSujo] = React.useState(false);
 
@@ -228,32 +249,98 @@ export default function ModalProcessoDiaria({
   }
 
   /**
-   * Puxa os dados de um fornecedor/servidor JÁ CADASTRADO para o documento.
-   * Copia informação PARA CÁ: nada é gravado no cadastro dele.
+   * Solta o vínculo ANTIGO com o cadastro de fornecedores.
+   *
+   * O beneficiário agora vem do cadastro de SERVIDORES, mas os processos que já
+   * nasceram vinculados a um fornecedor continuam mostrando esse vínculo e
+   * podendo soltá-lo -- nenhum documento existente perde a referência dele.
+   * Soltar NÃO apaga o que está digitado e NÃO cria cadastro nenhum.
    */
-  function puxarDoCadastro(fornecedor) {
-    setAviso(null);
-    setSujo(true);
-    setBuscaFornecedor("");
-    setFormulario((atual) => {
-      const dados = dadosDoFornecedorParaDocumento(fornecedor);
-      // O que o documento já tem preenchido à mão não é sobrescrito por um
-      // campo vazio do cadastro.
-      const mesclado = { ...atual };
-      Object.entries(dados).forEach(([chave, valor]) => {
-        if (chave === "fornecedor_id" || String(valor ?? "").trim() !== "") mesclado[chave] = valor;
-      });
-      return sincronizarLiquidacao(atual, mesclado);
-    });
-  }
-
   function preencherAMao() {
     setAviso(null);
     setSujo(true);
-    setBuscaFornecedor("");
-    // Soltar o vínculo NÃO cria fornecedor nenhum e não apaga o que já foi
-    // digitado no documento.
     setFormulario((atual) => soltarVinculoDeCadastro(atual));
+  }
+
+  /**
+   * Escolhe o BENEFICIÁRIO no cadastro de SERVIDORES.
+   *
+   * COPIA os dados para o documento -- nome, CPF, endereço, matrícula, cargo,
+   * secretaria, lotação, dados bancários e PIX -- e guarda o vínculo interno
+   * (`beneficiario_servidor_id`). Nada é gravado no cadastro do servidor: ele
+   * não é criado, não é alterado e não é marcado como nada.
+   *
+   * A CATEGORIA é SUGERIDA, não imposta: ela só entra quando o documento ainda
+   * não tem uma, para não desfazer uma escolha feita à mão. Entrando, a Tabela
+   * de Diárias recalcula o valor unitário -- é o cálculo automático do valor.
+   */
+  function puxarDoServidor(servidor) {
+    setAviso(null);
+    setSujo(true);
+    setBuscaServidor("");
+    setFormulario((atual) => {
+      const dados = dadosDoServidorParaDocumento(servidor);
+      const mesclado = { ...atual };
+
+      Object.entries(dados).forEach(([chave, valor]) => {
+        if (chave === "beneficiario_servidor_id") {
+          mesclado[chave] = valor;
+          return;
+        }
+        // A categoria do cadastro é sugestão: não sobrescreve a que já está
+        // escolhida no documento.
+        if (chave === "diaria_categoria") {
+          if (String(valor ?? "").trim() !== "" && String(atual.diaria_categoria ?? "").trim() === "") {
+            mesclado[chave] = valor;
+          }
+          return;
+        }
+        // O que o documento já tem preenchido à mão não é sobrescrito por um
+        // campo vazio do cadastro.
+        if (String(valor ?? "").trim() !== "") mesclado[chave] = valor;
+      });
+
+      // Com a categoria sugerida, a tabela preenche o valor unitário -- e
+      // respeita o valor digitado à mão, que ela não sobrescreve.
+      const comTabela = aplicarTabelaDeDiarias(mesclado, tabela);
+      return sincronizarLiquidacao(atual, aplicarCalculo(comTabela));
+    });
+  }
+
+  /**
+   * Solta o vínculo com o servidor, PRESERVANDO o que o documento já diz.
+   *
+   * Preencher à mão é caminho legítimo: quem não está cadastrado continua
+   * entrando no documento pelos campos abaixo, e isso NÃO cria servidor no
+   * cadastro.
+   */
+  function soltarServidor() {
+    setAviso(null);
+    setSujo(true);
+    setBuscaServidor("");
+    setFormulario((atual) => soltarVinculoDoServidor(atual));
+  }
+
+  /**
+   * Escolhe o SIGNATÁRIO (o responsável pela secretaria) no cadastro.
+   *
+   * Copia nome, CPF e cargo para o PROCESSO, e é isso que congela a assinatura:
+   * o documento guarda quem assinou naquele momento. Processo finalizado não
+   * tem mais o conteúdo alterado, então mudança posterior no cadastro -- outro
+   * cargo, outra secretaria, inativação -- NÃO altera documento antigo.
+   */
+  function puxarSignatario(servidor, prefixo) {
+    setAviso(null);
+    setSujo(true);
+    setBuscaSignatario("");
+    setFormulario((atual) => ({ ...atual, ...dadosDoSignatarioParaDocumento(servidor, { prefixo }) }));
+  }
+
+  function soltarSignatario(prefixo) {
+    setAviso(null);
+    setSujo(true);
+    setBuscaSignatario("");
+    setFormulario((atual) => soltarVinculoDoSignatario(atual, { prefixo }));
   }
 
   async function salvar() {
@@ -288,10 +375,30 @@ export default function ModalProcessoDiaria({
     () => fornecedores.find((f) => String(f.id) === String(formulario.fornecedor_id)) ?? null,
     [fornecedores, formulario.fornecedor_id],
   );
-  const encontrados = React.useMemo(() => {
-    if (buscaFornecedor.trim() === "") return [];
-    return filtrarFornecedoresPorTermo(fornecedores, buscaFornecedor).slice(0, 20);
-  }, [fornecedores, buscaFornecedor]);
+
+  // Só os ATIVOS são oferecidos para um documento novo: servidor inativo
+  // continua no cadastro (e nos processos antigos), mas não entra em processo
+  // novo. Quem já está vinculado continua aparecendo, mesmo se inativado
+  // depois -- o documento não perde a referência dele.
+  const servidorEscolhido = React.useMemo(
+    () => servidores.find((s) => String(s.id) === String(formulario.beneficiario_servidor_id)) ?? null,
+    [servidores, formulario.beneficiario_servidor_id],
+  );
+  const servidoresEncontrados = React.useMemo(() => {
+    if (buscaServidor.trim() === "") return [];
+    return filtrarServidores(servidoresAtivos(servidores), {
+      busca: buscaServidor,
+      secretarias,
+    }).slice(0, 20);
+  }, [servidores, buscaServidor, secretarias]);
+
+  const signatariosEncontrados = React.useMemo(() => {
+    if (buscaSignatario.trim() === "") return [];
+    return filtrarServidores(servidoresAtivos(servidores), {
+      busca: buscaSignatario,
+      secretarias,
+    }).slice(0, 20);
+  }, [servidores, buscaSignatario, secretarias]);
 
   const situacao = situacaoInfo(formulario.situacao);
   const numero = numeroDoProcesso(formulario);
@@ -368,11 +475,14 @@ export default function ModalProcessoDiaria({
               somenteLeitura={somenteLeitura}
               definir={definir}
               escolhido={escolhido}
-              encontrados={encontrados}
-              busca={buscaFornecedor}
-              onBusca={setBuscaFornecedor}
-              onPuxar={puxarDoCadastro}
               onAMao={preencherAMao}
+              servidores={servidores}
+              servidorEscolhido={servidorEscolhido}
+              servidoresEncontrados={servidoresEncontrados}
+              buscaServidor={buscaServidor}
+              onBuscaServidor={setBuscaServidor}
+              onPuxarServidor={puxarDoServidor}
+              onSoltarServidor={soltarServidor}
             />
           )}
 
@@ -390,6 +500,12 @@ export default function ModalProcessoDiaria({
               voltarAoCalculo={voltarAoCalculo}
               definirExtensoManual={definirExtensoManual}
               voltarAoExtensoAutomatico={voltarAoExtensoAutomatico}
+              servidores={servidores}
+              signatariosEncontrados={signatariosEncontrados}
+              buscaSignatario={buscaSignatario}
+              onBuscaSignatario={setBuscaSignatario}
+              onPuxarSignatario={puxarSignatario}
+              onSoltarSignatario={soltarSignatario}
             />
           )}
 
@@ -619,6 +735,134 @@ function DadosBancarios({ formulario, somenteLeitura, definir }) {
   );
 }
 
+/**
+ * Quem ASSINA uma linha do documento — escolhido no cadastro ou digitado.
+ *
+ * Genérico pelo prefixo, para servir aos signatários que os próximos processos
+ * vão pedir (a Solicitação de Serviços/Materiais tem os dela) sem reescrever
+ * nada aqui.
+ *
+ * O CONGELAMENTO é o ponto: nome, CPF e cargo ficam GRAVADOS NO PROCESSO, e não
+ * são lidos do cadastro na hora de imprimir. O documento guarda quem assinou
+ * naquele momento; mudar o cadastro depois — outro cargo, outra secretaria,
+ * inativação — não altera documento antigo.
+ */
+function CampoSignatario({
+  signatario,
+  formulario,
+  servidores = [],
+  secretarias = [],
+  somenteLeitura,
+  definir,
+  encontrados = [],
+  busca = "",
+  onBusca,
+  onPuxar,
+  onSoltar,
+}) {
+  const campos = camposDoSignatario(signatario.prefixo);
+  const vinculado = servidores.find((s) => String(s.id) === String(formulario[campos.servidorId])) ?? null;
+  const temVinculo = String(formulario[campos.servidorId] ?? "") !== "";
+
+  return (
+    <div className="rounded-lg border border-black/10 bg-white p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-xs font-medium text-[#0F2A44]">{signatario.rotulo}</span>
+        <span className="text-[11px] text-[#0F2A44]/45">{signatario.ajuda}</span>
+      </div>
+
+      {temVinculo ? (
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-[#F8FAFC] px-3 py-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-[#0F2A44]">
+              {formulario[campos.nome] || vinculado?.nome || "--"}
+            </p>
+            <p className="truncate text-[11px] text-[#0F2A44]/50">
+              {[formulario[campos.cargo], nomeDaSecretariaDoServidor(vinculado, secretarias)]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            <p className="text-[11px] text-[#0F2A44]/40">
+              Gravado neste processo. Alteração posterior no cadastro não muda este documento.
+            </p>
+          </div>
+          {!somenteLeitura && (
+            <button
+              type="button"
+              onClick={() => onSoltar?.(signatario.prefixo)}
+              title="Solta o vínculo com o cadastro. O nome, o CPF e o cargo já gravados continuam no documento."
+              className="shrink-0 rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
+            >
+              Soltar vínculo
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-black/10 px-3">
+            <Search size={14} className="shrink-0 text-[#0F2A44]/40" />
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => onBusca?.(e.target.value)}
+              disabled={somenteLeitura}
+              placeholder="Buscar no cadastro de servidores..."
+              className="w-full bg-transparent py-2 text-sm text-[#0F2A44] outline-none"
+            />
+          </div>
+          {encontrados.length > 0 && (
+            <ul className="mt-2 max-h-44 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/10">
+              {encontrados.map((servidor) => (
+                <li key={servidor.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPuxar?.(servidor, signatario.prefixo)}
+                    className="block w-full px-3 py-2 text-left hover:bg-black/[0.03]"
+                  >
+                    <span className="block truncate text-sm text-[#0F2A44]">{servidor.nome}</span>
+                    <span className="block truncate text-[11px] text-[#0F2A44]/45">
+                      {[servidor.cargo, nomeDaSecretariaDoServidor(servidor, secretarias)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {/* Digitar à mão continua valendo: quem assina pode não estar cadastrado,
+          e preencher aqui NÃO cria servidor no cadastro. */}
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <CampoTexto
+          rotulo="Nome"
+          valor={formulario[campos.nome]}
+          onChange={(v) => definir(campos.nome, v)}
+          desabilitado={somenteLeitura}
+        />
+        <CampoTexto
+          rotulo="CPF"
+          valor={formulario[campos.cpf]}
+          onChange={(v) => definir(campos.cpf, v)}
+          desabilitado={somenteLeitura}
+        />
+        <CampoTexto
+          rotulo="Cargo"
+          valor={formulario[campos.cargo]}
+          onChange={(v) => definir(campos.cargo, v)}
+          desabilitado={somenteLeitura}
+        />
+      </div>
+      <p className="mt-1 text-[11px] text-[#0F2A44]/40">
+        Em branco, a linha sai só com o traço para assinar à mão. Preencher aqui não cria servidor no
+        cadastro.
+      </p>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------
  * Dados Gerais: digitados uma vez, valem para as três páginas
  * ---------------------------------------------------------------------- */
@@ -629,11 +873,14 @@ function SecaoDadosGerais({
   somenteLeitura,
   definir,
   escolhido,
-  encontrados,
-  busca,
-  onBusca,
-  onPuxar,
   onAMao,
+  servidores = [],
+  servidorEscolhido = null,
+  servidoresEncontrados = [],
+  buscaServidor = "",
+  onBuscaServidor,
+  onPuxarServidor,
+  onSoltarServidor,
 }) {
   return (
     <>
@@ -668,26 +915,37 @@ function SecaoDadosGerais({
         </Campo>
       </div>
 
-      {/* O beneficiário: do cadastro ou à mão. */}
+      {/* O BENEFICIÁRIO: do cadastro de SERVIDORES ou à mão.
+
+          ⚠️ Este é o cadastro dos SERVIDORES do município, não o de
+          fornecedores. Escolher aqui copia os dados para o documento; nada é
+          gravado no cadastro do servidor. */}
       <div>
         <label className="mb-1 block text-xs font-medium text-[#0F2A44]/70">
-          Beneficiário no cadastro (opcional)
+          Beneficiário no cadastro de servidores (opcional)
         </label>
-        {escolhido ? (
+        {servidorEscolhido ? (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-[#F8FAFC] px-3 py-2.5">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-[#0F2A44]">{nomeExibicaoDoFornecedor(escolhido)}</p>
-              {complementoDoFornecedor(escolhido) && (
-                <p className="truncate text-[11px] text-[#0F2A44]/50">{complementoDoFornecedor(escolhido)}</p>
-              )}
+              <p className="truncate text-sm font-medium text-[#0F2A44]">{servidorEscolhido.nome}</p>
+              <p className="truncate text-[11px] text-[#0F2A44]/50">
+                {[
+                  servidorEscolhido.cargo,
+                  nomeDaSecretariaDoServidor(servidorEscolhido, secretarias),
+                  rotuloDaCategoria(servidorEscolhido.categoria_diaria),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
               <p className="text-[11px] text-[#0F2A44]/40">
-                Vínculo interno preservado. O que você editar abaixo vale só neste documento.
+                Vínculo interno preservado. O que você editar abaixo vale só neste documento — o
+                cadastro do servidor não muda.
               </p>
             </div>
             {!somenteLeitura && (
               <button
                 type="button"
-                onClick={onAMao}
+                onClick={onSoltarServidor}
                 title="Solta o vínculo com o cadastro. O texto já digitado continua no documento."
                 className="shrink-0 rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
               >
@@ -701,31 +959,37 @@ function SecaoDadosGerais({
               <Search size={14} className="shrink-0 text-[#0F2A44]/40" />
               <input
                 type="text"
-                value={busca}
-                onChange={(e) => onBusca(e.target.value)}
+                value={buscaServidor}
+                onChange={(e) => onBuscaServidor?.(e.target.value)}
                 disabled={somenteLeitura}
-                placeholder="Buscar por razão social, nome, apelido ou CPF/CNPJ..."
+                placeholder="Buscar servidor por nome, CPF, cargo ou secretaria..."
                 className="w-full bg-transparent py-2.5 text-sm text-[#0F2A44] outline-none"
               />
             </div>
             <p className="mt-1 text-[11px] text-[#0F2A44]/40">
-              Opcional: se a pessoa não estiver cadastrada, preencha os campos abaixo à mão. Preencher
-              à mão NÃO cria fornecedor no cadastro principal.
+              Opcional: se a pessoa não estiver cadastrada, preencha os campos abaixo à mão.
+              Preencher à mão NÃO cria servidor no cadastro — e nem fornecedor.
             </p>
-            {encontrados.length > 0 && (
+            {servidores.length === 0 && (
+              <p className="mt-1 text-[11px] text-[#0F2A44]/40">
+                Nenhum servidor cadastrado (ou sem permissão para ver o cadastro): siga preenchendo
+                à mão, como sempre.
+              </p>
+            )}
+            {servidoresEncontrados.length > 0 && (
               <ul className="mt-2 max-h-52 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/10">
-                {encontrados.map((fornecedor) => (
-                  <li key={fornecedor.id}>
+                {servidoresEncontrados.map((servidor) => (
+                  <li key={servidor.id}>
                     <button
                       type="button"
-                      onClick={() => onPuxar(fornecedor)}
+                      onClick={() => onPuxarServidor?.(servidor)}
                       className="block w-full px-3 py-2.5 text-left hover:bg-black/[0.03]"
                     >
-                      <span className="block truncate text-sm text-[#0F2A44]">
-                        {nomeExibicaoDoFornecedor(fornecedor)}
-                      </span>
+                      <span className="block truncate text-sm text-[#0F2A44]">{servidor.nome}</span>
                       <span className="block truncate text-[11px] text-[#0F2A44]/45">
-                        {[complementoDoFornecedor(fornecedor), fornecedor.cpf_cnpj].filter(Boolean).join(" · ")}
+                        {[servidor.cpf, servidor.cargo, nomeDaSecretariaDoServidor(servidor, secretarias)]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                     </button>
                   </li>
@@ -733,6 +997,33 @@ function SecaoDadosGerais({
               </ul>
             )}
           </>
+        )}
+
+        {/* Vínculo ANTIGO com o cadastro de fornecedores: aparece só nos
+            processos que já o têm, para nenhum documento existente perder a
+            referência dele. Documento novo usa o cadastro de servidores. */}
+        {escolhido && (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-white px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-[#0F2A44]/40">
+                Vínculo anterior, no cadastro de fornecedores
+              </p>
+              <p className="truncate text-sm text-[#0F2A44]">{nomeExibicaoDoFornecedor(escolhido)}</p>
+              {complementoDoFornecedor(escolhido) && (
+                <p className="truncate text-[11px] text-[#0F2A44]/50">{complementoDoFornecedor(escolhido)}</p>
+              )}
+            </div>
+            {!somenteLeitura && (
+              <button
+                type="button"
+                onClick={onAMao}
+                title="Solta o vínculo antigo. O texto já digitado continua no documento."
+                className="shrink-0 rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
+              >
+                Soltar vínculo
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -802,6 +1093,12 @@ function SecaoRequisicao({
   voltarAoCalculo,
   definirExtensoManual,
   voltarAoExtensoAutomatico,
+  servidores = [],
+  signatariosEncontrados = [],
+  buscaSignatario = "",
+  onBuscaSignatario,
+  onPuxarSignatario,
+  onSoltarSignatario,
 }) {
   const calculado = valorTotalCalculado(formulario);
   const diverge = totalDivergeDoCalculo(formulario);
@@ -1038,34 +1335,33 @@ function SecaoRequisicao({
         />
       </Bloco>
 
-      <Bloco titulo="Transporte">
-        <div className="flex flex-wrap gap-2">
-          {TRANSPORTES.map((opcao) => (
-            <button
-              key={opcao.id}
-              type="button"
-              onClick={() => definir("transporte", formulario.transporte === opcao.id ? "" : opcao.id)}
-              disabled={somenteLeitura}
-              aria-pressed={formulario.transporte === opcao.id}
-              className={`min-h-[2.5rem] rounded-lg border px-3 py-2 text-[13px] transition-colors disabled:opacity-60 ${
-                formulario.transporte === opcao.id
-                  ? "border-[#0F2A44] bg-[#0F2A44] text-white"
-                  : "border-black/10 text-[#0F2A44]/70 hover:bg-black/5"
-              }`}
-            >
-              {opcao.rotulo}
-            </button>
-          ))}
-        </div>
-        {formulario.transporte === "outro" && (
-          <CampoTexto
-            rotulo="Qual"
-            valor={formulario.transporte_outro}
-            onChange={(v) => definir("transporte_outro", v)}
-            desabilitado={somenteLeitura}
-            className="mt-3"
+      {/* As ASSINATURAS do documento.
+
+          O servidor assina a primeira linha e a prefeita a terceira; a do meio
+          é o responsável pela secretaria, e é ela que pode ser identificada a
+          partir do cadastro. Nome, CPF e cargo ficam GRAVADOS NO PROCESSO: o
+          documento guarda quem assinou naquele momento, e mudança posterior no
+          cadastro não altera documento antigo. */}
+      <Bloco
+        titulo="Assinaturas"
+        apoio="As três assinaturas saem uma embaixo da outra na página impressa: o servidor, o responsável pela secretaria e a prefeita."
+      >
+        {SIGNATARIOS_DO_DOCUMENTO.map((signatario) => (
+          <CampoSignatario
+            key={signatario.prefixo}
+            signatario={signatario}
+            formulario={formulario}
+            servidores={servidores}
+            secretarias={secretarias}
+            somenteLeitura={somenteLeitura}
+            definir={definir}
+            encontrados={signatariosEncontrados}
+            busca={buscaSignatario}
+            onBusca={onBuscaSignatario}
+            onPuxar={onPuxarSignatario}
+            onSoltar={onSoltarSignatario}
           />
-        )}
+        ))}
       </Bloco>
 
       <Bloco titulo="Dados bancários" apoio="Do documento. Editar aqui não altera o cadastro do fornecedor nem o PIX dele.">

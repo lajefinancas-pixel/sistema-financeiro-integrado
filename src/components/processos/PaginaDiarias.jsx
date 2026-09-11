@@ -14,6 +14,7 @@ import {
 import PainelFiltros from "../comuns/PainelFiltros.jsx";
 import ModalConfirmarExclusao from "../comuns/ModalConfirmarExclusao.jsx";
 import ModalProcessoDiaria from "./ModalProcessoDiaria.jsx";
+import { podeVerServidores } from "../../lib/processosServidores.js";
 import PreVisualizacaoProcesso from "./PreVisualizacaoProcesso.jsx";
 import ModalHistoricoProcesso from "./ModalHistoricoProcesso.jsx";
 import { mensagemAmigavel } from "../../lib/erros.js";
@@ -76,8 +77,10 @@ import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdenti
  */
 export default function PaginaDiarias({
   permissoes = {},
+  permissoesServidores = {},
   fornecedores = [],
   secretarias = [],
+  servidores = [],
   carregandoApoio = false,
   usuario = null,
 }) {
@@ -576,6 +579,7 @@ export default function PaginaDiarias({
           inicial={aberto.inicial}
           fornecedores={fornecedores}
           secretarias={secretarias}
+          servidores={podeVerServidores(permissoesServidores) ? servidores : []}
           permissoes={permissoes}
           tabela={tabela}
           salvando={salvando}

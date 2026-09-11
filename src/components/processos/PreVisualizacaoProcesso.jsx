@@ -196,8 +196,9 @@ const TITULO_DA_FOLHA = {
 /**
  * A legenda do cabeçalho: quais folhas vão sair e em que ordem.
  *
- * Cada documento começa em folha nova, então a numeração que aparece aqui é a
- * mesma que sai na impressora.
+ * A contagem é só desta tela, para quem confere antes de imprimir: o PAPEL NÃO
+ * TRAZ NUMERAÇÃO DE FOLHA. A ordem é a que sai na impressora, porque cada
+ * documento começa em folha nova.
  */
 function legendaDasFolhas(folhas) {
   const partes = folhas.map(
