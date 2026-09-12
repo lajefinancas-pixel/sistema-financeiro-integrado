@@ -562,8 +562,10 @@ test("8. o documento impresso não traz número de processo nem numeração de f
   assert.doesNotMatch(html, /Processo nº/i);
   assert.doesNotMatch(html, /Página \d|Página \$\{|Folha \d/);
   assert.doesNotMatch(html, /de 3</);
-  // O que o rodapé mantém: endereço, contato e a linha de emissão.
-  assert.match(html, /Emitido em /);
+  // O rodapé mantém endereço, contato e CNPJ -- e NÃO traz mais "Emitido em ...
+  // por ...": informação de sistema não pertence ao documento oficial.
+  assert.doesNotMatch(html, /Emitido em/);
+  assert.match(html, /CEP: 57\.860-000/);
 
   const folhas = textoDasFolhas(montarPdfDoProcesso(dados, { escopo: "completo" }));
   assert.equal(folhas.length, 3);
@@ -573,7 +575,8 @@ test("8. o documento impresso não traz número de processo nem numeração de f
     assert.doesNotMatch(folha, /0001\/2026/);
     assert.doesNotMatch(folha, /PROCESSO DE DIÁRIA Nº/i);
     assert.doesNotMatch(folha, /P.gina \d/);
-    assert.ok(folha.includes("Emitido em"));
+    assert.ok(!folha.includes("Emitido em"));
+    assert.ok(folha.includes("CEP: 57.860-000"));
   });
   // Cada documento continua começando em folha própria: a regra não mudou.
   assert.equal(montarPdfDoProcesso(dados, { escopo: "completo" }).getNumberOfPages(), 3);

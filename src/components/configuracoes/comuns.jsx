@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle, Clock3, ImageOff, Lock, Trash2, Upload, Wrench } from "lucide-react";
 import { ModalShell } from "../equipe/comuns";
+import { ACEITE_DO_SELETOR } from "../../lib/logomarcaEnvio";
 
 // Blocos visuais reaproveitados pelas categorias da tela de Configurações.
 // Os campos de formulário (Campo, CLASSE_ENTRADA) e o aviso (Alerta) vêm de
@@ -123,7 +124,7 @@ export function SeletorLogomarca({ urlAtual, arquivo, onSelecionar, onRemover, d
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept={ACEITE_DO_SELETOR}
           className="hidden"
           onChange={(evento) => {
             const selecionado = evento.target.files?.[0] ?? null;
@@ -152,7 +153,8 @@ export function SeletorLogomarca({ urlAtual, arquivo, onSelecionar, onRemover, d
           </button>
         )}
         <span className="text-[11px] text-[#0F2A44]/40 basis-full">
-          Opcional — JPG, PNG ou SVG de até {limiteMb} MB. Será usada nos cabeçalhos de relatórios e
+          Opcional — JPG, PNG ou SVG. Imagem acima de {limiteMb} MB é reduzida automaticamente, sem
+          deformar, mantendo qualidade de impressão. Será usada nos cabeçalhos de relatórios e
           impressões.
         </span>
       </div>

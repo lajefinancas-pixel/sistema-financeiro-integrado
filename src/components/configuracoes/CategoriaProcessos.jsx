@@ -1,5 +1,7 @@
 import React from "react";
-import { Building2, CalendarClock, History, Image, Landmark, Pencil, Plus, Table2 } from "lucide-react";
+import {
+  Building2, CalendarClock, History, Image, Landmark, Pencil, Plus, Table2, UserCheck,
+} from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA } from "../equipe/comuns";
 import { Cartao, RodapeFormulario, SeletorLogomarca } from "./comuns";
 import CampoMoeda from "../CampoMoeda";
@@ -38,10 +40,23 @@ import {
 } from "../../lib/processosIdentidade";
 import {
   carregarIdentidadeProcessos,
+  carregarLogomarcaDoSistema,
   enviarBrasaoProcessos,
   limparCacheDoLogo,
   salvarIdentidadeProcessos,
 } from "../../lib/processosIdentidadeDados";
+import {
+  AVISO_MIGRATION_PREFEITA,
+  ROTULOS_PREFEITA,
+  ordenarPrefeitas,
+  podeEditarPrefeita,
+  podeVerPrefeita,
+  prefeitaParaFormulario,
+  prefeitaVazia,
+  prefeitaVigente,
+  primeiroErroDaPrefeita,
+  textoDaVigencia,
+} from "../../lib/processosPrefeita";
 import {
   AVISO_MIGRATION_SOLICITANTES,
   ROTULOS_SOLICITANTE,
@@ -65,13 +80,17 @@ import {
   validarBanco,
 } from "../../lib/processosBancos";
 import {
+  alternarSituacaoDaPrefeita,
   alternarSituacaoDoBanco,
   alternarSituacaoDoSolicitante,
   carregarBancos,
+  carregarPrefeitas,
   carregarSolicitantes,
   criarBanco,
+  criarPrefeita,
   criarSolicitante,
   salvarBanco,
+  salvarPrefeita,
   salvarSolicitante,
 } from "../../lib/processosCadastrosDados";
 
@@ -96,13 +115,22 @@ import {
  * valores de diária. Consultar a tabela segue quem enxerga o módulo Processos.
  */
 export default function CategoriaProcessos({ podeEditar = false }) {
-  const { permissoes, carregando: verificando } = usePermissoesProcessos();
+  const { permissoes, permissoesPrefeita, carregando: verificando } = usePermissoesProcessos();
   const podeVerTabela = podeVerTabelaDeDiarias(permissoes);
   // Duas travas somadas: a desta tela (Administração) e a própria da tabela.
   const podeEditarTabela = podeEditar && podeEditarTabelaDeDiarias(permissoes);
+  // A PREFEITA segue o mesmo desenho: consultar acompanha quem vê o módulo,
+  // editar exige a permissão restrita PRÓPRIA, somada à desta tela.
+  const podeVerAPrefeita = podeVerPrefeita(permissoesPrefeita);
+  const podeEditarAPrefeita = podeEditar && podeEditarPrefeita(permissoesPrefeita);
 
   return (
     <>
+      <BlocoPrefeita
+        podeVer={verificando ? false : podeVerAPrefeita}
+        podeEditar={podeEditarAPrefeita}
+        verificando={verificando}
+      />
       <BlocoTabelaDeDiarias
         podeVer={verificando ? false : podeVerTabela}
         podeEditar={podeEditarTabela}
@@ -112,6 +140,302 @@ export default function CategoriaProcessos({ podeEditar = false }) {
       <BlocoBancos podeEditar={podeEditar} />
       <BlocoIdentidadeVisual podeEditar={podeEditar} />
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------
+ * A PREFEITA — quem AUTORIZA os documentos
+ * ---------------------------------------------------------------------- */
+
+/**
+ * O cadastro da chefe do Poder Executivo.
+ *
+ * É daqui que sai, PRONTA, a identificação de quem autoriza: a área
+ * "Autorização da prefeita — CIENTE/AUTORIZO" e a identificação abaixo da linha
+ * de assinatura (Nome, CPF e Cargo) deixam de ser redigitadas em cada processo.
+ *
+ * ⚠️ MUDANÇA DE GESTÃO NÃO REESCREVE DOCUMENTO ANTIGO. Ao finalizar, o processo
+ * grava dentro dele o nome, o CPF e o cargo vigentes naquele momento, e o
+ * gatilho do banco recusa qualquer reescrita disso. Alterar o cadastro aqui vale
+ * para os processos daqui para a frente.
+ *
+ * Uma LINHA POR GESTÃO: a anterior é INATIVADA, nunca apagada -- ela é a memória
+ * de quem autorizava naquela época.
+ *
+ * PERMISSÃO PRÓPRIA E RESTRITA: editar exige o módulo `processos_prefeita`, ação
+ * editar, somado à permissão desta tela. Consultar acompanha quem vê o módulo
+ * Processos, porque o documento imprime o nome. Toda alteração vai para a
+ * auditoria.
+ *
+ * Documental: nada aqui debita conta, dá baixa em NF, altera saldo ou cria
+ * pagamento.
+ */
+function BlocoPrefeita({ podeVer, podeEditar, verificando }) {
+  const [lista, setLista] = React.useState([]);
+  const [carregando, setCarregando] = React.useState(true);
+  const [faltaMigration, setFaltaMigration] = React.useState(false);
+  const [formulario, setFormulario] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const [sucesso, setSucesso] = React.useState(null);
+
+  const carregar = React.useCallback(async () => {
+    setCarregando(true);
+    try {
+      const linhas = await carregarPrefeitas();
+      setLista(linhas);
+      setFaltaMigration(linhas.length === 0);
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível carregar o cadastro da prefeita."));
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!podeVer) {
+      setCarregando(false);
+      return;
+    }
+    carregar();
+  }, [carregar, podeVer]);
+
+  function abrirNovo() {
+    setErro(null);
+    setSucesso(null);
+    // prefeitaVazia() já sugere o cargo que a prefeitura usa no documento.
+    setFormulario(prefeitaVazia());
+  }
+
+  function abrirEdicao(registro) {
+    setErro(null);
+    setSucesso(null);
+    setFormulario(prefeitaParaFormulario(registro));
+  }
+
+  function definir(campo, valor) {
+    setFormulario((atual) => ({ ...(atual ?? {}), [campo]: valor }));
+  }
+
+  async function salvar(evento) {
+    evento.preventDefault();
+    setErro(null);
+    setSucesso(null);
+
+    const problema = primeiroErroDaPrefeita(formulario);
+    if (problema) {
+      setErro(problema);
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const anterior = lista.find((p) => String(p.id) === String(formulario.id)) ?? null;
+      if (formulario.id) await salvarPrefeita(formulario.id, formulario, { anterior });
+      else await criarPrefeita(formulario);
+      setFormulario(null);
+      await carregar();
+      setSucesso(
+        formulario.id
+          ? "Cadastro atualizado. Ele vale para os processos daqui para a frente — os já finalizados "
+            + "continuam com a identificação que congelaram."
+          : "Prefeita cadastrada. Os documentos passam a sair com o nome, o CPF e o cargo preenchidos.",
+      );
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível salvar o cadastro da prefeita."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function alternar(registro) {
+    setErro(null);
+    setSucesso(null);
+    const destino = (registro?.situacao ?? "ativo") === "ativo" ? "inativo" : "ativo";
+    try {
+      await alternarSituacaoDaPrefeita(registro.id, destino, { anterior: registro });
+      await carregar();
+    } catch (e) {
+      setErro(mensagemAmigavel(e, "Não foi possível alterar a situação do cadastro."));
+    }
+  }
+
+  const ordenadas = React.useMemo(() => ordenarPrefeitas(lista), [lista]);
+  const vigente = React.useMemo(() => prefeitaVigente(lista), [lista]);
+
+  return (
+    <div>
+      <Cartao
+        titulo="Prefeita — quem autoriza os documentos"
+        descricao={
+          "O nome, o CPF e o cargo de quem chefia o Poder Executivo. Os documentos do módulo passam a "
+          + "sair com essa identificação pronta, sem redigitar em cada processo. Trocar o cadastro NÃO "
+          + "altera documento já finalizado."
+        }
+        icone={UserCheck}
+      >
+        <div className="space-y-4">
+          {erro && <Alerta tipo="erro">{erro}</Alerta>}
+          {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
+
+          {verificando ? (
+            <p className="text-sm text-[#0F2A44]/45">Conferindo a sua permissão...</p>
+          ) : !podeVer ? (
+            <p className="text-sm leading-relaxed text-[#0F2A44]/55">
+              A consulta a este cadastro segue quem enxerga o módulo Processos. Fale com um
+              administrador do sistema para solicitar acesso.
+            </p>
+          ) : carregando ? (
+            <p className="text-sm text-[#0F2A44]/45">Carregando o cadastro...</p>
+          ) : (
+            <>
+              {faltaMigration && <Alerta tipo="erro">{AVISO_MIGRATION_PREFEITA}</Alerta>}
+
+              {ordenadas.length === 0 ? (
+                <p className="text-sm text-[#0F2A44]/45">
+                  Nenhum cadastro. Enquanto ele não existir, a área de autorização e a identificação
+                  abaixo da linha de assinatura continuam saindo em branco, para completar à mão.
+                </p>
+              ) : (
+                <ul className="divide-y divide-black/5 rounded-xl border border-black/10">
+                  {ordenadas.map((registro) => {
+                    const inativa = (registro.situacao ?? "ativo") !== "ativo";
+                    const eADoMomento = vigente !== null && String(vigente.id) === String(registro.id);
+                    return (
+                      <li key={registro.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className={`truncate text-sm ${inativa ? "text-[#0F2A44]/40 line-through" : "text-[#0F2A44]"}`}>
+                            {registro.nome}
+                            {eADoMomento && (
+                              <span className="ml-2 rounded-full bg-[#0F2A44]/8 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#0F2A44]/60">
+                                Em vigor
+                              </span>
+                            )}
+                          </p>
+                          <p className="truncate text-[11px] text-[#0F2A44]/45">
+                            {[registro.cargo, registro.cpf, textoDaVigencia(registro)]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                        {podeEditar && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => abrirEdicao(registro)}
+                              className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
+                              title="Editar"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => alternar(registro)}
+                              className="rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
+                              title="A exclusão é lógica: a linha nunca é apagada, porque ela explica os documentos daquela gestão."
+                            >
+                              {inativa ? "Reativar" : "Inativar"}
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {podeEditar && formulario === null && (
+                <button
+                  type="button"
+                  onClick={abrirNovo}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90"
+                >
+                  <Plus size={15} /> {ordenadas.length === 0 ? "Cadastrar a prefeita" : "Nova gestão"}
+                </button>
+              )}
+
+              {!podeEditar && (
+                <p className="rounded-xl border border-[#C9A227]/35 bg-[#FBF4DE] px-4 py-3 text-xs leading-relaxed text-[#8A7526]">
+                  Você está consultando o cadastro. Alterá-lo exige a permissão própria
+                  <strong> Processos · Prefeita — editar</strong>, porque é quem autoriza os documentos
+                  do município.
+                </p>
+              )}
+
+              {formulario !== null && (
+                <form onSubmit={salvar} noValidate className="rounded-xl border border-black/10 bg-[#F8FAFC] p-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Campo label={ROTULOS_PREFEITA.nome} obrigatorio dica="Como sai impresso abaixo da linha de assinatura.">
+                      <input
+                        type="text"
+                        value={formulario.nome}
+                        onChange={(e) => definir("nome", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_PREFEITA.cpf} obrigatorio>
+                      <input
+                        type="text"
+                        value={formulario.cpf}
+                        onChange={(e) => definir("cpf", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_PREFEITA.cargo} obrigatorio dica="Por exemplo: Prefeita Municipal.">
+                      <input
+                        type="text"
+                        value={formulario.cargo}
+                        onChange={(e) => definir("cargo", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_PREFEITA.vigencia_inicio} dica="Opcional — a data da posse.">
+                      <input
+                        type="date"
+                        value={formulario.vigencia_inicio}
+                        onChange={(e) => definir("vigencia_inicio", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                    <Campo label={ROTULOS_PREFEITA.vigencia_fim} dica="Opcional — deixe em branco enquanto o mandato corre.">
+                      <input
+                        type="date"
+                        value={formulario.vigencia_fim}
+                        onChange={(e) => definir("vigencia_fim", e.target.value)}
+                        className={CLASSE_ENTRADA}
+                      />
+                    </Campo>
+                  </div>
+
+                  <p className="mt-3 text-[11px] leading-relaxed text-[#0F2A44]/45">
+                    Estes dados preenchem a área de autorização e a identificação abaixo da linha de
+                    assinatura nos documentos em rascunho. Processo já finalizado continua imprimindo a
+                    identificação que congelou — mudança de gestão não reescreve documento antigo.
+                  </p>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={salvando}
+                      className="rounded-lg bg-[#0F2A44] px-5 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
+                    >
+                      {salvando ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormulario(null)}
+                      className="rounded-lg border border-black/10 px-4 py-2 text-sm text-[#0F2A44]/70 hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+      </Cartao>
+    </div>
   );
 }
 
@@ -943,8 +1267,23 @@ function VersoesAnteriores({ versoes }) {
  * identidade vigente no ato da finalização. Sem imagem enviada, o documento usa
  * o brasão guardado no repositório — ele não depende de link externo.
  */
+/** De onde vem a imagem que o documento imprime, dito com o nome da tela. */
+function textoDaImagemEmUso(identidade) {
+  if (String(identidade?.logo_url ?? "").trim() !== "") {
+    return "Em uso: a imagem enviada aqui. Remover devolve a logomarca do sistema, "
+      + "cadastrada em Configurações → Aparência, e só então o brasão do repositório.";
+  }
+  return "Em uso: a logomarca do sistema, cadastrada em Configurações → Aparência. "
+    + "Enviar uma imagem aqui vale só para os documentos de Processos.";
+}
+
 function BlocoIdentidadeVisual({ podeEditar }) {
   const [vigente, setVigente] = React.useState(null);
+  // A logomarca cadastrada em Configurações -> Aparência. Ela entra aqui pelo
+  // MESMO caminho que o documento usa, para que a miniatura mostrada seja
+  // exatamente a imagem impressa -- e não o brasão do repositório enquanto o
+  // papel sai com a logomarca do sistema.
+  const [logoSistema, setLogoSistema] = React.useState(null);
   const [rascunho, setRascunho] = React.useState(null);
   const [autoria, setAutoria] = React.useState(null);
   const [arquivo, setArquivo] = React.useState(null);
@@ -957,6 +1296,8 @@ function BlocoIdentidadeVisual({ podeEditar }) {
     let ativo = true;
     (async () => {
       try {
+        const url = await carregarLogomarcaDoSistema();
+        if (ativo && url) setLogoSistema(url);
         const { identidade, autoria: quem } = await carregarIdentidadeProcessos();
         if (!ativo) return;
         setVigente(identidade);
@@ -1050,7 +1391,7 @@ function BlocoIdentidadeVisual({ podeEditar }) {
             <span className="text-xs font-medium text-[#0F2A44]/70">Brasão da Prefeitura</span>
             <div className="mt-2">
               <SeletorLogomarca
-                urlAtual={logoDoDocumento(pronta)}
+                urlAtual={logoDoDocumento(pronta, logoSistema)}
                 arquivo={arquivo}
                 onSelecionar={(escolhido) => {
                   setSucesso(null);
@@ -1066,9 +1407,9 @@ function BlocoIdentidadeVisual({ podeEditar }) {
               />
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-[#0F2A44]/45">
-              {usaBrasaoDoRepositorio(pronta)
+              {usaBrasaoDoRepositorio(pronta, logoSistema)
                 ? "Em uso: o brasão guardado no repositório do sistema — o documento não depende de link externo."
-                : "Em uso: a imagem enviada. Remover devolve o brasão guardado no repositório."}
+                : textoDaImagemEmUso(pronta)}
               {" "}Ele é impresso na proporção original, em tamanho discreto, e sai legível também em
               impressora preto e branco.
             </p>

@@ -29,6 +29,7 @@ import {
   vinculoDeNotaRegistrado,
 } from "./processosServicos.js";
 import { congelarIdentidadeNoProcesso } from "./processosIdentidade.js";
+import { congelarPrefeitaNoProcesso } from "./processosPrefeita.js";
 
 /* -------------------------------------------------------------------------
  * Banco sem a migration deste envio
@@ -122,6 +123,8 @@ const COLUNAS = [
   "nota_id", "nota_numero", "nota_emissao",
   "nota_valor_bruto", "nota_retencoes", "nota_valor_liquido",
   "identidade_visual",
+  // A PREFEITA CONGELADA no processo (nome, CPF e cargo de quem autorizou).
+  "prefeita",
   "situacao", "finalizada_em", "cancelada_em", "motivo_cancelamento",
   "criado_em", "atualizado_em",
 ].join(",");
@@ -131,25 +134,58 @@ const SELECAO = `${COLUNAS}`
   + ", fornecedor:fornecedores ( id, razao_social, nome_fantasia, cpf_cnpj )";
 
 /**
+ * A seleção DE RESERVA, sem a coluna `prefeita`.
+ *
+ * ⚠️ É a trava do teste 12: em banco onde a migration do cadastro da prefeita
+ * ainda não rodou, a coluna não existe e o PostgREST recusaria a consulta
+ * inteira. A leitura cai para esta seleção e o processo JÁ CRIADO CONTINUA
+ * ABRINDO NORMALMENTE.
+ */
+const SELECAO_SEM_PREFEITA = SELECAO
+  .split(",")
+  .filter((coluna) => coluna.trim() !== "prefeita")
+  .join(",");
+
+/** 42703/PGRST204: a coluna nova ainda não existe neste banco. */
+function colunaDaPrefeitaAusente(erro) {
+  const codigo = String(erro?.code ?? "");
+  if (!["42703", "PGRST202", "PGRST204"].includes(codigo)) return false;
+  const texto = `${erro?.message ?? ""} ${erro?.details ?? ""} ${erro?.hint ?? ""}`;
+  return /prefeita/i.test(texto);
+}
+
+/**
  * Os processos de serviços/materiais da lista.
  *
  * Rascunho excluído (exclusão lógica) não aparece; cancelado APARECE, porque o
  * cancelamento é informação do documento, não remoção dele.
  */
 export async function carregarProcessosServicos({ incluirExcluidos = false } = {}) {
-  let consulta = supabase.from(TABELA_SERVICOS).select(SELECAO);
-  if (!incluirExcluidos) consulta = consulta.is("excluido_em", null);
+  const buscar = async (selecao) => {
+    let consulta = supabase.from(TABELA_SERVICOS).select(selecao);
+    if (!incluirExcluidos) consulta = consulta.is("excluido_em", null);
+    return consulta
+      .order("ano", { ascending: false })
+      .order("numero", { ascending: false });
+  };
 
-  const { data, error } = await consulta
-    .order("ano", { ascending: false })
-    .order("numero", { ascending: false });
+  let { data, error } = await buscar(SELECAO);
+  if (error && colunaDaPrefeitaAusente(error)) {
+    ({ data, error } = await buscar(SELECAO_SEM_PREFEITA));
+  }
   if (error) throw error;
   return data ?? [];
 }
 
 /** Um processo, para abrir a tela dele direto. */
 export async function carregarProcessoServico(id) {
-  const { data, error } = await supabase.from(TABELA_SERVICOS).select(SELECAO).eq("id", id).single();
+  const buscar = (selecao) =>
+    supabase.from(TABELA_SERVICOS).select(selecao).eq("id", id).single();
+
+  let { data, error } = await buscar(SELECAO);
+  if (error && colunaDaPrefeitaAusente(error)) {
+    ({ data, error } = await buscar(SELECAO_SEM_PREFEITA));
+  }
   if (error) throw error;
   return data;
 }
@@ -420,7 +456,9 @@ export async function salvarProcessoServico(processoAnterior, formulario, { sile
  * aqui é só o que o gatilho trata como controle, para que quem tem permissão de
  * finalizar não precise também de permissão de editar.
  */
-const CAMPOS_CONGELADOS = ["identidade_visual"];
+// A identidade visual e a prefeita que autoriza: as duas congeladas no mesmo
+// update da situação, e as duas recusadas pelo gatilho depois disso.
+const CAMPOS_CONGELADOS = ["identidade_visual", "prefeita"];
 
 function colunasDeCongelamento(congelado) {
   const linha = {};
@@ -438,13 +476,22 @@ function colunasDeCongelamento(congelado) {
  * como pago e não mexe na Programação Diária. Salva o conteúdo atual junto, para
  * que o que foi finalizado seja exatamente o que estava na tela.
  *
- * CONGELA, no mesmo update, a identidade visual em vigor: trocar o brasão ou o
- * rodapé depois disto NÃO altera este processo -- ele passa a imprimir do que
- * guardou, e o gatilho do banco recusa qualquer reescrita do congelado.
+ * CONGELA, no mesmo update, a identidade visual em vigor E OS DADOS DA PREFEITA
+ * que autoriza: trocar o brasão, o rodapé ou o cadastro da prefeita depois disto
+ * NÃO altera este processo -- ele passa a imprimir do que guardou, e o gatilho do
+ * banco recusa qualquer reescrita do congelado. ⚠️ É esta regra que faz a
+ * MUDANÇA DE GESTÃO não reescrever documento antigo.
  *
- * @param identidade a identidade visual vigente no momento da finalização.
+ * @param identidade  a identidade visual vigente no momento da finalização.
+ * @param logoSistema a logomarca cadastrada do sistema, para o congelamento da
+ *                    identidade guardar a imagem que a folha realmente imprime.
+ * @param prefeita    a prefeita vigente no cadastro no momento da finalização.
  */
-export async function finalizarProcessoServico(processoAnterior, formulario, { identidade = null } = {}) {
+export async function finalizarProcessoServico(
+  processoAnterior,
+  formulario,
+  { identidade = null, logoSistema = null, prefeita = null } = {},
+) {
   const id = processoAnterior?.id ?? formulario?.id;
   if (!id) throw new Error("Processo sem identificador: não há o que finalizar.");
 
@@ -456,12 +503,19 @@ export async function finalizarProcessoServico(processoAnterior, formulario, { i
   // permissões de quem só pode finalizar.
   await salvarProcessoServico(processoAnterior, formulario, { silencioso: true });
 
-  const congelado = colunasDeCongelamento(identidade ? congelarIdentidadeNoProcesso(identidade) : {});
+  const congelado = colunasDeCongelamento({
+    ...(identidade ? congelarIdentidadeNoProcesso(identidade, logoSistema) : {}),
+    ...(prefeita ? congelarPrefeitaNoProcesso(prefeita) : {}),
+  });
 
-  const { data, error } = await supabase
+  // A gravação da finalização. Em banco onde a migration do cadastro da
+  // prefeita ainda não rodou, a coluna `prefeita` não existe: a finalização
+  // repete SEM ela em vez de falhar -- fechar o documento não pode depender de
+  // um cadastro novo.
+  const gravar = (colunas, selecao) => supabase
     .from(TABELA_SERVICOS)
     .update({
-      ...congelado,
+      ...colunas,
       situacao: "finalizada",
       finalizada_em: agora,
       finalizada_por: autor,
@@ -469,8 +523,15 @@ export async function finalizarProcessoServico(processoAnterior, formulario, { i
       atualizado_por: autor,
     })
     .eq("id", id)
-    .select(SELECAO)
+    .select(selecao)
     .single();
+
+  let { data, error } = await gravar(congelado, SELECAO);
+  if (error && colunaDaPrefeitaAusente(error)) {
+    // A trilha também deixa de anunciar o congelamento que não aconteceu.
+    delete congelado.prefeita;
+    ({ data, error } = await gravar(congelado, SELECAO_SEM_PREFEITA));
+  }
   if (error) throw error;
 
   await registrarTrilha({

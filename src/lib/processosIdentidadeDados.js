@@ -15,7 +15,7 @@
 import { supabase } from "./supabaseClient.js";
 import { registrarEvento } from "./auditoria.js";
 import { erroAmigavel, mensagemAmigavel } from "./erros.js";
-import { BUCKET_CONFIGURACOES, LIMITE_LOGO_MB } from "./configuracoesSistema.js";
+import { enviarImagemDeIdentidade } from "./logomarcaEnvio.js";
 import { MODULO_DIARIAS } from "./processosDiarias.js";
 import {
   IDENTIDADE_PADRAO,
@@ -30,6 +30,9 @@ const TABELA_CONFIGURACOES = "configuracoes_sistema";
 
 /** Chave da linha de configuração desta identidade. */
 export const CHAVE_PROCESSOS = "processos";
+
+/** Chave da categoria Geral, de onde sai a logomarca do sistema (Aparência). */
+export const CHAVE_GERAL = "geral";
 
 /** Pasta do Storage onde o brasão dos documentos é guardado. */
 export const PASTA_BRASAO = "processos-brasao";
@@ -89,6 +92,36 @@ export async function carregarIdentidadeProcessos() {
     throw erroAmigavel(
       mensagemAmigavel(e, "Não foi possível carregar a identidade visual dos documentos."),
     );
+  }
+}
+
+/**
+ * A LOGOMARCA DO SISTEMA (Configurações -> Aparência), só o endereço da imagem.
+ *
+ * Existe porque o documento precisa imprimir A LOGOMARCA QUE ESTÁ CADASTRADA.
+ * Quem cadastrou a imagem em Aparência e não em Processos -> Identidade visual
+ * via o documento sair com o brasão genérico do repositório, como se nada
+ * estivesse cadastrado. Esta leitura é o segundo degrau da escolha feita por
+ * `logoDoDocumento`: brasão dos documentos, depois logomarca do sistema, e só
+ * então o brasão do repositório.
+ *
+ * Banco sem a linha, sem a coluna ou sem permissão de leitura devolve null --
+ * nunca derruba a tela nem impede o documento de sair.
+ */
+export async function carregarLogomarcaDoSistema() {
+  try {
+    const { data, error } = await supabase
+      .from(TABELA_CONFIGURACOES)
+      .select("valor")
+      .eq("chave", CHAVE_GERAL)
+      .limit(1);
+    if (error) throw error;
+    const url = String(data?.[0]?.valor?.logo_url ?? "").trim();
+    return url === "" ? null : url;
+  } catch {
+    // A logomarca do sistema é um degrau opcional: sem ela o documento segue
+    // para o degrau seguinte da escolha, sem erro na tela.
+    return null;
   }
 }
 
@@ -156,38 +189,23 @@ export async function salvarIdentidadeProcessos(identidadeAnterior, valores) {
  * ---------------------------------------------------------------------- */
 
 /**
- * Envia o brasão para o Storage e devolve a URL pública.
+ * Envia o brasão dos documentos para o Storage e devolve a URL pública.
  *
  * Reaproveita o bucket 'configuracoes' que a logomarca do sistema já usa, em
  * pasta própria: o brasão dos documentos é uma imagem SEPARADA da logomarca das
  * telas, e uma não substitui a outra.
+ *
+ * O envio em si é o de src/lib/logomarcaEnvio.js, com as regras de formato,
+ * redução e tradução da falha em src/lib/logomarcaImagem.js -- a ORIGEM ÚNICA, a mesma que
+ * Configurações -> Aparência usa. Antes havia aqui uma cópia das mesmas regras,
+ * e a recusa do servidor virava "Não foi possível enviar o brasão. Tente outra
+ * imagem", escondendo o motivo real. Corrigir na origem conserta as duas telas.
  */
 export async function enviarBrasaoProcessos(arquivo) {
-  if (!arquivo) throw erroAmigavel("Escolha uma imagem para o brasão.");
-  if (!/^image\//.test(arquivo.type ?? "")) {
-    throw erroAmigavel("O brasão precisa ser uma imagem (PNG, SVG ou JPG).");
-  }
-  if (arquivo.size > LIMITE_LOGO_MB * 1024 * 1024) {
-    throw erroAmigavel(`A imagem é grande demais. Envie um arquivo de até ${LIMITE_LOGO_MB} MB.`);
-  }
-
-  const extensao = (String(arquivo.name ?? "").split(".").pop() || "png")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  const aleatorio = Math.random().toString(36).slice(2, 8);
-  const caminho = `${PASTA_BRASAO}/${Date.now()}-${aleatorio}.${extensao || "png"}`;
-
-  const { error } = await supabase.storage.from(BUCKET_CONFIGURACOES).upload(caminho, arquivo, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: arquivo.type || undefined,
+  return enviarImagemDeIdentidade(arquivo, {
+    pasta: PASTA_BRASAO,
+    rotuloDaImagem: "a imagem do brasão",
   });
-  if (error) {
-    throw erroAmigavel(mensagemAmigavel(error, "Não foi possível enviar o brasão. Tente outra imagem."));
-  }
-
-  const { data } = supabase.storage.from(BUCKET_CONFIGURACOES).getPublicUrl(caminho);
-  return data.publicUrl;
 }
 
 /* -------------------------------------------------------------------------

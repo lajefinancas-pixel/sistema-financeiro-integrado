@@ -10,14 +10,17 @@
 
 import { supabase } from "./supabaseClient";
 import { erroAmigavel, mensagemAmigavel } from "./erros";
+import { enviarImagemDeIdentidade } from "./logomarcaEnvio";
 import { emailValido } from "./usuariosEquipe";
 import { buscarPaginado } from "./saldosContasDados";
 import { limparCachePreferenciasNotificacao } from "./notificacoes";
 
 const TABELA = "configuracoes_sistema";
 
-/** Bucket público da logomarca (criado pela mesma migration). */
-export const BUCKET_CONFIGURACOES = "configuracoes";
+// O bucket e o limite da imagem moram na origem única do envio
+// (src/lib/logomarcaEnvio.js) e saem daqui por reexportação, para que as telas e
+// a identidade visual de Processos continuem importando do mesmo lugar de antes.
+export { BUCKET_CONFIGURACOES, LIMITE_LOGO_MB } from "./logomarcaEnvio";
 
 export const CHAVE_GERAL = "geral";
 export const CHAVE_SEGURANCA = "seguranca";
@@ -168,9 +171,6 @@ export const NOTIFICACOES_PADRAO = Object.fromEntries(
 // Faixas aceitas na política de senha/sessão.
 export const LIMITE_SESSAO = { minimo: 5, maximo: 1440 };
 export const LIMITE_TENTATIVAS = { minimo: 1, maximo: 20 };
-
-/** Tamanho máximo da logomarca enviada ao Storage. */
-export const LIMITE_LOGO_MB = 2;
 
 /**
  * Categoria Aparência.
@@ -531,33 +531,22 @@ export async function salvarLogomarcaSistema(geralAtual, logoUrl) {
  * Logomarca
  * ---------------------------------------------------------------------- */
 
-/** Envia a logomarca para o Storage e devolve a URL pública. */
+/**
+ * Envia a logomarca do sistema para o Storage e devolve a URL pública.
+ *
+ * A validação, a redução da imagem grande, a tradução da recusa do servidor e o
+ * registro do erro técnico no console ficam em src/lib/logomarcaImagem.js, e o
+ * envio em si em src/lib/logomarcaEnvio.js -- a ORIGEM ÚNICA, a mesma que a
+ * identidade visual de Processos usa.
+ * Antes esta função tinha cópia própria dessas regras e trocava o motivo real da
+ * falha por "Não foi possível enviar a logomarca. Tente outra imagem", que era o
+ * que a tela mostrava para qualquer imagem.
+ */
 export async function enviarLogomarca(arquivo) {
-  if (!arquivo) throw erroAmigavel("Escolha uma imagem para a logomarca.");
-  if (!/^image\//.test(arquivo.type ?? "")) {
-    throw erroAmigavel("A logomarca precisa ser uma imagem (JPG, PNG ou SVG).");
-  }
-  if (arquivo.size > LIMITE_LOGO_MB * 1024 * 1024) {
-    throw erroAmigavel(`A imagem é grande demais. Envie um arquivo de até ${LIMITE_LOGO_MB} MB.`);
-  }
-
-  const extensao = (arquivo.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const aleatorio = Math.random().toString(36).slice(2, 8);
-  const caminho = `logomarca/${Date.now()}-${aleatorio}.${extensao || "png"}`;
-
-  const { error } = await supabase.storage.from(BUCKET_CONFIGURACOES).upload(caminho, arquivo, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: arquivo.type || undefined,
+  return enviarImagemDeIdentidade(arquivo, {
+    pasta: "logomarca",
+    rotuloDaImagem: "a logomarca",
   });
-  if (error) {
-    throw erroAmigavel(
-      mensagemAmigavel(error, "Não foi possível enviar a logomarca. Tente outra imagem.")
-    );
-  }
-
-  const { data } = supabase.storage.from(BUCKET_CONFIGURACOES).getPublicUrl(caminho);
-  return data.publicUrl;
 }
 
 /* -------------------------------------------------------------------------

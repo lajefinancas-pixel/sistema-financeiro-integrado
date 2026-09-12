@@ -19,6 +19,11 @@ import {
   podeVerServicos,
   resolverPermissoesServicos,
 } from "./processosServicos.js";
+import {
+  MODULO_PREFEITA,
+  PERMISSOES_PREFEITA_NENHUMA,
+  resolverPermissoesPrefeita,
+} from "./processosPrefeita.js";
 
 /**
  * As permissões próprias do módulo PROCESSOS, lidas do banco para a tela.
@@ -54,6 +59,13 @@ import {
  * criar, editar ou inativar servidores do município. Escolher um servidor já
  * cadastrado ao montar o documento exige só a permissão de visualizar.
  *
+ * O cadastro da PREFEITA tem a sua linha, e é RESTRITA:
+ *
+ *   processos_prefeita         visualizar | EDITAR o cadastro
+ *
+ * É quem AUTORIZA os documentos. Consultar acompanha quem vê o módulo, porque o
+ * documento imprime o nome; editar não se herda de nenhuma outra permissão.
+ *
  * A ordem de decisão é das funções puras `resolverPermissoesDiarias` e
  * `resolverPermissoesServidores`, em lib/processosDiarias.js e
  * lib/processosServidores.js. Nenhuma permissão existente muda: isto só
@@ -74,6 +86,9 @@ const MODULOS_DO_MENU = [
   ...MODULOS_PROCESSOS,
   ...MODULOS_PROCESSOS_SERVICOS,
   MODULO_SERVIDORES,
+  // O cadastro da PREFEITA não é subaba do menu: entra na consulta porque as
+  // páginas precisam saber se quem está na tela pode editá-lo.
+  MODULO_PREFEITA,
 ];
 
 /**
@@ -102,6 +117,7 @@ export async function carregarPermissoesDeProcessos() {
       permissoes: PERMISSOES_DIARIAS_NENHUMA,
       permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
       permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
+      permissoesPrefeita: PERMISSOES_PREFEITA_NENHUMA,
     };
   }
 
@@ -117,6 +133,7 @@ export async function carregarPermissoesDeProcessos() {
     permissoes: resolverPermissoesDiarias({ linhas: linhas ?? [] }),
     permissoesServicos: resolverPermissoesServicos({ linhas: linhas ?? [] }),
     permissoesServidores: resolverPermissoesServidores({ linhas: linhas ?? [] }),
+    permissoesPrefeita: resolverPermissoesPrefeita({ linhas: linhas ?? [] }),
   };
 }
 
@@ -134,6 +151,7 @@ export function usePermissoesProcessos() {
     permissoes: PERMISSOES_DIARIAS_NENHUMA,
     permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
     permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
+    permissoesPrefeita: PERMISSOES_PREFEITA_NENHUMA,
     erro: null,
   });
 
@@ -142,7 +160,7 @@ export function usePermissoesProcessos() {
 
     async function carregar() {
       try {
-        const { usuario, permissoes, permissoesServicos, permissoesServidores } =
+        const { usuario, permissoes, permissoesServicos, permissoesServidores, permissoesPrefeita } =
           await carregarPermissoesDeProcessos();
         if (ativo) {
           setEstado({
@@ -151,6 +169,7 @@ export function usePermissoesProcessos() {
             permissoes,
             permissoesServicos,
             permissoesServidores,
+            permissoesPrefeita,
             erro: null,
           });
         }
@@ -163,6 +182,7 @@ export function usePermissoesProcessos() {
             permissoes: PERMISSOES_DIARIAS_NENHUMA,
             permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
             permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
+            permissoesPrefeita: PERMISSOES_PREFEITA_NENHUMA,
             erro: mensagemAmigavel(falha, "Não foi possível verificar suas permissões."),
           });
         }

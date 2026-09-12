@@ -132,14 +132,35 @@ export function atualizarRodapeLegado(bruta) {
   return origem;
 }
 
-/** A imagem que o documento deve usar: a enviada, ou o brasão do repositório. */
-export function logoDoDocumento(identidade) {
-  return normalizarIdentidade(identidade).logo_url ?? BRASAO_ARQUIVO;
+/**
+ * A imagem que o documento deve IMPRIMIR, na ordem que o comando pede.
+ *
+ * ⚠️ A ORDEM IMPORTA, e ela é esta:
+ *
+ *   1. a imagem enviada em Configurações → Processos → Identidade visual;
+ *   2. senão, a LOGOMARCA CADASTRADA DO SISTEMA (Configurações → Aparência);
+ *   3. só então o brasão do repositório.
+ *
+ * O brasão embutido no código é ÚLTIMO RECURSO: ele só aparece quando nenhuma
+ * imagem foi cadastrada. Antes desta entrega o passo 2 não existia, e o
+ * documento saía com o brasão genérico do código mesmo havendo logomarca
+ * cadastrada -- era o "brasão diferente do cadastrado" visto na pré-visualização.
+ *
+ * `logoDoSistema` é a URL vinda de `configuracoes_sistema.geral.logo_url`. Sem
+ * ela (tela que não a carregou, ou banco que não a tem) o comportamento é
+ * exatamente o de antes.
+ */
+export function logoDoDocumento(identidade, logoDoSistema = null) {
+  const daIdentidade = normalizarIdentidade(identidade).logo_url;
+  if (daIdentidade !== null) return daIdentidade;
+  const doSistema = texto(logoDoSistema);
+  if (doSistema !== "") return doSistema;
+  return BRASAO_ARQUIVO;
 }
 
-/** true quando o documento sai com o brasão do repositório, não com um enviado. */
-export function usaBrasaoDoRepositorio(identidade) {
-  return normalizarIdentidade(identidade).logo_url === null;
+/** true quando o documento sai com o brasão do repositório, não com um cadastrado. */
+export function usaBrasaoDoRepositorio(identidade, logoDoSistema = null) {
+  return logoDoDocumento(identidade, logoDoSistema) === BRASAO_ARQUIVO;
 }
 
 /* -------------------------------------------------------------------------
@@ -176,8 +197,21 @@ export function temIdentidadeCongelada(processo) {
  * a URL congelada continua apontando para a imagem daquela época mesmo depois de
  * a prefeitura trocar o brasão.
  */
-export function congelarIdentidadeNoProcesso(identidade) {
-  return { identidade_visual: normalizarIdentidade(identidade) };
+export function congelarIdentidadeNoProcesso(identidade, logoDoSistema = null) {
+  const pronta = normalizarIdentidade(identidade);
+  // A IMAGEM CONGELADA É A QUE A FOLHA IMPRIMIA. Sem imagem própria dos
+  // Processos, o documento imprime a logomarca cadastrada do sistema -- então é
+  // ELA que fica gravada aqui. Guardar só o `null` deixaria o processo à mercê
+  // da logomarca de amanhã, e o congelamento existe justamente para isso não
+  // acontecer. Sem nada cadastrado em lugar nenhum, continua `null`: o brasão do
+  // repositório, que é desenhado e não carregado.
+  const endereco = logoDoDocumento(pronta, logoDoSistema);
+  return {
+    identidade_visual: {
+      ...pronta,
+      logo_url: endereco === BRASAO_ARQUIVO ? null : endereco,
+    },
+  };
 }
 
 /* -------------------------------------------------------------------------
