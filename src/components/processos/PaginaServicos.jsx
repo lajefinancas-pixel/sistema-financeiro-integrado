@@ -59,9 +59,12 @@ import {
 } from "../../lib/processosServicosDocumento.js";
 import {
   carregarIdentidadeProcessos,
+  carregarLogomarcaDoSistema,
   prepararLogoParaDocumento,
 } from "../../lib/processosIdentidadeDados.js";
 import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdentidade.js";
+import { carregarPrefeitas } from "../../lib/processosCadastrosDados.js";
+import { prefeitaVigente } from "../../lib/processosPrefeita.js";
 
 /**
  * A área de SERVIÇOS/MATERIAIS: a lista dos processos e tudo o que se faz com um.
@@ -122,10 +125,29 @@ export default function PaginaServicos({
   // A IDENTIDADE VISUAL vigente, lida uma vez: ela alimenta a folha (brasão e
   // rodapé). Esta tela só a lê; quem a configura é Configurações → Processos.
   const [identidade, setIdentidade] = React.useState(null);
+  // A LOGOMARCA CADASTRADA do sistema (Configurações -> Aparência) e a PREFEITA
+  // em vigor. A logomarca é o segundo degrau da escolha do brasão do documento;
+  // a prefeita preenche, já pronta, a autorização e a identificação abaixo da
+  // linha de assinatura. Só leitura: esta tela não escreve nenhuma das duas.
+  const [logoSistema, setLogoSistema] = React.useState(null);
+  const [prefeita, setPrefeita] = React.useState(null);
 
   React.useEffect(() => {
     let vivo = true;
     (async () => {
+      try {
+        const url = await carregarLogomarcaDoSistema();
+        if (vivo) setLogoSistema(url);
+      } catch {
+        // Sem a logomarca do sistema o documento cai no degrau seguinte.
+      }
+      try {
+        const cadastradas = await carregarPrefeitas();
+        if (vivo) setPrefeita(prefeitaVigente(cadastradas));
+      } catch {
+        // Sem o cadastro da prefeita as linhas dela saem em branco, para
+        // completar à mão -- exatamente como era antes deste cadastro existir.
+      }
       try {
         const { identidade: atual } = await carregarIdentidadeProcessos();
         if (vivo) setIdentidade(atual);
@@ -254,7 +276,11 @@ export default function PaginaServicos({
       // ⚠️ O congelamento vai JUNTO com a finalização: a identidade visual fica
       // guardada dentro do processo. Trocar o brasão ou o rodapé depois disto
       // não altera este documento.
-      const atualizado = await finalizarProcessoServico(aberto?.processo, formulario, { identidade });
+      const atualizado = await finalizarProcessoServico(aberto?.processo, formulario, {
+        identidade,
+        logoSistema,
+        prefeita,
+      });
       setAberto(null);
       marcarSalvamento();
       setAviso(
@@ -311,12 +337,14 @@ export default function PaginaServicos({
    */
   async function dadosParaSaida(processo) {
     const daFolha = identidadeDoProcesso(processo, identidade);
-    const logo = await prepararLogoParaDocumento(logoDoDocumento(daFolha));
+    const logo = await prepararLogoParaDocumento(logoDoDocumento(daFolha, logoSistema));
     return dadosDoDocumento(processo, {
       secretarias,
       emissor: usuario?.nome_completo ?? "",
       identidade: daFolha,
       logo,
+      logoSistema,
+      prefeita,
     });
   }
 
@@ -623,6 +651,8 @@ export default function PaginaServicos({
           secretarias={secretarias}
           emissor={usuario?.nome_completo ?? ""}
           identidade={identidade}
+          logoSistema={logoSistema}
+          prefeita={prefeita}
           onFechar={() => setPrevia(null)}
           onImprimir={(escopo) => imprimir(previa, escopo)}
           onGerarPdf={(escopo) => gerarPdf(previa, escopo)}

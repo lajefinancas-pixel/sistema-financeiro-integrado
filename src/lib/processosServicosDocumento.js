@@ -61,6 +61,7 @@ import {
   destinoDaLiquidacao,
 } from "./processosEncaminhamento.js";
 import {
+  BRASAO_ARQUIVO,
   BRASAO_SVG,
   IDENTIDADE_PADRAO,
   identidadeDoProcesso,
@@ -68,6 +69,7 @@ import {
   normalizarIdentidade,
 } from "./processosIdentidade.js";
 import { bancoDoDocumento } from "./processosBancos.js";
+import { prefeitaDoProcesso } from "./processosPrefeita.js";
 
 /**
  * O cabeçalho institucional de fábrica.
@@ -130,7 +132,7 @@ const TINTA = {
 };
 
 // A4 retrato. A margem de baixo é maior porque o rodapé institucional tem três
-// linhas, mais a linha de emissão.
+// linhas: endereço com CEP, contato e CNPJ.
 const PAGINA = { largura: 210, altura: 297, margemTopo: 10, margemBase: 18, margemLado: 13 };
 
 /**
@@ -179,11 +181,11 @@ export function agoraBR() {
  * Documento já finalizado imprime o brasão que congelou, e uma imagem preparada
  * a partir de outra URL é descartada em favor do desenho vetorial.
  */
-function logoAceito(logo, identidade) {
+function logoAceito(logo, enderecoDaFolha) {
   if (!logo || !logo.dataUrl) return null;
   const origem = texto(logo.url);
   if (origem === "") return null;
-  return origem === logoDoDocumento(identidade) ? logo : null;
+  return origem === texto(enderecoDaFolha) ? logo : null;
 }
 
 /**
@@ -297,18 +299,38 @@ function linhasDoQuadroDescritivo(processo) {
  */
 export function dadosDoDocumento(
   processo,
-  { secretarias = [], emissor = "", emissao = null, identidade = null, logo = null } = {},
+  {
+    secretarias = [],
+    emissor = "",
+    emissao = null,
+    identidade = null,
+    logo = null,
+    logoSistema = null,
+    prefeita = null,
+  } = {},
 ) {
   const p = processo ?? {};
   const secretaria = nomeDaSecretaria(p, secretarias);
   const identidadeDaFolha = identidadeDoProcesso(p, identidade);
+  // O ENDEREÇO DA IMAGEM QUE ESTA FOLHA IMPRIME: a imagem da identidade dos
+  // Processos, senão a logomarca cadastrada do sistema (Configurações →
+  // Aparência), senão o brasão do repositório.
+  const logoEndereco = logoDoDocumento(identidadeDaFolha, logoSistema);
 
   return {
     // ⚠️ A IDENTIDADE VISUAL DA FOLHA. Processo já finalizado imprime a que ele
     // congelou; rascunho imprime a vigente. Trocar o brasão ou o rodapé hoje
     // não reescreve o documento emitido antes.
     identidade: identidadeDaFolha,
-    logo: logoAceito(logo, identidadeDaFolha),
+    // A imagem do cabeçalho. Imagem cadastrada tem preferência sobre o desenho
+    // embutido no código, que é último recurso.
+    logoEndereco,
+    logo: logoAceito(logo, logoEndereco),
+
+    // ⚠️ A PREFEITA QUE AUTORIZA. Processo já finalizado imprime a que ele
+    // congelou; rascunho imprime a vigente no cadastro. Trocar o cadastro
+    // (mudança de gestão) NÃO reescreve documento já finalizado.
+    prefeita: prefeitaDoProcesso(p, prefeita),
 
     // O número existe para o sistema e para o nome do arquivo. NÃO É IMPRESSO.
     numero: numeroDoProcesso(p) || SEM_REGISTRO,
@@ -321,6 +343,9 @@ export function dadosDoDocumento(
     secretaria: ou(secretaria),
     // O "REQUISITANTE:" das DUAS páginas: a secretaria solicitante.
     requisitante: requisitanteDe(secretaria),
+    // Emissão e emissor NÃO saem no papel: são informação de sistema. Ficam no
+    // dado do documento porque o histórico do processo, dentro do sistema, os
+    // mostra na tela -- e só ali.
     emissao: emissao || agoraBR(),
     emissor: ou(emissor),
 
@@ -431,7 +456,9 @@ function brasaoSvg(lado) {
 
 /** O brasão do CABEÇALHO, em TODAS as folhas. */
 function brasaoDoDocumento(dados, lado) {
-  const url = texto(dados?.logo?.dataUrl) || texto(dados?.identidade?.logo_url);
+  const endereco = texto(dados?.logoEndereco) || texto(dados?.identidade?.logo_url);
+  // O desenho vetorial só entra quando NÃO existe imagem cadastrada.
+  const url = texto(dados?.logo?.dataUrl) || (endereco === BRASAO_ARQUIVO ? "" : endereco);
   if (url === "") return brasaoSvg(lado);
   return `<img class="brasao" src="${escapar(url)}" alt="${escapar(dados?.identidade?.orgao ?? "")}"`
     + ` style="height:${lado}mm;max-width:${(lado * 1.6).toFixed(1)}mm">`;
@@ -540,7 +567,6 @@ function estilos() {
     .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
       border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
     .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
-    .rodape .emissao { margin-top: .6mm; font-size: 6.5pt; }
   `;
 }
 
@@ -594,8 +620,10 @@ function opcoesHtml(opcoes, { marca = "[", fecha = "]" } = {}) {
 /**
  * O rodapé institucional, igual em todas as folhas.
  *
- * Endereço com CEP, contato, CNPJ e a linha de emissão. Sem número de processo e
- * sem numeração de folha.
+ * Endereço com CEP, contato e CNPJ, em três linhas. NADA de informação de
+ * sistema: quem emitiu e quando não pertencem ao documento oficial -- isso fica
+ * só no histórico do processo, dentro do sistema. Sem número de processo e sem
+ * numeração de folha.
  */
 function rodapeHtml(dados) {
   const identidade = normalizarIdentidade(dados?.identidade);
@@ -604,7 +632,6 @@ function rodapeHtml(dados) {
     + `<div class="endereco">${escapar(identidade.rodape_endereco)}</div>`
     + `<div>${escapar(identidade.rodape_contato)}</div>`
     + cnpj
-    + `<div class="emissao">Emitido em ${escapar(dados.emissao)} por ${escapar(dados.emissor)}</div>`
     + `</div>`;
 }
 
@@ -614,6 +641,25 @@ function assinaturaHtml(nome, papel, cargo = "") {
     + `<strong>${nome ? escapar(nome) : "&nbsp;"}</strong>${escapar(papel)}`
     + (cargo ? `<span class="cargo">${escapar(cargo)}</span>` : "")
     + `</div>`;
+}
+
+/**
+ * A assinatura da PREFEITA nas caixas de CIENTE/AUTORIZO.
+ *
+ * Nome e cargo vêm do cadastro de Configurações → Processos → Prefeita, sem
+ * redigitação em cada processo, e a identificação abaixo da linha sai pronta.
+ * `comCpf` acrescenta o CPF: ele cabe na caixa larga da página 2, e ficaria
+ * apertado na caixa estreita da página 1. Sem cadastro, a linha sai só com o
+ * traço e o rótulo PREFEITA, para assinar e identificar à mão -- como antes.
+ */
+function assinaturaDaPrefeitaHtml(prefeita, { comCpf = false } = {}) {
+  const partes = [texto(prefeita?.cargo)];
+  if (comCpf) partes.push(texto(prefeita?.cpf) === "" ? "" : `CPF: ${texto(prefeita.cpf)}`);
+  return assinaturaHtml(
+    texto(prefeita?.nome),
+    "PREFEITA",
+    partes.filter((parte) => parte !== "").join(" — "),
+  );
 }
 
 /**
@@ -668,7 +714,7 @@ function folhaRequisicao(dados) {
     + `<p>${escapar(DESPACHO_PAGINA_1)} <span class="preenchido">${escapar(dados.requisicao.despacho)}</span></p>`
     + `<p>Para providências que o caso requer</p>`
     + `<p>${escapar(dados.requisicao.emData)}</p>`
-    + assinaturaHtml("", "PREFEITA")
+    + assinaturaDaPrefeitaHtml(dados.prefeita)
     + `</div>`
     + `</div>`
 
@@ -716,7 +762,7 @@ function folhaLiquidacao(dados) {
     + `<p class="ciente">CIENTE/AUTORIZO</p>`
     + `<p>À ${escapar(dados.liquidacao.destino)}</p>`
     + `<p>Para providências que o caso requer &nbsp; ${escapar(dados.liquidacao.emData)}</p>`
-    + assinaturaHtml("", "PREFEITA")
+    + assinaturaDaPrefeitaHtml(dados.prefeita, { comCpf: true })
     + `</div>`
 
     + `<p class="local-data">${escapar(dados.liquidacao.localEData)}</p>`
@@ -891,18 +937,9 @@ function criarPincel(pdf, dados) {
 
     // A linha do CNPJ sai só quando existe: identidade congelada antiga trazia
     // o CNPJ junto do contato, e repeti-lo seria erro no documento.
-    let ultima = y + 6.4;
     if (identidade.rodape_cnpj !== "") {
       textoQueCabe(identidade.rodape_cnpj, largura / 2, y + 9.4, 7, util, "center");
-      ultima = y + 9.4;
     }
-
-    // A linha de emissão. SEM número de processo e SEM numeração de folha.
-    pdf.setFontSize(6.5);
-    pdf.text(
-      `Emitido em ${dados.emissao} por ${dados.emissor}`,
-      largura / 2, ultima + 3, { align: "center" },
-    );
   };
 
   const cabecalho = (continuacao) => {
@@ -1458,7 +1495,12 @@ function paginaRequisicaoPdf(pincel, dados) {
         pincel.linha(DESPACHO_PAGINA_1, dados.requisicao.despacho);
         pincel.paragrafo("Para providências que o caso requer");
         pincel.paragrafo(dados.requisicao.emData);
-        pincel.assinatura({ papel: "PREFEITA" });
+        // Nome e cargo saem do cadastro da prefeita, sem redigitação.
+        pincel.assinatura({
+          nome: dados.prefeita.nome,
+          papel: "PREFEITA",
+          cargo: dados.prefeita.cargo,
+        });
       });
     },
   });
@@ -1529,7 +1571,14 @@ function paginaLiquidacaoPdf(pincel, dados) {
     pincel.paragrafo("CIENTE/AUTORIZO", { negrito: true });
     pincel.paragrafo(`À ${dados.liquidacao.destino}`);
     pincel.paragrafo(`Para providências que o caso requer     ${dados.liquidacao.emData}`);
-    pincel.assinatura({ papel: "PREFEITA" });
+    // A caixa desta folha é larga: cabe o CPF junto do cargo na identificação.
+    pincel.assinatura({
+      nome: dados.prefeita.nome,
+      papel: "PREFEITA",
+      cargo: [dados.prefeita.cargo, dados.prefeita.cpf === "" ? "" : `CPF: ${dados.prefeita.cpf}`]
+        .filter((parte) => parte !== "")
+        .join(" — "),
+    });
   });
 
   pincel.localData(dados.liquidacao.localEData);

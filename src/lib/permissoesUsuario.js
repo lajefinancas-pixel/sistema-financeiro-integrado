@@ -56,6 +56,11 @@ export const MODULOS = [
   // passa a poder criar, editar ou inativar servidores. Não é o cadastro de
   // fornecedores e não concede nada sobre ele.
   { id: "processos_servidores", label: "Processos · Servidores" },
+  // PROCESSOS · Prefeita: o cadastro de quem chefia o Poder Executivo e
+  // AUTORIZA os documentos. Módulo próprio e RESTRITO pela mesma razão da
+  // Tabela de Diárias: quem preenche um processo não passa a poder trocar quem
+  // autoriza os documentos do município.
+  { id: "processos_prefeita", label: "Processos · Prefeita (cadastro)" },
 ];
 
 export const ACOES = [
@@ -186,6 +191,18 @@ export const MODULO_PROCESSOS_DIARIAS_TABELA = "processos_diarias_tabela";
 export const MODULO_PROCESSOS_SERVIDORES = "processos_servidores";
 
 /**
+ * PROCESSOS · Prefeita é o cadastro da chefe do Poder Executivo, e tem módulo
+ * próprio porque a permissão de EDITAR é restrita:
+ *
+ *   processos_prefeita  visualizar | EDITAR o cadastro
+ *
+ * Consultar acompanha quem vê o módulo Processos -- o documento precisa do nome
+ * para imprimir. Editar é permissão à parte: mudar quem autoriza os documentos
+ * do município não acompanha quem preenche processo.
+ */
+export const MODULO_PROCESSOS_PREFEITA = "processos_prefeita";
+
+/**
  * PROCESSOS · Serviços/Materiais reparte as mesmas cinco colunas em dois
  * módulos, porque a área tem sete ações próprias:
  *
@@ -229,6 +246,13 @@ const ACOES_PROCESSOS_DIARIAS_TABELA = [
   { campo: "pode_editar", label: "Editar a tabela (afeta valores de diária)" },
 ];
 
+// O cadastro da PREFEITA tem duas ações: consultar (que acompanha quem vê o
+// módulo Processos) e EDITAR, restrita -- é quem autoriza os documentos.
+const ACOES_PROCESSOS_PREFEITA = [
+  { campo: "pode_visualizar", label: "Consultar o cadastro" },
+  { campo: "pode_editar", label: "Editar o cadastro da prefeita (quem autoriza os documentos)" },
+];
+
 const ACOES_PROCESSOS_SERVICOS = [
   { campo: "pode_visualizar", label: "Visualizar" },
   { campo: "pode_cadastrar", label: "Criar" },
@@ -266,6 +290,7 @@ export function acoesDoModulo(modulo) {
   if (modulo === MODULO_PROCESSOS_SERVICOS) return ACOES_PROCESSOS_SERVICOS;
   if (modulo === MODULO_PROCESSOS_SERVICOS_SAIDA) return ACOES_PROCESSOS_SERVICOS_SAIDA;
   if (modulo === MODULO_PROCESSOS_SERVIDORES) return ACOES_PROCESSOS_SERVIDORES;
+  if (modulo === MODULO_PROCESSOS_PREFEITA) return ACOES_PROCESSOS_PREFEITA;
   return ACOES;
 }
 

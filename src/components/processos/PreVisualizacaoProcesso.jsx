@@ -32,6 +32,8 @@ export default function PreVisualizacaoProcesso({
   secretarias = [],
   emissor = "",
   identidade = null,
+  logoSistema = null,
+  prefeita = null,
   ocupado = false,
   onFechar,
   onImprimir,
@@ -44,8 +46,8 @@ export default function PreVisualizacaoProcesso({
   // como entra na impressão -- processo finalizado mostra a que ele congelou,
   // rascunho mostra a vigente --, então a folha vista é a folha impressa.
   const dados = React.useMemo(
-    () => dadosDoDocumento(processo, { secretarias, emissor, identidade }),
-    [processo, secretarias, emissor, identidade],
+    () => dadosDoDocumento(processo, { secretarias, emissor, identidade, logoSistema, prefeita }),
+    [processo, secretarias, emissor, identidade, logoSistema, prefeita],
   );
   const html = React.useMemo(() => htmlDoProcesso(dados, { escopo }), [dados, escopo]);
   const folhas = folhasDoEscopo(escopo);

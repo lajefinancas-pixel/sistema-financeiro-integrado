@@ -1,8 +1,9 @@
 // Camada de dados dos CADASTROS PRÓPRIOS do módulo Processos:
-// SECRETARIAS SOLICITANTES e BANCOS.
+// SECRETARIAS SOLICITANTES, BANCOS e a PREFEITA (chefe do Poder Executivo).
 //
 // ⚠️ CONFIRA POR BUSCA. As únicas tabelas escritas aqui são
-// processos_secretarias_solicitantes, processos_bancos e auditoria_eventos.
+// processos_secretarias_solicitantes, processos_bancos, processos_prefeita e
+// auditoria_eventos.
 // NÃO aparecem neste arquivo: `secretarias`, `contas_bancarias`, `fornecedores`,
 // `pagamentos`, `pagamentos_baixas`, `valores_em_aberto`, `saldos_historico`,
 // `transferencias_contas` nem `programacoes_pagamento`. O cadastro de
@@ -28,6 +29,11 @@ import {
   numeroDoBancoFormatado,
   rotuloDoBanco,
 } from "./processosBancos.js";
+import {
+  TABELA_PREFEITA,
+  diferencaDaPrefeita,
+  prefeitaParaBanco,
+} from "./processosPrefeita.js";
 
 /* -------------------------------------------------------------------------
  * Banco sem a migration deste envio
@@ -47,7 +53,11 @@ export function estruturaDeCadastroAusente(erro) {
   if (CODIGOS_DE_ESTRUTURA.includes(codigo)) return true;
   const mensagem = String(erro?.message ?? "");
   if (/schema cache/i.test(mensagem)) return true;
-  return mensagem.includes(TABELA_SOLICITANTES) || mensagem.includes(TABELA_BANCOS);
+  return (
+    mensagem.includes(TABELA_SOLICITANTES)
+    || mensagem.includes(TABELA_BANCOS)
+    || mensagem.includes(TABELA_PREFEITA)
+  );
 }
 
 /** true quando o banco recusou por permissão (a RLS dos cadastros). */
@@ -303,6 +313,127 @@ export async function alternarSituacaoDoBanco(id, situacao, { anterior = null } 
   await auditar({
     acao: situacao === "inativo" ? "inativar_banco_processos" : "reativar_banco_processos",
     registro: rotuloDoBanco(data),
+    anterior: { situacao: anterior?.situacao ?? null },
+    novo: { situacao },
+  });
+  return data;
+}
+
+/* -------------------------------------------------------------------------
+ * A PREFEITA — chefe do Poder Executivo
+ * ---------------------------------------------------------------------- */
+
+const COLUNAS_PREFEITA = [
+  "id", "nome", "cpf", "cargo", "vigencia_inicio", "vigencia_fim",
+  "situacao", "criado_em", "atualizado_em",
+].join(",");
+
+/**
+ * Os cadastros da prefeita, do mais recente para o mais antigo.
+ *
+ * A lista é histórica de propósito: mudança de gestão entra como LINHA NOVA, e a
+ * anterior continua no cadastro. Processos já finalizados não dependem desta
+ * consulta -- eles imprimem o que congelaram.
+ *
+ * Devolve lista vazia quando a estrutura ainda não existe: o módulo continua
+ * abrindo, e os documentos saem com a identificação em branco, como antes.
+ */
+export async function carregarPrefeitas({ apenasAtivas = false } = {}) {
+  let consulta = supabase
+    .from(TABELA_PREFEITA)
+    .select(COLUNAS_PREFEITA)
+    .order("vigencia_inicio", { ascending: false, nullsFirst: false })
+    .order("criado_em", { ascending: false });
+  if (apenasAtivas) consulta = consulta.eq("situacao", "ativo");
+
+  const { data, error } = await consulta;
+  if (error) {
+    if (estruturaDeCadastroAusente(error)) return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/**
+ * Cadastra a prefeita.
+ *
+ * ⚠️ NÃO altera documento nenhum: quem já foi finalizado guardou dentro de si a
+ * identificação que imprimiu. Este cadastro vale para os processos daqui para a
+ * frente.
+ */
+export async function criarPrefeita(formulario) {
+  const autor = await usuarioAtualId();
+  const linha = {
+    ...prefeitaParaBanco(formulario),
+    criado_por: autor,
+    atualizado_por: autor,
+  };
+
+  const { data, error } = await supabase
+    .from(TABELA_PREFEITA)
+    .insert(linha)
+    .select(COLUNAS_PREFEITA)
+    .single();
+  if (error) throw error;
+
+  await auditar({ acao: "cadastrar_prefeita", registro: data?.nome ?? "", novo: linha });
+  return data;
+}
+
+/**
+ * Salva a edição do cadastro da prefeita.
+ *
+ * ⚠️ ISTO NUNCA REESCREVE DOCUMENTO FINALIZADO. O processo finalizado gravou o
+ * nome, o CPF e o cargo vigentes no ato da finalização, e o gatilho do banco
+ * recusa qualquer reescrita desse congelamento. Mudança de gestão vale para os
+ * processos seguintes.
+ */
+export async function salvarPrefeita(id, formulario, { anterior = null } = {}) {
+  const autor = await usuarioAtualId();
+  const linha = {
+    ...prefeitaParaBanco(formulario),
+    atualizado_em: new Date().toISOString(),
+    atualizado_por: autor,
+  };
+
+  const { data, error } = await supabase
+    .from(TABELA_PREFEITA)
+    .update(linha)
+    .eq("id", id)
+    .select(COLUNAS_PREFEITA)
+    .single();
+  if (error) throw error;
+
+  const mudou = diferencaDaPrefeita(anterior, data);
+  await auditar({
+    acao: "editar_prefeita",
+    registro: data?.nome ?? "",
+    anterior: mudou.anterior,
+    novo: mudou.novo,
+  });
+  return data;
+}
+
+/**
+ * Inativa ou reativa o cadastro.
+ *
+ * A exclusão é LÓGICA, como nos outros cadastros do módulo: a linha nunca é
+ * apagada, porque ela é a memória de quem autorizava os documentos daquela
+ * época. Inativada, ela deixa de alimentar documento novo.
+ */
+export async function alternarSituacaoDaPrefeita(id, situacao, { anterior = null } = {}) {
+  const autor = await usuarioAtualId();
+  const { data, error } = await supabase
+    .from(TABELA_PREFEITA)
+    .update({ situacao, atualizado_em: new Date().toISOString(), atualizado_por: autor })
+    .eq("id", id)
+    .select(COLUNAS_PREFEITA)
+    .single();
+  if (error) throw error;
+
+  await auditar({
+    acao: situacao === "inativo" ? "inativar_prefeita" : "reativar_prefeita",
+    registro: data?.nome ?? "",
     anterior: { situacao: anterior?.situacao ?? null },
     novo: { situacao },
   });

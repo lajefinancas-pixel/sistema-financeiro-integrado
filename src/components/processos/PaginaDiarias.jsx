@@ -57,9 +57,12 @@ import {
 import { carregarTabelaVigente } from "../../lib/processosDiariasTabelaDados.js";
 import {
   carregarIdentidadeProcessos,
+  carregarLogomarcaDoSistema,
   prepararLogoParaDocumento,
 } from "../../lib/processosIdentidadeDados.js";
 import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdentidade.js";
+import { carregarPrefeitas } from "../../lib/processosCadastrosDados.js";
+import { prefeitaVigente } from "../../lib/processosPrefeita.js";
 
 /**
  * A área de DIÁRIAS: a lista dos processos de diária e tudo o que se faz com um.
@@ -119,6 +122,12 @@ export default function PaginaDiarias({
   // Nenhuma das duas é reescrita aqui: esta tela só as lê.
   const [tabela, setTabela] = React.useState(null);
   const [identidade, setIdentidade] = React.useState(null);
+  // A LOGOMARCA CADASTRADA do sistema (Configurações -> Aparência) e a PREFEITA
+  // em vigor. A logomarca é o segundo degrau da escolha do brasão do documento;
+  // a prefeita preenche, já pronta, a autorização e a identificação abaixo da
+  // linha de assinatura. Só leitura: esta tela não escreve nenhuma das duas.
+  const [logoSistema, setLogoSistema] = React.useState(null);
+  const [prefeita, setPrefeita] = React.useState(null);
 
   React.useEffect(() => {
     let vivo = true;
@@ -129,6 +138,19 @@ export default function PaginaDiarias({
       } catch {
         // Tabela indisponível não impede nada: o valor unitário continua
         // digitável à mão e o documento continua saindo.
+      }
+      try {
+        const url = await carregarLogomarcaDoSistema();
+        if (vivo) setLogoSistema(url);
+      } catch {
+        // Sem a logomarca do sistema o documento cai no degrau seguinte.
+      }
+      try {
+        const cadastradas = await carregarPrefeitas();
+        if (vivo) setPrefeita(prefeitaVigente(cadastradas));
+      } catch {
+        // Sem o cadastro da prefeita as linhas dela saem em branco, para
+        // completar à mão -- exatamente como era antes deste cadastro existir.
       }
       try {
         const { identidade: atual } = await carregarIdentidadeProcessos();
@@ -258,7 +280,12 @@ export default function PaginaDiarias({
       // categoria, percentual de pernoite, versão da tabela e identidade visual
       // ficam guardados dentro do processo. Atualizar a tabela ou trocar o
       // brasão depois disto não altera este documento.
-      const atualizado = await finalizarProcesso(aberto?.processo, formulario, { tabela, identidade });
+      const atualizado = await finalizarProcesso(aberto?.processo, formulario, {
+        tabela,
+        identidade,
+        logoSistema,
+        prefeita,
+      });
       setAberto(null);
       marcarSalvamento();
       setAviso(
@@ -315,12 +342,14 @@ export default function PaginaDiarias({
    */
   async function dadosParaSaida(processo) {
     const daFolha = identidadeDoProcesso(processo, identidade);
-    const logo = await prepararLogoParaDocumento(logoDoDocumento(daFolha));
+    const logo = await prepararLogoParaDocumento(logoDoDocumento(daFolha, logoSistema));
     return dadosDoDocumento(processo, {
       secretarias,
       emissor: usuario?.nome_completo ?? "",
       identidade: daFolha,
       logo,
+      logoSistema,
+      prefeita,
     });
   }
 
@@ -614,6 +643,8 @@ export default function PaginaDiarias({
           secretarias={secretarias}
           emissor={usuario?.nome_completo ?? ""}
           identidade={identidade}
+          logoSistema={logoSistema}
+          prefeita={prefeita}
           onFechar={() => setPrevia(null)}
           onImprimir={(escopo) => imprimir(previa, escopo)}
           onGerarPdf={(escopo) => gerarPdf(previa, escopo)}
