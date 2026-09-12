@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { partesDeDadosBancarios } from "./dadosBancariosUnificados.js";
 
 async function request(url, options = {}) {
   const { data } = await supabase.auth.getSession();
@@ -42,4 +43,24 @@ export function resumirFormaPagamento(forma, mascarar = false) {
   if (forma.kind === "pix") return mascarar ? "PIX cadastrado" : `PIX — ${forma.pixKeyType || "chave"}${forma.isPrimary ? " — Principal" : ""}`;
   const finalConta = String(forma.account || "").replace(/\D/g, "").slice(-4);
   return mascarar ? "Dados bancários ✓" : `${forma.bankName || "Conta bancária"} — Conta final ${finalConta || "----"}${forma.isPrimary ? " — Principal" : ""}`;
+}
+
+/**
+ * Grava o FORMULÁRIO ÚNICO de dados bancários (conta e/ou PIX).
+ *
+ * Um botão, um formulário -- e, por baixo, a gravação de sempre: cada parte
+ * preenchida é enviada como o registro que ela já era, com o mesmo `kind` e
+ * pela mesma rota, para as permissões separadas e a auditoria por registro
+ * continuarem valendo. Parte vazia não é enviada e nada já cadastrado é
+ * convertido ou apagado.
+ *
+ * Os envios são em sequência (e não em paralelo) para que a marcação de
+ * principal seja resolvida pelo banco um registro por vez.
+ */
+export async function salvarDadosBancarios(fornecedorId, formulario) {
+  const salvos = [];
+  for (const parte of partesDeDadosBancarios(formulario)) {
+    salvos.push(await salvarFormaPagamento(fornecedorId, parte));
+  }
+  return salvos;
 }

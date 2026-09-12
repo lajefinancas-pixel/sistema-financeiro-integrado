@@ -1,6 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* LISTAS ROLÁVEIS -- a lista de bancos é a que motivou isto.
+   A lista mostrava os primeiros itens, cortava o próximo pela metade e não dava
+   sinal de que havia mais; no toque do iPad a rolagem escapava para a página de
+   trás. Aqui a caixa rola por dentro, com a barra SEMPRE visível no computador
+   (indicação de que há mais item), rolagem por toque no iPad e `overscroll`
+   contido, para o dedo não arrastar o formulário atrás da lista. */
+.lista-rolavel {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 42, 68, 0.35) transparent;
+}
+.lista-rolavel::-webkit-scrollbar {
+  -webkit-appearance: none;
+  width: 10px;
+}
+.lista-rolavel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lista-rolavel::-webkit-scrollbar-thumb {
+  background-color: rgba(15, 42, 68, 0.35);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+}
+
 @media print {
   body {
     font-size: 9px;

@@ -2,6 +2,7 @@ import React from "react";
 import { Landmark, Pencil, Plus } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA } from "../equipe/comuns";
 import { Cartao } from "./comuns";
+import ListaRolavel from "../comuns/ListaRolavel";
 import { mensagemAmigavel } from "../../lib/erros";
 import {
   AVISO_MIGRATION_BANCOS,
@@ -42,6 +43,13 @@ import {
  *
  * ⚠️ Este cadastro NÃO é o card "Bancos utilizados" do módulo financeiro, que
  * continua sendo a leitura das contas bancárias cadastradas.
+ *
+ * ⚠️ A LISTA ROLA ATÉ O ÚLTIMO BANCO. Antes ela mostrava os primeiros itens,
+ * cortava o próximo pela metade e não dava sinal nenhum de que havia mais --
+ * quem usava não sabia que era possível rolar, e no iPad o gesto escapava para a
+ * página de trás. Agora a rolagem é dentro da caixa (barra visível no
+ * computador, toque no iPad) e, enquanto houver item abaixo, a lista avisa; o
+ * fim dela é marcado pelo total de bancos.
  *
  * Cadastro de referência: nada aqui movimenta valor, dá baixa em nota ou toca em
  * conta.
@@ -165,7 +173,11 @@ export default function BlocoBancos({ podeEditar }) {
                     : "Nenhum banco encontrado com esse número ou nome."}
                 </p>
               ) : (
-                <ul className="max-h-72 divide-y divide-black/5 overflow-y-auto rounded-xl border border-black/10">
+                <ListaRolavel
+                  rotulo="Bancos cadastrados"
+                  altura="max-h-[60vh] sm:max-h-80"
+                  className="divide-y divide-black/5 rounded-xl border border-black/10"
+                >
                   {visiveis.map((registro) => {
                     const inativo = (registro.situacao ?? "ativo") !== "ativo";
                     return (
@@ -196,7 +208,14 @@ export default function BlocoBancos({ podeEditar }) {
                       </li>
                     );
                   })}
-                </ul>
+                  {/* O FIM DA LISTA, dito com letras: chegando aqui, não há mais
+                      banco abaixo -- e o total confere com o cadastro. */}
+                  <li className="px-3 py-2 text-center text-[11px] text-[#0F2A44]/40">
+                    Fim da lista — {visiveis.length}
+                    {visiveis.length === 1 ? " banco" : " bancos"}
+                    {visiveis.length === lista.length ? "" : ` de ${lista.length}`}.
+                  </li>
+                </ListaRolavel>
               )}
 
               {podeEditar && formulario === null && (

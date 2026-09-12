@@ -7,6 +7,7 @@ import {
   numeroDoBancoFormatado,
   rotuloDoBanco,
 } from "../../lib/processosBancos.js";
+import ListaRolavel from "../comuns/ListaRolavel.jsx";
 
 /**
  * A escolha do BANCO: lista rolável com busca por número ou por nome.
@@ -37,6 +38,14 @@ import {
  * vista. Ela fecha ao escolher, ao clicar fora, com Escape ou com Cancelar. A
  * altura é limitada e a rolagem é DENTRO da lista, com alvos grandes para o
  * toque no iPad.
+ *
+ * ⚠️ A ROLAGEM CHEGA AO ÚLTIMO ITEM -- e isto precisou de correção. O item da
+ * lista cancelava o gesto (`preventDefault` no `pointerdown`) para garantir a
+ * escolha feita com o dedo, e com isso o dedo também não conseguia ARRASTAR a
+ * lista: ela mostrava os primeiros bancos, cortava o próximo pela metade e os
+ * demais ficavam inalcançáveis no iPad. Agora a escolha é o `click` de sempre --
+ * que o navegador só dispara no toque, e não no arrasto -- e a caixa rolável
+ * avisa, enquanto houver item abaixo, que há mais lista para rolar.
  */
 export default function SeletorBanco({
   bancos = [],
@@ -73,9 +82,10 @@ export default function SeletorBanco({
   const temEscolha = numeroDoBancoFormatado(codigo) !== "" || String(nome ?? "").trim() !== "";
   const semCadastro = disponiveis.length === 0;
 
-  // Quantos itens a lista DESENHA. A rolagem é dentro dela, e quem procura um
-  // banco específico digita o número ou mais letras -- não rola duzentas linhas.
-  const LIMITE_DA_LISTA = 30;
+  // Quantos itens a lista DESENHA. O limite é alto de propósito: com a rolagem
+  // funcionando, dá para chegar ao ÚLTIMO banco cadastrado rolando -- e quem
+  // preferir digita o número ou mais letras para afinar.
+  const LIMITE_DA_LISTA = 300;
   const mostrados = encontrados.slice(0, LIMITE_DA_LISTA);
 
   const fecharLista = () => {
@@ -219,13 +229,16 @@ export default function SeletorBanco({
 
           {/* A LISTA FLUTUANTE: aberta pelo clique, pelo toque ou pelo foco, com
               TODOS os bancos disponíveis; digitar só filtra. `absolute` e `z-20`
-              a põem SOBRE o conteúdo; `max-h-56` com `overflow-y-auto` limitam a
-              altura e rolam por dentro; `overscroll-contain` evita que a rolagem
-              do dedo arraste o formulário atrás dela. */}
+              a põem SOBRE o conteúdo, e a caixa rolável limita a altura, rola
+              por dentro (no dedo e no mouse), contém o `overscroll` para não
+              arrastar o formulário de trás e AVISA enquanto houver item abaixo.
+              O último item da lista é o fim dela, e é alcançável. */}
           {listaAberta && (
-            <ul
-              className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 divide-y divide-black/5
-                overflow-y-auto overscroll-contain rounded-lg border border-black/10 bg-white shadow-lg"
+            <ListaRolavel
+              rotulo="Bancos cadastrados"
+              classeExterna="absolute left-0 right-0 top-full z-20 mt-1"
+              altura="max-h-60"
+              className="divide-y divide-black/5 rounded-lg border border-black/10 bg-white shadow-lg"
             >
               {mostrados.length === 0 ? (
                 <li className="px-3 py-2.5 text-[11px] text-[#0F2A44]/45">
@@ -236,28 +249,26 @@ export default function SeletorBanco({
                   <li key={banco.id ?? banco.numero}>
                     <button
                       type="button"
-                      // No toque, `onClick` chega depois do `blur`: o
-                      // `onPointerDown` garante a escolha que o dedo fez.
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        escolher(banco);
-                      }}
+                      // ⚠️ NADA DE `preventDefault` NO GESTO. O `click` é o que
+                      // escolhe: no toque ele só dispara quando o dedo TOCA, e
+                      // não quando ARRASTA -- então rolar a lista com o dedo
+                      // continua rolando, em vez de escolher o item de baixo.
                       onClick={() => escolher(banco)}
-                      className="block w-full px-3 py-2.5 text-left hover:bg-black/[0.03] active:bg-black/[0.06]"
+                      className="block w-full px-3 py-3 text-left hover:bg-black/[0.03] active:bg-black/[0.06]"
                     >
                       <span className="block truncate text-sm text-[#0F2A44]">{rotuloDoBanco(banco)}</span>
                     </button>
                   </li>
                 ))
               )}
-              {encontrados.length > mostrados.length && (
-                <li className="px-3 py-2 text-[11px] text-[#0F2A44]/45">
-                  Mostrando {mostrados.length} de {encontrados.length}. Digite o número ou mais letras
-                  para afinar a busca.
+              {mostrados.length > 0 && (
+                <li className="px-3 py-2 text-center text-[11px] text-[#0F2A44]/40">
+                  {encontrados.length > mostrados.length
+                    ? `Mostrando ${mostrados.length} de ${encontrados.length}. Digite o número ou mais letras para afinar a busca.`
+                    : `Fim da lista — ${mostrados.length} ${mostrados.length === 1 ? "banco" : "bancos"}.`}
                 </li>
               )}
-            </ul>
+            </ListaRolavel>
           )}
         </div>
       )}

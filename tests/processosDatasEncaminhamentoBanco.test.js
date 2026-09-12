@@ -596,8 +596,9 @@ test("7. as secretarias oferecidas são lidas do cadastro do financeiro, que seg
  * vista; clicar fora fecha.
  *
  * O que já funcionava continua exigido aqui, linha por linha: a lista FLUTUA
- * (não empurra Agência, Conta, PIX e Titular para baixo), tem altura limitada,
- * rola por dentro e trata o toque do iPad pelo `onPointerDown`.
+ * (não empurra Agência, Conta, PIX e Titular para baixo), tem altura limitada e
+ * rola por dentro -- agora pela caixa rolável compartilhada, que chega ao último
+ * banco no toque do iPad e no mouse do computador.
  */
 test("8. a lista de bancos abre ao clicar, tocar ou focar o campo, e fecha ao clicar fora", async () => {
   const fonte = await read("src/components/processos/SeletorBanco.jsx");
@@ -605,7 +606,9 @@ test("8. a lista de bancos abre ao clicar, tocar ou focar o campo, e fecha ao cl
 
   // ABRIR É ESTADO PRÓPRIO, e não consequência de haver texto digitado.
   assert.match(codigo, /const \[listaAberta, setListaAberta\] = React\.useState\(false\)/);
-  assert.match(codigo, /\{listaAberta && \(\s*\n?\s*<ul/);
+  // A lista aberta é a caixa rolável compartilhada (antes era um `<ul>` com a
+  // rolagem escrita à mão, que no iPad não chegava ao último banco).
+  assert.match(codigo, /\{listaAberta && \(\s*\n?\s*<ListaRolavel/);
   // E o que se digita NÃO é mais a condição de a lista existir.
   assert.doesNotMatch(codigo, /const procurando =/);
   assert.doesNotMatch(codigo, /\{procurando && \(/);
@@ -630,17 +633,32 @@ test("8. a lista de bancos abre ao clicar, tocar ou focar o campo, e fecha ao cl
 
   // O QUE JÁ FUNCIONAVA, mantido: a lista FLUTUA sobre o conteúdo -- `absolute`
   // dentro de um `relative` --, então não empurra Agência, Conta, PIX e Titular.
-  assert.match(codigo, /className="absolute left-0 right-0 top-full z-20/);
-  // A altura é limitada e a rolagem é DENTRO da lista.
-  assert.match(codigo, /max-h-56/);
-  assert.match(codigo, /overflow-y-auto/);
-  assert.match(codigo, /overscroll-contain/);
-  // Toque no iPad: o `onPointerDown` do item garante a escolha do dedo, e as
-  // linhas têm alvo grande.
-  assert.match(codigo, /onPointerDown=\{\(e\) => \{/);
-  assert.match(codigo, /py-2\.5/);
-  // Poucos resultados desenhados por vez; a busca afina o resto.
-  assert.match(codigo, /const LIMITE_DA_LISTA = 30/);
+  assert.match(codigo, /classeExterna="absolute left-0 right-0 top-full z-20/);
+
+  /**
+   * ⚠️ A ROLAGEM MUDOU DE DONO, e também aqui é preciso dizer por quê.
+   *
+   * As linhas abaixo exigiam a rolagem escrita à mão no próprio `<ul>`
+   * (`max-h-56 overflow-y-auto overscroll-contain`) e o `onPointerDown` do item
+   * com `preventDefault`, que garantia a escolha feita com o dedo. Essa dupla
+   * era o defeito: o `preventDefault` cancelava o gesto, então o dedo NÃO
+   * conseguia arrastar a lista -- ela mostrava os primeiros bancos, cortava o
+   * próximo pela metade e os demais ficavam inalcançáveis no iPad.
+   *
+   * Agora a rolagem é da caixa compartilhada `ListaRolavel` (classe
+   * `lista-rolavel`, no index.css) e a escolha é o `click` de sempre, que no
+   * toque só dispara quando o dedo TOCA, e não quando ARRASTA. O que este teste
+   * passa a exigir: altura limitada, rolagem por dentro da caixa e alvo grande
+   * para o dedo -- sem nada que cancele o gesto.
+   */
+  assert.match(codigo, /altura="max-h-60"/);
+  assert.match(codigo, /<ListaRolavel/);
+  assert.doesNotMatch(codigo, /preventDefault/);
+  assert.match(codigo, /onClick=\{\(\) => escolher\(banco\)\}/);
+  assert.match(codigo, /py-3/);
+  // O limite de desenho deixou de esconder a maior parte do cadastro: com a
+  // rolagem funcionando, dá para chegar ao último banco rolando.
+  assert.match(codigo, /const LIMITE_DA_LISTA = 300/);
   assert.match(codigo, /encontrados\.slice\(0, LIMITE_DA_LISTA\)/);
   assert.match(codigo, /bancoAtendeBusca\(banco, busca\)/);
 });
