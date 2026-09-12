@@ -58,8 +58,9 @@ import { BANCOS_INICIAIS, bancoAtendeBusca } from "../src/lib/processosBancos.js
  *   3. o "À SECRETARIA MUNICIPAL DE ______" sai IMPRESSO PREENCHIDO, com a
  *      secretaria escolhida num campo novo do processo. As oferecidas são LIDAS
  *      do cadastro de secretarias do módulo FINANCEIRO;
- *   4. o campo de busca do BANCO ocupa UMA LINHA: a lista aparece só ao digitar,
- *      flutua sobre o conteúdo e não empurra Agência, Conta, PIX e Titular.
+ *   4. o campo de busca do BANCO ocupa UMA LINHA: a lista ABRE INTEIRA ao clicar,
+ *      tocar ou focar o campo (digitar só filtra), flutua sobre o conteúdo, fecha
+ *      ao clicar fora e não empurra Agência, Conta, PIX e Titular.
  *
  * ⚠️ A SECRETARIA DO ENCAMINHAMENTO NÃO É A SOLICITANTE. Quem REQUISITA vem do
  * cadastro próprio do módulo e pode ser qualquer secretaria; quem RECEBE o
@@ -578,34 +579,70 @@ test("7. as secretarias oferecidas são lidas do cadastro do financeiro, que seg
 });
 
 /* -------------------------------------------------------------------------
- * 8. O campo do banco ocupa UMA LINHA, e a lista flutua
+ * 8. A LISTA DE BANCOS ABRE AO CLICAR, TOCAR OU FOCAR -- e fecha ao clicar fora
  * ---------------------------------------------------------------------- */
 
-test("8. o campo do banco ocupa uma linha e a lista só aparece ao digitar", async () => {
+/**
+ * ⚠️ ESTE TESTE FOI REESCRITO, e é importante dizer por quê.
+ *
+ * Ele afirmava que "a lista só aparece ao digitar". Era a descrição fiel do que
+ * o código fazia, e era justamente o defeito: a pessoa clicava no campo do banco
+ * e nada acontecia, então ela precisava ADIVINHAR o número ou o começo do nome
+ * para descobrir o que existia cadastrado. Campo de escolha que não mostra as
+ * opções não é campo de escolha.
+ *
+ * O comportamento correto, e o que este teste passa a exigir: clicar, tocar ou
+ * focar o campo abre a lista COMPLETA; digitar apenas FILTRA o que já está à
+ * vista; clicar fora fecha.
+ *
+ * O que já funcionava continua exigido aqui, linha por linha: a lista FLUTUA
+ * (não empurra Agência, Conta, PIX e Titular para baixo), tem altura limitada,
+ * rola por dentro e trata o toque do iPad pelo `onPointerDown`.
+ */
+test("8. a lista de bancos abre ao clicar, tocar ou focar o campo, e fecha ao clicar fora", async () => {
   const fonte = await read("src/components/processos/SeletorBanco.jsx");
   const codigo = semComentarios(fonte);
 
-  // A lista existe SÓ enquanto se digita.
-  assert.match(codigo, /const procurando = String\(busca\)\.trim\(\) !== ""/);
-  assert.match(codigo, /\{procurando && \(\s*\n?\s*<ul/);
-  // Ela FLUTUA sobre o conteúdo -- `absolute` dentro de um `relative` --, então
-  // não empurra Agência, Conta, PIX e Titular para baixo.
-  assert.match(codigo, /<div className="relative" onBlur=\{sairDoCampo\}>/);
+  // ABRIR É ESTADO PRÓPRIO, e não consequência de haver texto digitado.
+  assert.match(codigo, /const \[listaAberta, setListaAberta\] = React\.useState\(false\)/);
+  assert.match(codigo, /\{listaAberta && \(\s*\n?\s*<ul/);
+  // E o que se digita NÃO é mais a condição de a lista existir.
+  assert.doesNotMatch(codigo, /const procurando =/);
+  assert.doesNotMatch(codigo, /\{procurando && \(/);
+
+  // CLIQUE, TOQUE E FOCO abrem. O toque é o `onPointerDown` na caixa inteira --
+  // no iPad o dedo precisa acertar a linha, não só o texto.
+  assert.match(codigo, /const abrirLista = \(\) => \{/);
+  assert.match(codigo, /onPointerDown=\{abrirLista\}/);
+  assert.match(codigo, /onClick=\{abrirLista\}/);
+  assert.match(codigo, /onFocus=\{abrirLista\}/);
+
+  // CLICAR FORA FECHA: ouvinte no documento, com a caixa do campo como fronteira.
+  assert.match(codigo, /const caixa = React\.useRef\(null\)/);
+  assert.match(codigo, /<div className="relative" ref=\{caixa\}>/);
+  assert.match(codigo, /document\.addEventListener\("pointerdown", aoApontarFora, true\)/);
+  assert.match(codigo, /document\.removeEventListener\("pointerdown", aoApontarFora, true\)/);
+  assert.match(codigo, /if \(caixa\.current\?\.contains\(evento\.target\)\) return/);
+  // Escape fecha, e escolher fecha.
+  assert.match(codigo, /const fecharLista = \(\) => \{/);
+  assert.match(codigo, /if \(e\.key === "Escape"\) fecharLista\(\)/);
+  assert.match(codigo, /const escolher = \(banco\) => \{[\s\S]*?fecharLista\(\)/);
+
+  // O QUE JÁ FUNCIONAVA, mantido: a lista FLUTUA sobre o conteúdo -- `absolute`
+  // dentro de um `relative` --, então não empurra Agência, Conta, PIX e Titular.
   assert.match(codigo, /className="absolute left-0 right-0 top-full z-20/);
   // A altura é limitada e a rolagem é DENTRO da lista.
   assert.match(codigo, /max-h-56/);
   assert.match(codigo, /overflow-y-auto/);
   assert.match(codigo, /overscroll-contain/);
-  // Sair do campo fecha; escolher fecha; Escape fecha.
-  assert.match(codigo, /const sairDoCampo = \(evento\) =>/);
-  assert.match(codigo, /if \(e\.key === "Escape"\) setBusca\(""\)/);
-  // Toque no iPad: o `onPointerDown` garante a escolha do dedo, e as linhas
-  // têm alvo grande.
+  // Toque no iPad: o `onPointerDown` do item garante a escolha do dedo, e as
+  // linhas têm alvo grande.
   assert.match(codigo, /onPointerDown=\{\(e\) => \{/);
   assert.match(codigo, /py-2\.5/);
-  // Poucos resultados por vez.
+  // Poucos resultados desenhados por vez; a busca afina o resto.
   assert.match(codigo, /const LIMITE_DA_LISTA = 30/);
   assert.match(codigo, /encontrados\.slice\(0, LIMITE_DA_LISTA\)/);
+  assert.match(codigo, /bancoAtendeBusca\(banco, busca\)/);
 });
 
 /* -------------------------------------------------------------------------

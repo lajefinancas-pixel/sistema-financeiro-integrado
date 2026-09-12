@@ -12,6 +12,8 @@ import {
   validarCadastroConta,
 } from "../../lib/contasBancarias";
 import { mensagemAmigavel } from "../../lib/erros";
+import SeletorBanco from "../processos/SeletorBanco";
+import { carregarBancos } from "../../lib/processosCadastrosDados";
 
 const OPCAO_NOVA = "__nova__";
 
@@ -39,6 +41,16 @@ function hojeISO() {
  *
  * Os dados de PIX ficam NESTE MESMO formulário, abaixo dos dados da conta: não
  * há aba, botão nem página separada de PIX, e o PIX é gravado no mesmo envio.
+ *
+ * O "+ Cadastrar novo banco" DEIXOU DE SER TEXTO LIVRE: o nome vem da lista de
+ * referência de bancos (Configurações → Geral), pelo MESMO componente de escolha
+ * usado nos documentos e nos dados para pagamento do fornecedor. É o que acaba
+ * com o mesmo banco cadastrado de três formas diferentes.
+ *
+ * ⚠️ NENHUMA CONTA JÁ CADASTRADA É CONVERTIDA OU APAGADA. A lista de bancos que
+ * o sistema já tem (o `bancos` deste módulo) continua sendo a escolha normal, do
+ * jeito que sempre foi, e o banco digitado à mão antes permanece como está. A
+ * lista de referência só evita que um nome NOVO entre torto.
  */
 export default function ModalContaBancaria({
   modo = "novo",
@@ -57,6 +69,10 @@ export default function ModalContaBancaria({
     nova_secretaria: false,
     banco_id: conta?.banco_id != null ? String(conta.banco_id) : "",
     banco_novo_nome: "",
+    // Só para a escolha na tela: o `bancos` deste módulo guarda apenas o nome, e
+    // é o nome que é gravado. O número não é enviado, e nada muda no que já
+    // está cadastrado.
+    banco_novo_numero: "",
     novo_banco: false,
     nome_conta: conta?.nome_conta ?? "",
     numero_conta: conta?.numero_conta ?? "",
@@ -76,6 +92,17 @@ export default function ModalContaBancaria({
   const [erros, setErros] = React.useState({});
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
+  // A lista de REFERÊNCIA de bancos, só leitura. Falhando, o campo do banco novo
+  // volta a ser digitado, exatamente como era antes.
+  const [bancosDeReferencia, setBancosDeReferencia] = React.useState([]);
+
+  React.useEffect(() => {
+    let vivo = true;
+    carregarBancos({ apenasAtivos: true })
+      .then(({ registros }) => { if (vivo) setBancosDeReferencia(registros); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
 
   function alterar(campo, valor) {
     setForm((atual) => ({ ...atual, [campo]: valor }));
@@ -256,23 +283,44 @@ export default function ModalContaBancaria({
                 <option value={OPCAO_NOVA}>+ Cadastrar novo banco</option>
               </select>
             ) : (
-              <div className="flex gap-2 mt-1">
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Nome do novo banco"
-                  value={form.banco_novo_nome}
-                  disabled={salvando}
-                  onChange={(evento) => {
-                    alterar("banco_novo_nome", evento.target.value);
+              <div className="mt-1 space-y-2">
+                {/* O nome do banco NOVO vem da lista de referência: escolher nela
+                    preenche o nome já padronizado. Sem a lista no banco de dados,
+                    o componente cai no campo de texto de sempre. */}
+                <SeletorBanco
+                  bancos={bancosDeReferencia}
+                  codigo={form.banco_novo_numero}
+                  nome={form.banco_novo_nome}
+                  somenteLeitura={salvando}
+                  rotulo="Nome do novo banco"
+                  ajuda="Da lista de referência"
+                  onEscolher={(banco) => {
+                    setForm((atual) => ({
+                      ...atual,
+                      banco_novo_numero: banco?.numero ?? "",
+                      banco_novo_nome: banco?.nome ?? "",
+                    }));
                     setErros((atual) => ({ ...atual, banco: undefined }));
                   }}
-                  className={`${CLASSE_ENTRADA} mt-0`}
+                  onLimpar={() =>
+                    setForm((atual) => ({ ...atual, banco_novo_numero: "", banco_novo_nome: "" }))
+                  }
+                  aoDigitarNome={(valor) => {
+                    alterar("banco_novo_nome", valor);
+                    setErros((atual) => ({ ...atual, banco: undefined }));
+                  }}
                 />
                 <button
                   type="button"
-                  onClick={() => setForm((atual) => ({ ...atual, novo_banco: false, banco_novo_nome: "" }))}
-                  className="px-3 rounded-lg border border-black/10 text-xs text-[#0F2A44]/60 hover:bg-black/5 whitespace-nowrap"
+                  onClick={() =>
+                    setForm((atual) => ({
+                      ...atual,
+                      novo_banco: false,
+                      banco_novo_nome: "",
+                      banco_novo_numero: "",
+                    }))
+                  }
+                  className="px-3 py-1.5 rounded-lg border border-black/10 text-xs text-[#0F2A44]/60 hover:bg-black/5 whitespace-nowrap"
                 >
                   Usar existente
                 </button>

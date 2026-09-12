@@ -73,6 +73,61 @@ export function registroDuplicadoNoBanco(erro) {
 }
 
 /* -------------------------------------------------------------------------
+ * O ESTADO EXPLÍCITO de cada leitura de cadastro
+ * ---------------------------------------------------------------------- */
+
+/**
+ * O que uma leitura de cadastro devolve.
+ *
+ * ⚠️ POR QUE NÃO É UM ARRAY. Enquanto era, a tela não tinha como diferenciar as
+ * duas situações que produzem a MESMA lista vazia:
+ *
+ *   - a estrutura ainda não existe neste banco (a migration é rodada à mão no
+ *     SQL Editor do Supabase) -- aí o recado da migration é o certo;
+ *   - a estrutura existe e simplesmente NÃO TEM NENHUM REGISTRO ainda -- aí o
+ *     certo é o convite a cadastrar o primeiro, e um aviso vermelho de migration
+ *     seria mentira.
+ *
+ * Por isso o estado vem nomeado: `registros` é sempre um array (a tela nunca
+ * quebra), `estruturaAusente` diz qual das duas situações é, e `erro` guarda a
+ * falha técnica de verdade para quem quiser mostrá-la.
+ */
+function estadoDoCadastro({ registros = [], estruturaAusente = false, erro = null } = {}) {
+  return { registros, estruturaAusente, erro };
+}
+
+/**
+ * Registra a falha TÉCNICA REAL no console do navegador.
+ *
+ * A tela mostra um recado em português; o motivo exato -- código, mensagem e
+ * detalhe devolvidos pelo banco -- fica aqui, porque é ele que resolve o
+ * atendimento. Antes o erro era engolido em silêncio e a tela acusava migration
+ * pendente mesmo quando o problema era outro.
+ */
+function registrarFalhaDeCadastro(tabela, erro) {
+  console.error(
+    `[Processos] A leitura de ${tabela} falhou.`,
+    {
+      codigo: erro?.code ?? null,
+      mensagem: erro?.message ?? null,
+      detalhe: erro?.details ?? null,
+      dica: erro?.hint ?? null,
+    },
+    erro,
+  );
+}
+
+/**
+ * Os registros de uma leitura, para quem só quer a lista.
+ *
+ * Aceita também o array puro, para o código que ainda chama do jeito antigo.
+ */
+export function registrosDoCadastro(estado) {
+  if (Array.isArray(estado)) return estado;
+  return estado?.registros ?? [];
+}
+
+/* -------------------------------------------------------------------------
  * Quem está gravando
  * ---------------------------------------------------------------------- */
 
@@ -119,9 +174,12 @@ const COLUNAS_SOLICITANTE = [
 /**
  * As secretarias SOLICITANTES cadastradas.
  *
- * Devolve lista vazia quando a estrutura ainda não existe: o módulo continua
- * abrindo, e os processos já criados continuam mostrando a secretaria que
- * gravaram.
+ * Devolve o ESTADO da leitura -- `{ registros, estruturaAusente, erro }` --, e
+ * não um array solto: cadastro vazio e estrutura ausente produzem a mesma lista
+ * vazia, e só a tela sabe o que dizer em cada caso.
+ *
+ * Com a estrutura ausente o módulo continua abrindo, e os processos já criados
+ * continuam mostrando a secretaria que gravaram.
  */
 export async function carregarSolicitantes({ apenasAtivas = false } = {}) {
   let consulta = supabase.from(TABELA_SOLICITANTES).select(COLUNAS_SOLICITANTE).order("nome");
@@ -129,10 +187,13 @@ export async function carregarSolicitantes({ apenasAtivas = false } = {}) {
 
   const { data, error } = await consulta;
   if (error) {
-    if (estruturaDeCadastroAusente(error)) return [];
+    registrarFalhaDeCadastro(TABELA_SOLICITANTES, error);
+    if (estruturaDeCadastroAusente(error)) {
+      return estadoDoCadastro({ estruturaAusente: true, erro: error });
+    }
     throw error;
   }
-  return data ?? [];
+  return estadoDoCadastro({ registros: data ?? [] });
 }
 
 export async function criarSolicitante(formulario) {
@@ -220,17 +281,30 @@ export async function alternarSituacaoDoSolicitante(id, situacao, { anterior = n
 
 const COLUNAS_BANCO = ["id", "numero", "nome", "situacao", "criado_em", "atualizado_em"].join(",");
 
-/** Os bancos cadastrados, em ordem de número. */
+/**
+ * Os bancos cadastrados, em ordem de número.
+ *
+ * Devolve o ESTADO da leitura -- `{ registros, estruturaAusente, erro }` --,
+ * pelo mesmo motivo das solicitantes: "ainda não existe a estrutura" e "existe e
+ * está vazia" são coisas diferentes, e a tela precisa distingui-las.
+ *
+ * A lista é REFERÊNCIA PÚBLICA -- só número e nome --, lida por qualquer pessoa
+ * autenticada: ela alimenta a escolha do banco em todo o sistema, e não apenas
+ * nos documentos.
+ */
 export async function carregarBancos({ apenasAtivos = false } = {}) {
   let consulta = supabase.from(TABELA_BANCOS).select(COLUNAS_BANCO).order("numero");
   if (apenasAtivos) consulta = consulta.eq("situacao", "ativo");
 
   const { data, error } = await consulta;
   if (error) {
-    if (estruturaDeCadastroAusente(error)) return [];
+    registrarFalhaDeCadastro(TABELA_BANCOS, error);
+    if (estruturaDeCadastroAusente(error)) {
+      return estadoDoCadastro({ estruturaAusente: true, erro: error });
+    }
     throw error;
   }
-  return data ?? [];
+  return estadoDoCadastro({ registros: data ?? [] });
 }
 
 export async function criarBanco(formulario) {
@@ -335,8 +409,10 @@ const COLUNAS_PREFEITA = [
  * anterior continua no cadastro. Processos já finalizados não dependem desta
  * consulta -- eles imprimem o que congelaram.
  *
- * Devolve lista vazia quando a estrutura ainda não existe: o módulo continua
- * abrindo, e os documentos saem com a identificação em branco, como antes.
+ * Devolve o ESTADO da leitura -- `{ registros, estruturaAusente, erro }` --, para
+ * a tela saber se o cadastro está vazio ou se a estrutura ainda não existe neste
+ * banco. Nos dois casos o módulo continua abrindo, e os documentos saem com a
+ * identificação em branco, como antes.
  */
 export async function carregarPrefeitas({ apenasAtivas = false } = {}) {
   let consulta = supabase
@@ -348,10 +424,13 @@ export async function carregarPrefeitas({ apenasAtivas = false } = {}) {
 
   const { data, error } = await consulta;
   if (error) {
-    if (estruturaDeCadastroAusente(error)) return [];
+    registrarFalhaDeCadastro(TABELA_PREFEITA, error);
+    if (estruturaDeCadastroAusente(error)) {
+      return estadoDoCadastro({ estruturaAusente: true, erro: error });
+    }
     throw error;
   }
-  return data ?? [];
+  return estadoDoCadastro({ registros: data ?? [] });
 }
 
 /**

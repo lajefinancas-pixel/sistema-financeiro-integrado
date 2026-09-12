@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  Building2, CalendarClock, History, Image, Landmark, Pencil, Plus, Table2, UserCheck,
+  Building2, CalendarClock, History, Image, Pencil, Plus, Table2, UserCheck,
 } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA } from "../equipe/comuns";
 import { Cartao, RodapeFormulario, SeletorLogomarca } from "./comuns";
@@ -69,27 +69,12 @@ import {
   validarSolicitante,
 } from "../../lib/processosSecretariasSolicitantes";
 import {
-  AVISO_MIGRATION_BANCOS,
-  BANCOS_INICIAIS,
-  SITUACOES_BANCO,
-  bancoParaFormulario,
-  bancoVazio,
-  numeroDoBancoFormatado,
-  ordenarBancos,
-  rotuloDoBanco,
-  validarBanco,
-} from "../../lib/processosBancos";
-import {
   alternarSituacaoDaPrefeita,
-  alternarSituacaoDoBanco,
   alternarSituacaoDoSolicitante,
-  carregarBancos,
   carregarPrefeitas,
   carregarSolicitantes,
-  criarBanco,
   criarPrefeita,
   criarSolicitante,
-  salvarBanco,
   salvarPrefeita,
   salvarSolicitante,
 } from "../../lib/processosCadastrosDados";
@@ -137,7 +122,9 @@ export default function CategoriaProcessos({ podeEditar = false }) {
         verificando={verificando}
       />
       <BlocoSecretariasSolicitantes podeEditar={podeEditar} />
-      <BlocoBancos podeEditar={podeEditar} />
+      {/* O cadastro de BANCOS saiu daqui: ele passou a servir todo o sistema --
+          os documentos, os dados para pagamento do fornecedor e o cadastro das
+          contas bancárias -- e por isso mora agora em Configurações → Geral. */}
       <BlocoIdentidadeVisual podeEditar={podeEditar} />
     </>
   );
@@ -182,9 +169,12 @@ function BlocoPrefeita({ podeVer, podeEditar, verificando }) {
   const carregar = React.useCallback(async () => {
     setCarregando(true);
     try {
-      const linhas = await carregarPrefeitas();
-      setLista(linhas);
-      setFaltaMigration(linhas.length === 0);
+      // ⚠️ CADASTRO VAZIO NÃO É MIGRATION PENDENTE. A leitura devolve o estado
+      // explícito, e só `estruturaAusente` liga o aviso vermelho: existindo a
+      // estrutura e não havendo registro, a tela convida a cadastrar o primeiro.
+      const { registros, estruturaAusente } = await carregarPrefeitas();
+      setLista(registros);
+      setFaltaMigration(estruturaAusente);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível carregar o cadastro da prefeita."));
     } finally {
@@ -471,9 +461,12 @@ function BlocoSecretariasSolicitantes({ podeEditar }) {
   const carregar = React.useCallback(async () => {
     setCarregando(true);
     try {
-      const linhas = await carregarSolicitantes();
-      setLista(linhas);
-      setFaltaMigration(linhas.length === 0);
+      // ⚠️ CADASTRO VAZIO NÃO É MIGRATION PENDENTE: só `estruturaAusente` liga o
+      // aviso vermelho. Sem registro nenhum, a tela mostra "Nenhuma secretaria
+      // solicitante cadastrada" e o botão de cadastrar, e nada mais.
+      const { registros, estruturaAusente } = await carregarSolicitantes();
+      setLista(registros);
+      setFaltaMigration(estruturaAusente);
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível carregar as secretarias solicitantes."));
     } finally {
@@ -691,234 +684,6 @@ function BlocoSecretariasSolicitantes({ podeEditar }) {
                     Escolher esta secretaria no processo traz o nome oficial, o secretário(a), o CPF e o
                     cargo prontos. Alterar estes dados depois NÃO altera documento já finalizado.
                   </p>
-
-                  <div className="mt-4 flex items-center gap-2">
-                    <button
-                      type="submit"
-                      disabled={salvando}
-                      className="rounded-lg bg-[#0F2A44] px-5 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
-                    >
-                      {salvando ? "Salvando..." : "Salvar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFormulario(null)}
-                      className="rounded-lg border border-black/10 px-4 py-2 text-sm text-[#0F2A44]/70 hover:bg-black/5"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </form>
-              )}
-            </>
-          )}
-        </div>
-      </Cartao>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------
- * BANCOS
- * ---------------------------------------------------------------------- */
-
-/**
- * O cadastro de BANCOS do módulo: número e nome.
- *
- * Antes o banco era texto livre nos dados bancários do servidor. Agora é uma
- * lista com busca, e o documento sai "001 — Banco do Brasil", como no modelo
- * oficial. Banco novo entra por aqui, sem deploy.
- *
- * ⚠️ Este cadastro NÃO é o card "Bancos utilizados" do módulo financeiro, que
- * continua sendo a leitura das contas bancárias cadastradas.
- */
-function BlocoBancos({ podeEditar }) {
-  const [lista, setLista] = React.useState([]);
-  const [carregando, setCarregando] = React.useState(true);
-  const [faltaMigration, setFaltaMigration] = React.useState(false);
-  const [formulario, setFormulario] = React.useState(null);
-  const [busca, setBusca] = React.useState("");
-  const [salvando, setSalvando] = React.useState(false);
-  const [erro, setErro] = React.useState(null);
-  const [sucesso, setSucesso] = React.useState(null);
-
-  const carregar = React.useCallback(async () => {
-    setCarregando(true);
-    try {
-      const linhas = await carregarBancos();
-      setLista(linhas);
-      setFaltaMigration(linhas.length === 0);
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível carregar o cadastro de bancos."));
-    } finally {
-      setCarregando(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    carregar();
-  }, [carregar]);
-
-  function definir(campo, valor) {
-    setFormulario((atual) => ({ ...(atual ?? {}), [campo]: valor }));
-  }
-
-  async function salvar(evento) {
-    evento.preventDefault();
-    setErro(null);
-    setSucesso(null);
-
-    const erros = validarBanco(formulario, { bancos: lista });
-    const chaves = Object.keys(erros);
-    if (chaves.length > 0) {
-      setErro(erros[chaves[0]]);
-      return;
-    }
-
-    setSalvando(true);
-    try {
-      const anterior = lista.find((b) => String(b.id) === String(formulario.id)) ?? null;
-      if (formulario.id) await salvarBanco(formulario.id, formulario, { anterior });
-      else await criarBanco(formulario);
-      setFormulario(null);
-      await carregar();
-      setSucesso("Banco salvo. Ele já aparece na lista de escolha dos dados bancários.");
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível salvar o banco."));
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  async function alternar(registro) {
-    setErro(null);
-    setSucesso(null);
-    const destino = (registro?.situacao ?? "ativo") === "ativo" ? "inativo" : "ativo";
-    try {
-      await alternarSituacaoDoBanco(registro.id, destino, { anterior: registro });
-      await carregar();
-    } catch (e) {
-      setErro(mensagemAmigavel(e, "Não foi possível alterar a situação do banco."));
-    }
-  }
-
-  const visiveis = React.useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    const ordenados = ordenarBancos(lista);
-    if (termo === "") return ordenados;
-    return ordenados.filter((b) => rotuloDoBanco(b).toLowerCase().includes(termo));
-  }, [lista, busca]);
-
-  return (
-    <div className="mt-5">
-      <Cartao
-        titulo="Bancos"
-        descricao={
-          "Número e nome dos bancos usados nos dados bancários dos documentos. O documento imprime os "
-          + `dois juntos — "001 — Banco do Brasil". Já vêm cadastrados os ${BANCOS_INICIAIS.length} mais usados; `
-          + "novos entram por aqui, sem precisar de deploy."
-        }
-        icone={Landmark}
-      >
-        <div className="space-y-4">
-          {erro && <Alerta tipo="erro">{erro}</Alerta>}
-          {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
-          {faltaMigration && !carregando && <Alerta tipo="erro">{AVISO_MIGRATION_BANCOS}</Alerta>}
-
-          {carregando ? (
-            <p className="text-sm text-[#0F2A44]/45">Carregando o cadastro de bancos...</p>
-          ) : (
-            <>
-              {lista.length > 0 && (
-                <input
-                  type="text"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar por número ou nome..."
-                  className={CLASSE_ENTRADA}
-                />
-              )}
-
-              {visiveis.length === 0 ? (
-                <p className="text-sm text-[#0F2A44]/45">
-                  Nenhum banco encontrado. Cadastre-o abaixo para que ele apareça na lista de escolha.
-                </p>
-              ) : (
-                <ul className="max-h-72 divide-y divide-black/5 overflow-y-auto rounded-xl border border-black/10">
-                  {visiveis.map((registro) => {
-                    const inativo = (registro.situacao ?? "ativo") !== "ativo";
-                    return (
-                      <li key={registro.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                        <span className={`min-w-0 flex-1 truncate text-sm ${inativo ? "text-[#0F2A44]/40 line-through" : "text-[#0F2A44]"}`}>
-                          {rotuloDoBanco(registro)}
-                        </span>
-                        {podeEditar && (
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => { setErro(null); setSucesso(null); setFormulario(bancoParaFormulario(registro)); }}
-                              className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
-                              title="Editar"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => alternar(registro)}
-                              className="rounded-lg border border-black/10 px-3 py-1.5 text-xs text-[#0F2A44]/70 hover:bg-black/5"
-                              title="Exclusão lógica: o número e o nome já gravados em documentos continuam intactos."
-                            >
-                              {inativo ? "Reativar" : "Inativar"}
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-
-              {podeEditar && formulario === null && (
-                <button
-                  type="button"
-                  onClick={() => { setErro(null); setSucesso(null); setFormulario(bancoVazio()); }}
-                  className="flex items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90"
-                >
-                  <Plus size={15} /> Novo banco
-                </button>
-              )}
-
-              {formulario !== null && (
-                <form onSubmit={salvar} noValidate className="rounded-xl border border-black/10 bg-[#F8FAFC] p-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Campo label="Número do banco" obrigatorio dica="Três dígitos, como 001, 104 ou 237.">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={formulario.numero}
-                        onChange={(e) => definir("numero", e.target.value)}
-                        onBlur={(e) => definir("numero", numeroDoBancoFormatado(e.target.value))}
-                        className={CLASSE_ENTRADA}
-                      />
-                    </Campo>
-                    <Campo label="Nome do banco" obrigatorio>
-                      <input
-                        type="text"
-                        value={formulario.nome}
-                        onChange={(e) => definir("nome", e.target.value)}
-                        className={CLASSE_ENTRADA}
-                      />
-                    </Campo>
-                    {formulario.id && (
-                      <Campo label="Situação">
-                        <select value={formulario.situacao} disabled className={CLASSE_ENTRADA}>
-                          {SITUACOES_BANCO.map((situacao) => (
-                            <option key={situacao.id} value={situacao.id}>{situacao.rotulo}</option>
-                          ))}
-                        </select>
-                      </Campo>
-                    )}
-                  </div>
 
                   <div className="mt-4 flex items-center gap-2">
                     <button

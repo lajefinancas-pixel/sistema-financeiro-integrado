@@ -14,7 +14,7 @@ import {
   carregarSecretariasFinanceiras,
 } from "../lib/processosDiariasDados.js";
 import { carregarServidores } from "../lib/processosServidoresDados.js";
-import { carregarBancos, carregarSolicitantes } from "../lib/processosCadastrosDados.js";
+import { carregarBancos, carregarSolicitantes, registrosDoCadastro } from "../lib/processosCadastrosDados.js";
 import { listaDeSecretariasDoProcesso } from "../lib/processosSecretariasSolicitantes.js";
 import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
 
@@ -78,8 +78,9 @@ export default function ModuloProcessos() {
 
     Promise.all([
       carregarFornecedoresDaBaixa().catch(() => []),
-      // As SOLICITANTES: o cadastro do módulo, o que o formulário oferece.
-      carregarSolicitantes().catch(() => []),
+      // As SOLICITANTES: o cadastro do módulo, o que o formulário oferece. A
+      // leitura devolve o ESTADO do cadastro; aqui só a lista interessa.
+      carregarSolicitantes().then(registrosDoCadastro).catch(() => []),
       // As secretarias do financeiro: LEITURA, e só para o processo antigo
       // continuar mostrando a secretaria que gravou.
       carregarSecretarias().catch(() => []),
@@ -88,7 +89,7 @@ export default function ModuloProcessos() {
       // Pagamentos Diários, filtrado como lá. Só leitura -- e, sem ele, o
       // documento segue imprimindo Finanças, como sempre imprimiu.
       carregarSecretariasFinanceiras().catch(() => []),
-      carregarBancos().catch(() => []),
+      carregarBancos().then(registrosDoCadastro).catch(() => []),
       // O cadastro de servidores pode ainda não existir no banco (a migration é
       // rodada à mão): sem ele, o formulário da diária continua sendo
       // preenchido à mão, como sempre foi.
