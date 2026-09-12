@@ -13,6 +13,12 @@ import {
   podeVerServidores,
   resolverPermissoesServidores,
 } from "./processosServidores.js";
+import {
+  MODULOS_PROCESSOS_SERVICOS,
+  PERMISSOES_SERVICOS_NENHUMA,
+  podeVerServicos,
+  resolverPermissoesServicos,
+} from "./processosServicos.js";
 
 /**
  * As permissões próprias do módulo PROCESSOS, lidas do banco para a tela.
@@ -30,7 +36,17 @@ import {
  * que define quanto vale cada diária, e quem edita um processo não passa a
  * poder mexer nela. Consultar a tabela, sim, acompanha quem vê o módulo.
  *
- * A subaba SERVIDORES tem a QUARTA linha, e também é de propósito:
+ * A subaba SERVIÇOS/MATERIAIS tem AS SUAS PRÓPRIAS DUAS linhas, pelo mesmo
+ * motivo -- sete ações sobre cinco colunas:
+ *
+ *   processos_servicos         visualizar | criar | editar | FINALIZAR | CANCELAR
+ *   processos_servicos_saida   IMPRIMIR   | DUPLICAR
+ *
+ * ⚠️ As permissões de Diárias e de Serviços/Materiais são SEPARADAS: quem
+ * preenche uma diária não passa a poder criar processo de serviço, e nada do que
+ * já existia foi alterado para isto -- são linhas NOVAS na Matriz.
+ *
+ * A subaba SERVIDORES tem a sua linha, e também é de propósito:
  *
  *   processos_servidores       visualizar | criar | editar | INATIVAR
  *
@@ -54,11 +70,15 @@ const COLUNAS_PERMISSAO =
   "modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_excluir, pode_aprovar";
 
 /** Todos os módulos do menu PROCESSOS, consultados de uma vez. */
-const MODULOS_DO_MENU = [...MODULOS_PROCESSOS, MODULO_SERVIDORES];
+const MODULOS_DO_MENU = [
+  ...MODULOS_PROCESSOS,
+  ...MODULOS_PROCESSOS_SERVICOS,
+  MODULO_SERVIDORES,
+];
 
 /**
  * As permissões de Processos do usuário logado:
- * `{ usuario, permissoes, permissoesServidores }`.
+ * `{ usuario, permissoes, permissoesServicos, permissoesServidores }`.
  *
  * Vive fora do hook porque o menu lateral e as páginas precisam da MESMA
  * resposta. Sem usuário na sessão, as permissões negam tudo.
@@ -80,6 +100,7 @@ export async function carregarPermissoesDeProcessos() {
     return {
       usuario: null,
       permissoes: PERMISSOES_DIARIAS_NENHUMA,
+      permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
       permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
     };
   }
@@ -94,21 +115,24 @@ export async function carregarPermissoesDeProcessos() {
   return {
     usuario,
     permissoes: resolverPermissoesDiarias({ linhas: linhas ?? [] }),
+    permissoesServicos: resolverPermissoesServicos({ linhas: linhas ?? [] }),
     permissoesServidores: resolverPermissoesServidores({ linhas: linhas ?? [] }),
   };
 }
 
 /**
  * Hook das páginas de Processos:
- * `{ carregando, usuario, permissoes, permissoesServidores, erro }`.
- * `permissoes` traz sempre as oito ações de Diárias e `permissoesServidores` as
- * quatro do cadastro, todas booleanas.
+ * `{ carregando, usuario, permissoes, permissoesServicos, permissoesServidores, erro }`.
+ * `permissoes` traz sempre as oito ações de Diárias, `permissoesServicos` as
+ * sete de Serviços/Materiais e `permissoesServidores` as quatro do cadastro,
+ * todas booleanas.
  */
 export function usePermissoesProcessos() {
   const [estado, setEstado] = React.useState({
     carregando: true,
     usuario: null,
     permissoes: PERMISSOES_DIARIAS_NENHUMA,
+    permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
     permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
     erro: null,
   });
@@ -118,9 +142,17 @@ export function usePermissoesProcessos() {
 
     async function carregar() {
       try {
-        const { usuario, permissoes, permissoesServidores } = await carregarPermissoesDeProcessos();
+        const { usuario, permissoes, permissoesServicos, permissoesServidores } =
+          await carregarPermissoesDeProcessos();
         if (ativo) {
-          setEstado({ carregando: false, usuario, permissoes, permissoesServidores, erro: null });
+          setEstado({
+            carregando: false,
+            usuario,
+            permissoes,
+            permissoesServicos,
+            permissoesServidores,
+            erro: null,
+          });
         }
       } catch (falha) {
         console.error("[Processos] Não foi possível verificar as permissões.", falha);
@@ -129,6 +161,7 @@ export function usePermissoesProcessos() {
             carregando: false,
             usuario: null,
             permissoes: PERMISSOES_DIARIAS_NENHUMA,
+            permissoesServicos: PERMISSOES_SERVICOS_NENHUMA,
             permissoesServidores: PERMISSOES_SERVIDORES_NENHUMA,
             erro: mensagemAmigavel(falha, "Não foi possível verificar suas permissões."),
           });
@@ -161,6 +194,7 @@ const CHAVE_PROCESSOS_NO_MENU = "sfi.menuLateral.processosAreas";
 /** As subabas do módulo, na ordem em que aparecem no submenu. */
 const AREAS = [
   { id: "diarias", rotulo: "Diárias", to: "/processos/diarias" },
+  { id: "servicos", rotulo: "Serviços/Materiais", to: "/processos/servicos" },
   { id: "servidores", rotulo: "Servidores", to: "/processos/servidores" },
 ];
 
@@ -185,11 +219,12 @@ function gravarCache(ids) {
 /**
  * As áreas de PROCESSOS que a pessoa pode ver no menu lateral.
  *
- * Neste envio existem duas: Diárias e Servidores. Serviços/Materiais e Arquivo
- * entram nos envios próprios deles. Cada subaba aparece só para quem tem a
- * permissão de visualizar DELA -- quem vê Diárias não passa a ver Servidores, e
- * vice-versa. Enquanto a primeira consulta da sessão não responde, nada é
- * mostrado: o menu nunca exibe uma área que a pessoa talvez não possa abrir.
+ * Neste envio existem três: Diárias, Serviços/Materiais e Servidores. O arquivo
+ * permanente entra no envio próprio dele. Cada subaba aparece só para quem tem a
+ * permissão de visualizar DELA -- quem vê Diárias não passa a ver
+ * Serviços/Materiais nem Servidores, e vice-versa. Enquanto a primeira consulta
+ * da sessão não responde, nada é mostrado: o menu nunca exibe uma área que a
+ * pessoa talvez não possa abrir.
  */
 export function useAreasDeProcessosNoMenu() {
   const [liberadas, setLiberadas] = React.useState(lerCache);
@@ -219,6 +254,7 @@ export function useAreasDeProcessosNoMenu() {
 
         const ids = [];
         if (podeVerDiarias(resolverPermissoesDiarias({ linhas: linhas ?? [] }))) ids.push("diarias");
+        if (podeVerServicos(resolverPermissoesServicos({ linhas: linhas ?? [] }))) ids.push("servicos");
         if (podeVerServidores(resolverPermissoesServidores({ linhas: linhas ?? [] }))) ids.push("servidores");
 
         gravarCache(ids);

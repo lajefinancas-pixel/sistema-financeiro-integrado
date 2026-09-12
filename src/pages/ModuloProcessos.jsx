@@ -3,9 +3,11 @@ import { Navigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
 import PaginaDiarias from "../components/processos/PaginaDiarias.jsx";
+import PaginaServicos from "../components/processos/PaginaServicos.jsx";
 import PaginaServidores from "../components/processos/PaginaServidores.jsx";
 import { usePermissoesProcessos } from "../lib/permissoesProcessos.js";
 import { podeVerDiarias } from "../lib/processosDiarias.js";
+import { podeVerServicos } from "../lib/processosServicos.js";
 import { podeVerServidores } from "../lib/processosServidores.js";
 import { carregarSecretarias } from "../lib/processosDiariasDados.js";
 import { carregarServidores } from "../lib/processosServidoresDados.js";
@@ -16,9 +18,14 @@ import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
 /**
  * O módulo PROCESSOS e as suas áreas.
  *
- * Neste envio existem duas: DIÁRIAS e SERVIDORES. Serviços/Materiais, o arquivo
+ * Neste envio existem três: DIÁRIAS, SERVIÇOS/MATERIAIS e SERVIDORES. O arquivo
  * permanente e as configurações institucionais vêm nos envios próprios deles --
  * as rotas ainda não existem, e uma rota desconhecida volta para Diárias.
+ *
+ * SERVIÇOS/MATERIAIS é o processo de duas páginas -- a Requisição de
+ * Material/Serviço e a Liquidação/Solicitação de Pagamento --, com permissão
+ * própria e separada da de Diárias. ⚠️ "Liquidação/Solicitação de Pagamento" é o
+ * NOME DO DOCUMENTO: ela não é baixa de pagamento e não paga nada.
  *
  * SERVIDORES é o CADASTRO das pessoas que trabalham no município, e tem
  * permissão própria: quem vê Diárias não passa a ver Servidores. ⚠️ Ele NÃO é o
@@ -37,11 +44,12 @@ import { carregarFornecedoresDaBaixa } from "../lib/baixasPagamentos";
  * LÊ o financeiro -- e só para que processo antigo continue mostrando a
  * secretaria que gravou. Fornecedores também são só leitura.
  */
-const AREAS = ["diarias", "servidores"];
+const AREAS = ["diarias", "servicos", "servidores"];
 
 export default function ModuloProcessos() {
   const { area: rota } = useParams();
-  const { carregando, usuario, permissoes, permissoesServidores, erro } = usePermissoesProcessos();
+  const { carregando, usuario, permissoes, permissoesServicos, permissoesServidores, erro } =
+    usePermissoesProcessos();
   const area = rota === undefined ? "diarias" : AREAS.includes(rota) ? rota : null;
 
   const [apoio, setApoio] = React.useState({
@@ -95,7 +103,12 @@ export default function ModuloProcessos() {
 
   if (!area) return <Navigate to="/processos/diarias" replace />;
 
-  const rotuloDaArea = area === "servidores" ? "Processos · Servidores" : "Processos · Diárias";
+  const ROTULOS_DA_AREA = {
+    diarias: "Processos · Diárias",
+    servicos: "Processos · Serviços/Materiais",
+    servidores: "Processos · Servidores",
+  };
+  const rotuloDaArea = ROTULOS_DA_AREA[area] ?? ROTULOS_DA_AREA.diarias;
 
   if (carregando) {
     return (
@@ -117,7 +130,12 @@ export default function ModuloProcessos() {
   // rota. Cada subaba tem a permissão DELA. A recusa definitiva é a do banco: a
   // RLS das tabelas do módulo confere `pode_em_processos` antes de devolver
   // qualquer linha.
-  const liberado = area === "servidores" ? podeVerServidores(permissoesServidores) : podeVerDiarias(permissoes);
+  const liberado =
+    area === "servidores"
+      ? podeVerServidores(permissoesServidores)
+      : area === "servicos"
+        ? podeVerServicos(permissoesServicos)
+        : podeVerDiarias(permissoes);
   if (!liberado) {
     return (
       <Layout usuario={infoLayout}>
@@ -129,7 +147,19 @@ export default function ModuloProcessos() {
   return (
     <Layout usuario={infoLayout}>
       <div className="px-5 py-6 sm:px-8 sm:py-7">
-        {area === "servidores" ? (
+        {area === "servicos" ? (
+          <PaginaServicos
+            permissoes={permissoesServicos}
+            permissoesServidores={permissoesServidores}
+            fornecedores={apoio.fornecedores}
+            solicitantes={apoio.solicitantes}
+            secretarias={secretariasParaConsulta}
+            bancos={apoio.bancos}
+            servidores={apoio.servidores}
+            carregandoApoio={apoio.carregando}
+            usuario={usuario}
+          />
+        ) : area === "servidores" ? (
           <PaginaServidores
             permissoes={permissoesServidores}
             solicitantes={apoio.solicitantes}
