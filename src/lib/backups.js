@@ -410,6 +410,13 @@ const TABELAS_ESTIMATIVA = [
   { tabela: "processos_diarias", bytesPorLinha: 2200 },
   { tabela: "processos_diarias_numeracao", bytesPorLinha: 120 },
   { tabela: "processos_diarias_historico", bytesPorLinha: 700 },
+  // PROCESSOS · Serviços/Materiais, pelo mesmo desenho: o processo é UMA linha
+  // (as duas páginas, os itens e os dados congelados moram nela), com a
+  // numeração do ano e o histórico do módulo ao lado, para que rascunhos,
+  // vínculos e trilha entrem no backup diário e no "Gerar Backup Agora".
+  { tabela: "processos_servicos", bytesPorLinha: 2200 },
+  { tabela: "processos_servicos_numeracao", bytesPorLinha: 120 },
+  { tabela: "processos_servicos_historico", bytesPorLinha: 700 },
 ];
 
 /** Peso fixo do esquema (tabelas, índices, funções) no arquivo de backup. */

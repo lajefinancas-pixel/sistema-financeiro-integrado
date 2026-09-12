@@ -652,13 +652,14 @@ test("PROCESSOS é um item expansível próprio e o submenu de Fornecedores não
   assert.match(layout, /min-h-\[2\.5rem\]/);
 
   const menu = await read("src/lib/permissoesProcessos.js");
-  // O submenu tem DUAS entradas: Diárias e Servidores.
+  // O submenu tem Diárias, Serviços/Materiais e Servidores -- cada um chegou no
+  // seu envio, e nenhum deles mexeu no item de Fornecedores.
   assert.match(menu, /\/processos\/diarias/);
+  assert.match(menu, /\/processos\/servicos/);
   assert.match(menu, /\/processos\/servidores/);
-  // Serviços/Materiais e Arquivo são de outros envios: não existe rota nem item
-  // de menu para eles neste.
-  assert.doesNotMatch(menu, /\/processos\/(servicos|materiais|arquivo)/i);
-  assert.equal((menu.match(/rotulo: "/g) ?? []).length, 2);
+  // Arquivo é de outro envio: não existe rota nem item de menu para ele ainda.
+  assert.doesNotMatch(menu, /\/processos\/(materiais|arquivo)/i);
+  assert.equal((menu.match(/rotulo: "/g) ?? []).length, 3);
 });
 
 /* -------------------------------------------------------------------------

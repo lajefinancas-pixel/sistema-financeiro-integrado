@@ -42,6 +42,15 @@ export const MODULOS = [
   { id: "processos_diarias", label: "Processos · Diárias" },
   { id: "processos_diarias_saida", label: "Processos · Diárias (impressão e duplicação)" },
   { id: "processos_diarias_tabela", label: "Processos · Tabela de Diárias" },
+  // PROCESSOS · Serviços/Materiais. Dois módulos pela MESMA razão: sete ações,
+  // cinco colunas. As permissões são SEPARADAS das de Diárias -- liberar uma não
+  // libera a outra. Módulo igualmente DOCUMENTAL: nem "finalizar" nem
+  // "imprimir" pagam nada, dão baixa em NF ou debitam conta.
+  { id: "processos_servicos", label: "Processos · Serviços/Materiais" },
+  {
+    id: "processos_servicos_saida",
+    label: "Processos · Serviços/Materiais (impressão e duplicação)",
+  },
   // PROCESSOS · Servidores: o CADASTRO dos servidores do município. Módulo
   // próprio porque é cadastro, não é processo -- quem preenche uma diária não
   // passa a poder criar, editar ou inativar servidores. Não é o cadastro de
@@ -176,6 +185,29 @@ export const MODULO_PROCESSOS_DIARIAS_TABELA = "processos_diarias_tabela";
  */
 export const MODULO_PROCESSOS_SERVIDORES = "processos_servidores";
 
+/**
+ * PROCESSOS · Serviços/Materiais reparte as mesmas cinco colunas em dois
+ * módulos, porque a área tem sete ações próprias:
+ *
+ *   processos_servicos         visualizar | criar | editar | finalizar | cancelar
+ *   processos_servicos_saida   imprimir   | duplicar
+ *
+ * ⚠️ São permissões SEPARADAS das de Diárias: quem preenche uma diária não passa
+ * a poder criar processo de serviço, e vice-versa. Nada do que já existia foi
+ * alterado -- estas são linhas NOVAS na Matriz.
+ *
+ * "Finalizar" fecha o documento -- NÃO paga, não gera pagamento, não dá baixa em
+ * NF, não debita conta e não altera saldo. "Cancelar" é a exclusão lógica da
+ * área: o processo e o histórico nunca são apagados, e o número nunca volta a
+ * ser usado.
+ *
+ * O mesmo mapa está escrito na migration
+ * 20260911260000_processos_modulo_servicos.sql e na função do banco
+ * `public.pode_em_processos`.
+ */
+export const MODULO_PROCESSOS_SERVICOS = "processos_servicos";
+export const MODULO_PROCESSOS_SERVICOS_SAIDA = "processos_servicos_saida";
+
 const ACOES_PROCESSOS_DIARIAS = [
   { campo: "pode_visualizar", label: "Visualizar" },
   { campo: "pode_cadastrar", label: "Criar" },
@@ -195,6 +227,19 @@ const ACOES_PROCESSOS_DIARIAS_SAIDA = [
 const ACOES_PROCESSOS_DIARIAS_TABELA = [
   { campo: "pode_visualizar", label: "Consultar a tabela" },
   { campo: "pode_editar", label: "Editar a tabela (afeta valores de diária)" },
+];
+
+const ACOES_PROCESSOS_SERVICOS = [
+  { campo: "pode_visualizar", label: "Visualizar" },
+  { campo: "pode_cadastrar", label: "Criar" },
+  { campo: "pode_editar", label: "Editar" },
+  { campo: "pode_aprovar", label: "Finalizar (não é pagar)" },
+  { campo: "pode_excluir", label: "Cancelar / anular" },
+];
+
+const ACOES_PROCESSOS_SERVICOS_SAIDA = [
+  { campo: "pode_visualizar", label: "Imprimir e gerar PDF" },
+  { campo: "pode_cadastrar", label: "Duplicar" },
 ];
 
 const ACOES_PROCESSOS_SERVIDORES = [
@@ -218,6 +263,8 @@ export function acoesDoModulo(modulo) {
   if (modulo === MODULO_PROCESSOS_DIARIAS) return ACOES_PROCESSOS_DIARIAS;
   if (modulo === MODULO_PROCESSOS_DIARIAS_SAIDA) return ACOES_PROCESSOS_DIARIAS_SAIDA;
   if (modulo === MODULO_PROCESSOS_DIARIAS_TABELA) return ACOES_PROCESSOS_DIARIAS_TABELA;
+  if (modulo === MODULO_PROCESSOS_SERVICOS) return ACOES_PROCESSOS_SERVICOS;
+  if (modulo === MODULO_PROCESSOS_SERVICOS_SAIDA) return ACOES_PROCESSOS_SERVICOS_SAIDA;
   if (modulo === MODULO_PROCESSOS_SERVIDORES) return ACOES_PROCESSOS_SERVIDORES;
   return ACOES;
 }

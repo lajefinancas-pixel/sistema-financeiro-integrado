@@ -752,7 +752,7 @@ test("SERVIDORES é subaba do submenu PROCESSOS e tem permissão própria", asyn
   assert.match(menu, /id: "diarias"[\s\S]*id: "servidores"/);
   assert.match(menu, /\/processos\/servidores/);
   // A rota existe e a área desconhecida volta para Diárias.
-  assert.match(pagina, /const AREAS = \["diarias", "servidores"\]/);
+  assert.match(pagina, /const AREAS = \["diarias", "servicos", "servidores"\]/);
   assert.match(pagina, /Navigate to="\/processos\/diarias"/);
 
   // Permissão PRÓPRIA: quem vê Diárias não passa a ver Servidores.
@@ -783,9 +783,15 @@ test("o cadastro nasce reutilizável para os próximos processos, sem implement�
   // A lista de signatários é a porta de entrada dos próximos documentos.
   assert.match(servidores, /SIGNATARIOS_DO_DOCUMENTO/);
   assert.match(servidores, /camposDoSignatario/);
-  // Mas Serviços/Materiais NÃO está implementado neste envio.
+  // Serviços/Materiais chegou depois, em envio próprio: os arquivos DESTE envio
+  // continuam sem conhecer as tabelas dele -- o único ponto de contato é o
+  // menu/rota do módulo, que é aditivo.
   const arquivos = await Promise.all(ARQUIVOS_DO_ENVIO.map(read));
-  arquivos.forEach((arquivo) =>
-    assert.doesNotMatch(arquivo, /processos_solicitacoes|\/processos\/(servicos|materiais)/i),
-  );
+  arquivos.forEach((arquivo, i) => {
+    assert.doesNotMatch(arquivo, /processos_solicitacoes|\/processos\/materiais/i);
+    const soNoMenu = ["src/lib/permissoesProcessos.js", "src/pages/ModuloProcessos.jsx"];
+    if (!soNoMenu.includes(ARQUIVOS_DO_ENVIO[i])) {
+      assert.doesNotMatch(arquivo, /processos_servicos|\/processos\/servicos/i);
+    }
+  });
 });

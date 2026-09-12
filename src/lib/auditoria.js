@@ -60,6 +60,10 @@ const MODULOS = {
   // nenhum desses eventos corresponde a pagamento, baixa de NF, débito em conta
   // ou alteração de saldo.
   processos_diarias: "Processos · Diárias",
+  // PROCESSOS · Serviços/Materiais, pela mesma razão: o que aparece aqui é a
+  // vida do DOCUMENTO de duas páginas. "Finalizou" não é pagamento e
+  // "Liquidação/Solicitação de Pagamento" é o nome da página 2, não uma baixa.
+  processos_servicos: "Processos · Serviços/Materiais",
 };
 
 export function moduloLabel(valor) {
