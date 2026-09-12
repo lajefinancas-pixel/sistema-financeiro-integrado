@@ -28,12 +28,19 @@ const MENSAGENS_POR_CODIGO = {
   "23503": "Este registro está ligado a outros lançamentos e não pode ser alterado ou excluído.",
   "23502": "Preencha todos os campos obrigatórios.",
   // 22P02 (invalid_text_representation) quase nunca é o valor que o usuário
-  // digitou: na prática é uma comparação no banco entre tipos incompatíveis --
-  // texto contra enum, texto contra boolean. Acusar o formato do valor mandava
-  // quem usa o sistema procurar defeito onde não havia. O código sai junto para
-  // poder ser relatado, e o erro completo está no console.
+  // digitou: na prática é uma comparação ou gravação no banco entre tipos
+  // incompatíveis -- texto contra enum, texto contra uuid, texto contra
+  // boolean. Acusar o formato do valor mandava quem usa o sistema procurar
+  // defeito onde não havia.
+  //
+  // ⚠️ A MENSAGEM DIZ O QUE FAZER. "O erro completo está no console (F12)" era
+  // a única instrução que ela dava, e isso não serve para quem opera o sistema:
+  // ninguém no balcão abre o console, e quem abrisse não teria o que fazer com
+  // o que está lá. O que a pessoa precisa saber é que não foi ela, que nada foi
+  // gravado, que mexer no que digitou não resolve e a quem avisar. O console
+  // continua citado, mas no fim e como recado para quem vai corrigir.
   "22P02":
-    "O banco recusou a operação por incompatibilidade de tipo entre um valor e a coluna correspondente (código 22P02). Não é o valor que você digitou. O erro completo está no console do navegador (F12).",
+    "O banco recusou esta operação por incompatibilidade de tipo entre um valor e a coluna correspondente (código 22P02). Não é o valor que você digitou e nada foi gravado ou alterado. O QUE FAZER: não tente de novo mudando o que preencheu, porque não vai resolver -- avise quem administra o sistema informando o código 22P02, o nome desta tela e o que você estava fazendo, porque a correção é feita no banco. O detalhe técnico fica registrado no console do navegador (F12), para quem for corrigir.",
   "22003": "O valor informado é maior do que o sistema aceita.",
   "42501": "Você não tem permissão para fazer isso.",
   PGRST301: "Sua sessão expirou. Entre novamente para continuar.",

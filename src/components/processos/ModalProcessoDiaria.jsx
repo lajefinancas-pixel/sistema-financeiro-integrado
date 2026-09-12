@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, Eye, FileCheck2, Search, X } from "lucide-react";
+import { Check, Eye, FileCheck2, Printer, Search, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda.jsx";
 import {
   CAMPOS_COMPARTILHADOS,
@@ -143,6 +143,7 @@ export default function ModalProcessoDiaria({
   onCriar,
   onSalvar,
   onFinalizar,
+  onFinalizarEImprimir,
   onPreVisualizar,
 }) {
   const [formulario, setFormulario] = React.useState(() =>
@@ -483,7 +484,15 @@ export default function ModalProcessoDiaria({
     if (ok !== false) setSujo(false);
   }
 
-  async function finalizar() {
+  /**
+   * FINALIZAR, e opcionalmente JÁ ABRIR A IMPRESSÃO -- numa única ação.
+   *
+   * A conferência vem PRIMEIRO, sempre: processo que não pode ser finalizado
+   * avisa o que falta e NÃO abre impressão nenhuma. Só depois de finalizar é
+   * que o papel sai -- e finalizar continua não sendo pagar, nem imprimir
+   * altera o processo.
+   */
+  async function finalizar({ comImpressao = false } = {}) {
     const erros = validarFinalizacao(formulario);
     const impedimento = primeiroErro(erros);
     if (impedimento) {
@@ -495,7 +504,9 @@ export default function ModalProcessoDiaria({
       setAviso("Salve o rascunho primeiro: é nele que o número do processo é emitido.");
       return;
     }
-    const ok = await onFinalizar?.(formulario);
+    const ok = comImpressao
+      ? await onFinalizarEImprimir?.(formulario)
+      : await onFinalizar?.(formulario);
     if (ok !== false) setSujo(false);
   }
 
@@ -697,12 +708,30 @@ export default function ModalProcessoDiaria({
           {permissoes.finalizar && rascunho && (
             <button
               type="button"
-              onClick={finalizar}
+              onClick={() => finalizar()}
               disabled={salvando || !criado}
               title="Fecha o documento para alteração. Finalizar não é pagar."
-              className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-60"
+              className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg border border-[#0F2A44]/20 px-4 py-2 text-sm text-[#0F2A44] hover:bg-black/5 disabled:opacity-60"
             >
               <FileCheck2 size={15} /> Finalizar
+            </button>
+          )}
+
+          {/* FINALIZAR E IMPRIMIR: uma única ação. Fecha o documento e abre a
+              impressão do processo completo (3 páginas) na sequência, sem passo intermediário. As duas
+              ações separadas continuam existindo: "Finalizar" sozinha, aqui ao
+              lado, e "Imprimir" pela lista de processos. Se faltar campo
+              obrigatório, avisa e NÃO imprime. Finalizar não é pagar, e imprimir
+              não altera o processo. */}
+          {permissoes.finalizar && permissoes.imprimir && rascunho && (
+            <button
+              type="button"
+              onClick={() => finalizar({ comImpressao: true })}
+              disabled={salvando || !criado}
+              title="Finaliza e abre a impressão do processo completo (3 páginas) numa única ação. Finalizar não é pagar."
+              className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-60"
+            >
+              <Printer size={15} /> Finalizar e imprimir
             </button>
           )}
         </div>
