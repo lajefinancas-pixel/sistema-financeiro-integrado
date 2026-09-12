@@ -143,18 +143,19 @@ $$;
 -- Ela é criada só se as duas origens de permissão existirem -- public.usuarios e
 -- a view public.permissoes_efetivas --, porque uma função `language sql` tem o
 -- corpo validado na criação e falharia com elas ausentes.
+--
+-- ⚠️ A EXISTÊNCIA É CONFERIDA COM `to_regprocedure`, e não comparando o texto
+-- de pg_get_function_identity_arguments com 'text': esse texto INCLUI o nome do
+-- parâmetro ('acao text'), então a comparação com 'text' nunca casaria e a
+-- função seria recriada sempre -- inclusive num banco onde ela existe e a view
+-- de permissões não pudesse ser lida. `to_regprocedure` compara por assinatura,
+-- sem depender do nome do parâmetro, e devolve nulo em vez de erro quando a
+-- função não existe.
 do $$
 declare
   tem_funcao boolean;
 begin
-  select exists (
-    select 1
-      from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public'
-       and p.proname = 'pode_em_administracao'
-       and pg_get_function_identity_arguments(p.oid) = 'text'
-  ) into tem_funcao;
+  tem_funcao := to_regprocedure('public.pode_em_administracao(text)') is not null;
 
   if tem_funcao then
     raise notice 'OK: public.pode_em_administracao(text) já existe -- nada a criar.';
@@ -293,11 +294,10 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 4. Conferência
 -- ---------------------------------------------------------------------------
--- A função de permissão existe? Tem de vir 1 linha.
-select p.proname, pg_get_function_identity_arguments(p.oid) as argumentos
-  from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
- where n.nspname = 'public' and p.proname = 'pode_em_administracao';
+-- A função de permissão existe? Tem de vir 1 linha, com `pode_em_administracao`
+-- e a assinatura completa.
+select to_regprocedure('public.pode_em_administracao(text)')::text as funcao
+ where to_regprocedure('public.pode_em_administracao(text)') is not null;
 
 -- O bucket existe e está público?
 select id, name, public from storage.buckets where id = 'configuracoes';

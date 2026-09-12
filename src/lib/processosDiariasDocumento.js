@@ -66,7 +66,10 @@ import {
 } from "./processosIdentidade.js";
 import { prefeitaDoProcesso } from "./processosPrefeita.js";
 import { tipoDiariaComposto } from "./processosDiariasTabela.js";
-import { complementoDoEncaminhamento } from "./processosEncaminhamento.js";
+import {
+  complementoDoEncaminhamento,
+  complementoDoEncaminhamentoDaLiquidacao,
+} from "./processosEncaminhamento.js";
 import { bancoDoDocumento } from "./processosBancos.js";
 // ⚠️ O CABEÇALHO, O RODAPÉ, AS ASSINATURAS E AS REGRAS DE DATA VÊM DAQUI, e não
 // deste arquivo: são as MESMAS dos cinco documentos do módulo. Nada disto é
@@ -386,13 +389,13 @@ export function dadosDoDocumento(
       data: texto(p.liquidacao_data),
       localEData: localEData(dataDaLiquidacao(p), p.ano),
       emData: emData(dataDaLiquidacao(p)),
-      // A SECRETARIA DO ENCAMINHAMENTO desta folha -- a que a prefeita manda
+      // A SECRETARIA DO ENCAMINHAMENTO DESTA FOLHA -- a que a prefeita manda
       // providenciar o pagamento. Só o NÚCLEO do nome, porque o "À SECRETARIA
-      // DE" já vem impresso no quadro comum. O modelo oficial traz Finanças, e
-      // Finanças continua sendo o padrão quando nada foi escolhido. ⚠️ Ela não
-      // é a secretaria solicitante: vem do cadastro do módulo FINANCEIRO, só
+      // DE" já vem impresso no quadro comum. ⚠️ O padrão desta folha é FINANÇAS,
+      // que é quem paga e é o que o modelo oficial traz impresso -- e ela NÃO é
+      // a secretaria solicitante: vem do cadastro do módulo FINANCEIRO, só
       // lido, e NUNCA sai em branco no papel.
-      destino: complementoDoEncaminhamento(p),
+      destino: complementoDoEncaminhamentoDaLiquidacao(p),
     },
 
     // PÁGINA 3 — a prestação de contas, que pode estar pendente.

@@ -41,7 +41,7 @@ import {
   encaminhamentoPeloNome,
   nucleoDaSecretaria,
   secretariasParaEncaminhamento,
-  sugerirEncaminhamento,
+  sugerirEncaminhamentoDaLiquidacao,
 } from "../../lib/processosEncaminhamento.js";
 import {
   CAMPOS_SOLICITANTE_NO_PROCESSO,
@@ -194,27 +194,22 @@ export default function ModalProcessoDiaria({
    * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
    *
    * O despacho da prefeita não sai em branco no papel: o processo já nasce com
-   * um destino sugerido -- a própria solicitante, se ela tem financeiro, ou
-   * Finanças. ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez: processo já
-   * gravado abre exatamente como estava.
+   * um destino sugerido. ⚠️ AQUI É SEMPRE FINANÇAS, porque o único despacho
+   * deste processo é o da LIQUIDAÇÃO -- a Requisição de Diárias não tem quadro
+   * de "À SECRETARIA DE", ela traz as três assinaturas empilhadas (Servidor,
+   * Responsável pela Secretaria, Prefeita), e por isso não existe sugestão de
+   * folha 1 para dar. ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez:
+   * processo já gravado abre exatamente como estava, e a troca à mão vale.
    */
   const encaminhamentoSugerido = React.useRef(false);
   React.useEffect(() => {
     if (criado || encaminhamentoSugerido.current) return;
     if (String(formulario.encaminhar_secretaria_nome ?? "").trim() !== "") return;
-    const sugestao = sugerirEncaminhamento({
-      secretariasFinanceiras,
-      nomeDaSolicitante: formulario.solicitante_nome ?? "",
-    });
+    const sugestao = sugerirEncaminhamentoDaLiquidacao({ secretariasFinanceiras });
     if (String(sugestao.encaminhar_secretaria_nome ?? "").trim() === "") return;
     encaminhamentoSugerido.current = true;
     setFormulario((atual) => ({ ...atual, ...sugestao }));
-  }, [
-    criado,
-    secretariasFinanceiras,
-    formulario.encaminhar_secretaria_nome,
-    formulario.solicitante_nome,
-  ]);
+  }, [criado, secretariasFinanceiras, formulario.encaminhar_secretaria_nome]);
 
   function definir(chave, valor) {
     setAviso(null);
@@ -412,17 +407,11 @@ export default function ModalProcessoDiaria({
         });
       }
       // O ENCAMINHAMENTO DA PREFEITA é SUGERIDO aqui, e só com o campo em
-      // branco: solicitante que TEM financeiro recebe o próprio processo;
-      // solicitante sem financeiro manda para Finanças. Escolha feita à mão
-      // nunca é sobrescrita.
+      // branco: FINANÇAS, que é quem paga a diária e é o que o modelo oficial
+      // da liquidação já traz impresso. Escolha feita à mão nunca é
+      // sobrescrita.
       if (String(atual.encaminhar_secretaria_nome ?? "").trim() === "") {
-        Object.assign(
-          proximo,
-          sugerirEncaminhamento({
-            secretariasFinanceiras,
-            nomeDaSolicitante: dados.solicitante_nome ?? "",
-          }),
-        );
+        Object.assign(proximo, sugerirEncaminhamentoDaLiquidacao({ secretariasFinanceiras }));
       }
       return proximo;
     });

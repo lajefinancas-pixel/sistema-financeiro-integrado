@@ -48,6 +48,7 @@ import {
 import { dadosDoBancoParaDocumento } from "../../lib/processosBancos.js";
 import {
   chaveDaSecretaria,
+  dadosDoEncaminhamentoDaRequisicao,
   dadosDoEncaminhamentoParaDocumento,
   encaminhamentoPeloNome,
   nucleoDaSecretaria,
@@ -264,11 +265,17 @@ export default function ModalProcessoServico({
   /**
    * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
    *
-   * O "À SECRETARIA DE ______" não pode sair em branco no papel, então
-   * o processo já nasce com um destino sugerido -- a própria solicitante, se ela
-   * tem financeiro, ou Finanças. ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez:
-   * processo já gravado abre como estava, e limpar a escolha à mão continua
-   * valendo (a sugestão não volta a se impor).
+   * O "À SECRETARIA DE ______" não pode sair em branco no papel, então o
+   * processo já nasce com um destino sugerido EM CADA FOLHA, e as duas
+   * sugestões são diferentes de propósito:
+   *
+   *   REQUISIÇÃO (pág. 1) -> a própria SOLICITANTE quando ela tem financeiro;
+   *                          Finanças quando não tem;
+   *   LIQUIDAÇÃO (pág. 2) -> sempre FINANÇAS, que é quem paga.
+   *
+   * ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez: processo já gravado abre
+   * como estava, e limpar ou trocar a escolha à mão continua valendo em cada
+   * folha separadamente (a sugestão não volta a se impor).
    */
   const encaminhamentoSugerido = React.useRef(false);
   React.useEffect(() => {
@@ -373,11 +380,12 @@ export default function ModalProcessoServico({
           }
         });
       }
-      // O ENCAMINHAMENTO DA PREFEITA é SUGERIDO aqui, e só quando ainda está em
-      // branco: solicitante que TEM financeiro recebe o próprio processo de
-      // volta; solicitante sem financeiro -- Turismo, Obras, Gabinete -- manda
-      // para Finanças. Escolha já feita à mão nunca é sobrescrita, e o despacho
-      // escrito no processo antigo também não.
+      // O ENCAMINHAMENTO DA PREFEITA é SUGERIDO aqui, e só quando as DUAS
+      // folhas ainda estão em branco: na REQUISIÇÃO, solicitante que TEM
+      // financeiro recebe o próprio processo de volta, e solicitante sem
+      // financeiro -- Turismo, Obras, Gabinete -- manda para Finanças; a
+      // LIQUIDAÇÃO vai para Finanças de qualquer jeito. Escolha já feita à mão
+      // nunca é sobrescrita, e o despacho escrito no processo antigo também não.
       if (
         String(atual.encaminhar_secretaria_nome ?? "").trim() === "" &&
         String(atual.despacho_secretaria ?? "").trim() === ""
@@ -395,8 +403,34 @@ export default function ModalProcessoServico({
   }
 
   /**
-   * Escolhe A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- o "À SECRETARIA
-   * MUNICIPAL DE ______" do despacho, que antes saía em branco no papel.
+   * Escolhe A SECRETARIA DO DESPACHO DA REQUISIÇÃO (página 1).
+   *
+   * ⚠️ FOLHA PRÓPRIA, CAMPO PRÓPRIO: esta escolha vai para `despacho_secretaria`
+   * e NÃO arrasta a da liquidação, que tem Finanças por padrão. A requisição
+   * volta para a casa que pediu; a liquidação vai para quem paga.
+   *
+   * Grava o NOME da secretaria, e é ele que o documento imprime: renomear ou
+   * inativar a secretaria no cadastro financeiro amanhã não reescreve o
+   * documento de hoje. Escolher aqui não escreve UMA LINHA no cadastro do
+   * financeiro -- ele é só lido.
+   */
+  function escolherEncaminhamentoDaRequisicao(nome) {
+    setAviso(null);
+    setSujo(true);
+    encaminhamentoSugerido.current = true;
+    const escolhida = encaminhamentoPeloNome(
+      secretariasParaEncaminhamento(secretariasFinanceiras),
+      nome,
+    );
+    setFormulario((atual) => ({
+      ...atual,
+      ...dadosDoEncaminhamentoDaRequisicao(escolhida ?? { nome: String(nome ?? "").trim() }),
+    }));
+  }
+
+  /**
+   * Escolhe A SECRETARIA DO ENCAMINHAMENTO DA LIQUIDAÇÃO (página 2) -- o "À
+   * SECRETARIA DE ______" do despacho, que antes saía em branco no papel.
    *
    * ⚠️ NÃO É A SECRETARIA SOLICITANTE. Quem requisita pode ser qualquer
    * secretaria do município e vem do cadastro próprio do módulo; quem recebe o
@@ -673,7 +707,7 @@ export default function ModalProcessoServico({
               secretariasFinanceiras={secretariasFinanceiras}
               somenteLeitura={somenteLeitura}
               definir={definir}
-              onEscolherEncaminhamento={escolherEncaminhamento}
+              onEscolherEncaminhamentoDaRequisicao={escolherEncaminhamentoDaRequisicao}
               mexerNosItens={mexerNosItens}
               servidores={servidores}
               signatariosEncontrados={signatariosEncontrados}
@@ -841,37 +875,34 @@ function Bloco({ titulo, apoio = null, children }) {
  * amanhã aparece aqui sozinha, sem mexer em nada aqui dentro.
  */
 function CampoEncaminhamento({
-  formulario,
+  nomeGravado = "",
+  idGravado = null,
   secretariasFinanceiras = [],
   somenteLeitura,
   onEscolher,
   rotulo = "Encaminhar à Secretaria de",
   apoio = null,
 }) {
+  // ⚠️ A ESCOLHA GRAVADA VEM POR PROPRIEDADE, e não lida de uma coluna fixa:
+  // cada folha guarda o destino DELA (a requisição em `despacho_secretaria`, a
+  // liquidação em `encaminhar_secretaria_nome`), e o mesmo campo de tela serve
+  // às duas sem arrastar uma na outra.
+  const gravado = String(nomeGravado ?? "").trim();
+
   const oferecidas = React.useMemo(() => {
     const lista = secretariasParaEncaminhamento(secretariasFinanceiras);
-    const gravado = String(formulario.encaminhar_secretaria_nome ?? "").trim();
     if (gravado === "") return lista;
     const chave = chaveDaSecretaria(gravado);
     if (lista.some((s) => chaveDaSecretaria(s.nome) === chave)) return lista;
-    // O que ESTE processo gravou continua oferecido mesmo que a secretaria tenha
+    // O que ESTA FOLHA gravou continua oferecido mesmo que a secretaria tenha
     // sido inativada ou renomeada no cadastro financeiro: documento emitido não
     // troca de destino sozinho.
     return [
-      {
-        id: formulario.encaminhar_secretaria_id ?? null,
-        nome: gravado,
-        nucleo: nucleoDaSecretaria(gravado),
-      },
+      { id: idGravado ?? null, nome: gravado, nucleo: nucleoDaSecretaria(gravado) },
       ...lista,
     ];
-  }, [
-    secretariasFinanceiras,
-    formulario.encaminhar_secretaria_nome,
-    formulario.encaminhar_secretaria_id,
-  ]);
+  }, [secretariasFinanceiras, gravado, idGravado]);
 
-  const gravado = String(formulario.encaminhar_secretaria_nome ?? "").trim();
   const escolhida =
     gravado === ""
       ? null
@@ -1227,7 +1258,7 @@ function SecaoRequisicao({
   secretariasFinanceiras = [],
   somenteLeitura,
   definir,
-  onEscolherEncaminhamento,
+  onEscolherEncaminhamentoDaRequisicao,
   mexerNosItens,
   servidores = [],
   signatariosEncontrados = [],
@@ -1389,26 +1420,17 @@ function SecaoRequisicao({
         titulo="Autorização da prefeita"
         apoio="O despacho impresso na página 1, ao lado da assinatura do requisitante. O “À SECRETARIA DE ___” sai JÁ PREENCHIDO com a secretaria escolhida aqui."
       >
+        {/* ⚠️ O DESTINO DESTA FOLHA, gravado no campo DELA
+            (`despacho_secretaria`). A página 2 tem o campo dela, com padrão
+            Finanças: trocar aqui NÃO troca lá. É a diferença entre quem
+            SOLICITA e quem PAGA. */}
         <CampoEncaminhamento
-          formulario={formulario}
+          nomeGravado={formulario.despacho_secretaria}
           secretariasFinanceiras={secretariasFinanceiras}
           somenteLeitura={somenteLeitura}
-          onEscolher={onEscolherEncaminhamento}
-          apoio="A secretaria a quem a prefeita ENCAMINHA o processo — uma das que têm financeiro, lidas do cadastro do módulo financeiro (o mesmo de Saldos e Pagamentos), que este módulo apenas LÊ. Não é a secretaria solicitante: a mesma escolha vale para as duas páginas e pode ser trocada até finalizar."
+          onEscolher={onEscolherEncaminhamentoDaRequisicao}
+          apoio="A secretaria a quem a prefeita ENCAMINHA esta requisição — uma das que têm financeiro, lidas do cadastro do módulo financeiro (o mesmo de Saldos e Pagamentos), que este módulo apenas LÊ. Não é a secretaria solicitante. A página 2 tem o destino dela, com Finanças por padrão, e é independente desta."
         />
-        {/* O PROCESSO ANTIGO que escreveu o destino à mão continua editável --
-            e continua imprimindo o que escreveu enquanto não se escolher uma
-            secretaria acima. */}
-        {String(formulario.despacho_secretaria ?? "").trim() !== "" && (
-          <CampoTexto
-            rotulo="À SECRETARIA DE (escrito à mão neste processo)"
-            valor={formulario.despacho_secretaria}
-            onChange={(v) => definir("despacho_secretaria", v)}
-            desabilitado={somenteLeitura}
-            className="mt-3"
-            apoio="Texto gravado antes da escolha acima existir. Escolhida uma secretaria, é ela que o documento imprime."
-          />
-        )}
       </Bloco>
 
       {/* A assinatura do requisitante: "(assinatura, nome e identificação
@@ -1763,18 +1785,20 @@ function SecaoLiquidacao({
       </Bloco>
 
       {/* O DESPACHO DA PÁGINA 2: "À SECRETARIA DE ______, para as
-          providências de pagamento". O modelo oficial traz Finanças, e é ela a
-          sugestão -- mas a escolha é a MESMA das duas páginas. */}
+          providências de pagamento". ⚠️ ESTA FOLHA TEM O DESTINO DELA, com
+          FINANÇAS por padrão -- é quem paga, e é o que o modelo oficial já traz
+          impresso. Trocar aqui não troca o da página 1. */}
       <Bloco
         titulo="Encaminhamento da liquidação"
-        apoio="A mesma escolha da página 1: trocar aqui troca nas duas. O modelo oficial traz Finanças, que segue como sugestão."
+        apoio="O destino DESTA folha, independente do da página 1. O modelo oficial traz Finanças, que é a sugestão, e a troca vale até finalizar."
       >
         <CampoEncaminhamento
-          formulario={formulario}
+          nomeGravado={formulario.encaminhar_secretaria_nome}
+          idGravado={formulario.encaminhar_secretaria_id}
           secretariasFinanceiras={secretariasFinanceiras}
           somenteLeitura={somenteLeitura}
           onEscolher={onEscolherEncaminhamento}
-          apoio="Sai impresso como “À SECRETARIA DE ______” no quadro de autorização da prefeita. Lida do cadastro de secretarias do módulo financeiro, que este módulo apenas LÊ."
+          apoio="Sai impresso como “À SECRETARIA DE ______” no quadro de autorização da prefeita DESTA folha. Lida do cadastro de secretarias do módulo financeiro, que este módulo apenas LÊ. Quem solicita não é quem paga: por isso o padrão aqui é Finanças."
         />
       </Bloco>
 
