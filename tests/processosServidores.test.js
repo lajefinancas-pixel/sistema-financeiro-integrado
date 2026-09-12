@@ -105,6 +105,9 @@ const ARQUIVOS_DO_ENVIO = [
   "src/lib/processosDiarias.js",
   "src/lib/processosDiariasDados.js",
   "src/lib/processosDiariasDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/lib/permissoesProcessos.js",
   "src/pages/ModuloProcessos.jsx",
 ];
@@ -606,7 +609,7 @@ test("9. as três assinaturas saem uma embaixo da outra, e a folha continua send
   // Empilhadas, não lado a lado: cada uma na sua linha, centralizada e com o
   // vão acima do traço para assinar à mão.
   assert.doesNotMatch(html, /\.assinaturas \{ display: flex/);
-  assert.match(html, /\.assinaturas div \{ width: 95mm; margin: 9mm auto 0/);
+  assert.match(html, /\.assinaturas > div \{ width: 95mm; margin: 9mm auto 0/);
   // Quem assina pela secretaria sai identificado, com o cargo gravado.
   assert.ok(bloco.includes("João Batista de Oliveira Filho"));
   assert.ok(bloco.includes("Secretário Municipal de Administração"));

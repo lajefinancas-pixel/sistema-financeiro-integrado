@@ -1,4 +1,4 @@
-// O ENCAMINHAMENTO DA PREFEITA: "À SECRETARIA MUNICIPAL DE ______".
+// O ENCAMINHAMENTO DA PREFEITA: "À SECRETARIA DE ______".
 //
 // É o campo do despacho da prefeita, no fim da Requisição e da
 // Liquidação/Solicitação de Pagamento: a secretaria a quem ela ENCAMINHA o
@@ -55,7 +55,7 @@ function semAcento(valor) {
  * O NÚCLEO do nome da secretaria: "Educação", e não "Secretaria Municipal de
  * Educação".
  *
- * A frase do despacho já diz "À SECRETARIA MUNICIPAL DE", então o que entra
+ * A frase do despacho já diz "À SECRETARIA DE", então o que entra
  * depois dela é só o complemento. Sem isto o papel sairia "À SECRETARIA
  * MUNICIPAL DE SECRETARIA MUNICIPAL DE EDUCAÇÃO".
  */
@@ -78,7 +78,7 @@ export function chaveDaSecretaria(nome) {
  *
  * Vem em ordem de nome, sem repetição e sem as inativas -- é a mesma leitura que
  * Saldos das Contas e Pagamentos Diários fazem. Cada item traz o `nucleo`, que é
- * o que vai impresso depois de "À SECRETARIA MUNICIPAL DE".
+ * o que vai impresso depois de "À SECRETARIA DE".
  */
 export function secretariasParaEncaminhamento(secretariasFinanceiras = []) {
   const vistas = new Set();
@@ -145,7 +145,7 @@ export function sugerirEncaminhamento({ secretariasFinanceiras = [], nomeDaSolic
 }
 
 /**
- * O COMPLEMENTO impresso depois de "À SECRETARIA MUNICIPAL DE ___".
+ * O COMPLEMENTO impresso depois de "À SECRETARIA DE ___".
  *
  * A ordem é a do congelamento, e é ela que faz processo antigo continuar
  * imprimindo o que sempre imprimiu:

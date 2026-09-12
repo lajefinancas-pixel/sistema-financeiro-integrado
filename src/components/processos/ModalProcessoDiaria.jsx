@@ -16,7 +16,6 @@ import {
   soltarVinculoDeCadastro,
   tituloDoProcesso,
   totalDivergeDoCalculo,
-  valorNaLiquidacao,
   valorTotalCalculado,
   validarFinalizacao,
   validarRascunho,
@@ -1659,9 +1658,29 @@ function SecaoLiquidacao({
         <strong>É um documento</strong>: não é baixa de pagamento e não debita conta.
       </p>
 
-      {/* O DESPACHO DA PREFEITA nesta página: "À Secretaria Municipal de
-          ______, para as providências de pagamento". O modelo oficial traz
-          Finanças, que segue como sugestão. */}
+      {/* ⚠️ A DATA DESTA FOLHA, EM BLOCO PRÓPRIO E NO TOPO DA PÁGINA. Antes ela
+          morava dentro de "Viagem realizada", junto de saída, retorno e valor
+          liquidado -- e, cercada daqueles campos, parecia depender deles para
+          liberar. Não dependia, e agora nem a aparência sugere isso: é o
+          primeiro campo da página, sozinho, sempre editável e independente das
+          páginas 1 e 3. */}
+      <Bloco
+        titulo="Data da liquidação"
+        apoio="A data desta folha é editável e independente das páginas 1 e 3 — a de hoje é só a sugestão inicial, e datas anteriores são aceitas. Não depende de nenhum outro campo estar preenchido."
+      >
+        <CampoTexto
+          rotulo="Data da Liquidação"
+          tipo="date"
+          valor={formulario.liquidacao_data}
+          onChange={(v) => definir("liquidacao_data", v)}
+          desabilitado={somenteLeitura}
+          apoio="Sai no “São José da Laje/AL, ___ de ___ de ____” e no “Em, ___/___/____” DESTA folha. Em branco, o documento usa a data de abertura."
+        />
+      </Bloco>
+
+      {/* O DESPACHO DA PREFEITA nesta página: "À SECRETARIA DE ______, para as
+          providências que o caso requer". O modelo oficial traz Finanças, que
+          segue como sugestão. */}
       <Bloco
         titulo="Encaminhamento da prefeita"
         apoio="A secretaria que RECEBE o processo para as providências de pagamento — uma das que têm financeiro."
@@ -1671,7 +1690,7 @@ function SecaoLiquidacao({
           secretariasFinanceiras={secretariasFinanceiras}
           somenteLeitura={somenteLeitura}
           onEscolher={onEscolherEncaminhamento}
-          apoio="Sai impresso como “À Secretaria Municipal de ______, para as providências de pagamento”. Lida do cadastro de secretarias do módulo financeiro (o mesmo de Saldos e Pagamentos), que este módulo apenas LÊ. Não é a secretaria solicitante."
+          apoio="Sai impresso como “À SECRETARIA DE ______” no quadro de autorização da prefeita. Lida do cadastro de secretarias do módulo financeiro (o mesmo de Saldos e Pagamentos), que este módulo apenas LÊ. Não é a secretaria solicitante."
         />
       </Bloco>
 
@@ -1705,70 +1724,12 @@ function SecaoLiquidacao({
         </p>
       </Bloco>
 
-      <Bloco
-        titulo="Viagem realizada"
-        apoio="Chegam espelhando a Solicitação. Informar um valor próprio aqui faz este campo parar de acompanhar a página 1 — e nada do que você preencher é apagado depois."
-      >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <CampoTexto
-            rotulo="Data da Liquidação"
-            tipo="date"
-            valor={formulario.liquidacao_data}
-            onChange={(v) => definir("liquidacao_data", v)}
-            desabilitado={somenteLeitura}
-            apoio="A data DESTA folha, no “São José da Laje/AL, ___ de ___ de ____”. Em branco, usa a data de abertura."
-          />
-          <CampoTexto
-            rotulo="Saída realizada"
-            tipo="date"
-            valor={valorNaLiquidacao(formulario, "liquidacao_data_saida") ?? ""}
-            onChange={(v) => definir("liquidacao_data_saida", v)}
-            desabilitado={somenteLeitura}
-          />
-          <CampoTexto
-            rotulo="Retorno realizado"
-            tipo="date"
-            valor={valorNaLiquidacao(formulario, "liquidacao_data_retorno") ?? ""}
-            onChange={(v) => definir("liquidacao_data_retorno", v)}
-            desabilitado={somenteLeitura}
-          />
-          <CampoTexto
-            rotulo="Diárias realizadas"
-            valor={valorNaLiquidacao(formulario, "liquidacao_quantidade") ?? ""}
-            onChange={(v) => definir("liquidacao_quantidade", v)}
-            desabilitado={somenteLeitura}
-            inputMode="decimal"
-          />
-          <Campo rotulo="Valor a liquidar" className="sm:col-span-2">
-            <CampoMoeda
-              valor={valorNaLiquidacao(formulario, "liquidacao_valor") ?? ""}
-              onValorChange={(numero) => definir("liquidacao_valor", numero)}
-              disabled={somenteLeitura}
-              className={CLASSE_CAMPO}
-            />
-          </Campo>
-        </div>
-      </Bloco>
-
-      <Bloco
-        titulo="Conferência interna"
-        apoio="Controle da secretaria. Não é impresso no modelo oficial: o relatório da viagem fica na Prestação de Contas (página 3)."
-      >
-        <CampoArea
-          rotulo="Documentos comprobatórios apresentados"
-          valor={formulario.liquidacao_documentos}
-          onChange={(v) => definir("liquidacao_documentos", v)}
-          desabilitado={somenteLeitura}
-          linhas={3}
-        />
-        <CampoTexto
-          rotulo="Responsável pela conferência"
-          valor={formulario.liquidacao_responsavel}
-          onChange={(v) => definir("liquidacao_responsavel", v)}
-          desabilitado={somenteLeitura}
-          className="mt-3"
-        />
-      </Bloco>
+      {/* ⚠️ NÃO EXISTEM MAIS AQUI "VIAGEM REALIZADA" NEM "CONFERÊNCIA INTERNA".
+          Os dois blocos não constam do modelo oficial da página 2: saída
+          realizada, retorno realizado, diárias realizadas, valor a liquidar,
+          documentos comprobatórios e responsável pela conferência saíram da
+          tela. As colunas seguem no banco, intocadas, para que processo já
+          criado continue abrindo -- só ninguém mais as digita nem as lê. */}
 
       <Bloco titulo="Dados bancários para crédito" apoio="Os mesmos da página 1. Editar aqui vale só para o documento.">
         <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
@@ -1822,7 +1783,7 @@ function SecaoPrestacao({ formulario, somenteLeitura, definir }) {
           onChange={(v) => definir("prestacao_data", v)}
           desabilitado={somenteLeitura}
           className="mt-3"
-          apoio="A data DESTA folha, independente das páginas 1 e 2: vai na linha “São José da Laje - AL, __ de __ de ____”. Em branco, a linha sai para completar à mão."
+          apoio="A data DESTA folha, independente das páginas 1 e 2: vai na linha “São José da Laje/AL, ___ de ___ de ____”. Em branco, a linha sai para completar à mão."
         />
       </Bloco>
 
@@ -1842,7 +1803,7 @@ function SecaoPrestacao({ formulario, somenteLeitura, definir }) {
 /**
  * A SECRETARIA A QUEM A PREFEITA ENCAMINHA O PROCESSO.
  *
- * É o "À Secretaria Municipal de ______" do despacho da Liquidação, que antes
+ * É o "À SECRETARIA DE ______" do despacho da Liquidação, que antes
  * saía com Finanças fixo. Agora é escolhido aqui e sai impresso já preenchido.
  *
  * ⚠️ NÃO CONFUNDIR COM A SECRETARIA SOLICITANTE: a solicitante REQUISITA a

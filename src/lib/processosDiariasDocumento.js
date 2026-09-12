@@ -60,17 +60,40 @@ import {
   valorExtensoDoProcesso,
 } from "./processosDiarias.js";
 import {
-  BRASAO_ARQUIVO,
-  BRASAO_SVG,
   IDENTIDADE_PADRAO,
   identidadeDoProcesso,
-  normalizarIdentidade,
+  logoDoDocumento,
 } from "./processosIdentidade.js";
-import { logoDoDocumento } from "./processosIdentidade.js";
 import { prefeitaDoProcesso } from "./processosPrefeita.js";
 import { tipoDiariaComposto } from "./processosDiariasTabela.js";
-import { secretariaMunicipalDoEncaminhamento } from "./processosEncaminhamento.js";
+import { complementoDoEncaminhamento } from "./processosEncaminhamento.js";
 import { bancoDoDocumento } from "./processosBancos.js";
+// ⚠️ O CABEÇALHO, O RODAPÉ, AS ASSINATURAS E AS REGRAS DE DATA VÊM DAQUI, e não
+// deste arquivo: são as MESMAS dos cinco documentos do módulo. Nada disto é
+// copiado documento a documento -- corrigir o layout é mexer no arquivo comum,
+// e a correção vale para os serviços/materiais na mesma hora.
+import {
+  COR,
+  MUNICIPIO as MUNICIPIO_COMUM,
+  SEM_REGISTRO as SEM_REGISTRO_COMUM,
+  TINTA,
+  assinaturaHtml,
+  assinaturasEmpilhadasHtml,
+  avisoHtml,
+  cabecalhoHtml,
+  criarPincelBase,
+  emData,
+  escapar,
+  estilosComuns,
+  faixaDeAssinaturasHtml,
+  ladoDoRequisitanteHtml,
+  localEData,
+  ou,
+  quadroDaPrefeitaHtml,
+  rodapeHtml,
+  texto,
+  textoDoAviso,
+} from "./processosDocumentoComum.js";
 
 /**
  * O cabeçalho institucional de fábrica.
@@ -99,13 +122,19 @@ export const RODAPE_INSTITUCIONAL = {
   cnpj: IDENTIDADE_PADRAO.rodape_cnpj,
 };
 
-/** O município que assina o documento, nas linhas de "Local e data". */
-export const MUNICIPIO = "São José da Laje - AL";
+/**
+ * O município que assina o documento, nas linhas de "Local e data".
+ *
+ * ⚠️ VEM DO ARQUIVO COMUM: é a MESMA grafia nos cinco documentos do módulo.
+ * Antes as diárias escreviam "São José da Laje - AL" e os serviços
+ * "São José da Laje/AL"; agora as duas saem iguais.
+ */
+export const MUNICIPIO = MUNICIPIO_COMUM;
 
 /** A secretaria a quem a autorização da prefeita é destinada (página 2). */
 export const SECRETARIA_DE_FINANCAS = "Secretaria Municipal de Finanças";
 
-export const SEM_REGISTRO = "--";
+export const SEM_REGISTRO = SEM_REGISTRO_COMUM;
 
 /** Os quatro escopos de saída: o processo completo ou um documento só. */
 export const ESCOPOS = [
@@ -115,28 +144,6 @@ export const ESCOPOS = [
   { id: "prestacao", rotulo: "Somente a Prestação de Contas" },
 ];
 
-const COR = {
-  navy: "#0F2A44",
-  ouro: "#C9A227",
-  faixa: "#EEF2F7",
-  linha: "#C8D2DE",
-  apoio: "#5A6B7E",
-};
-
-const TINTA = {
-  navy: [15, 42, 68],
-  ouro: [201, 162, 39],
-  faixa: [238, 242, 247],
-  linha: [200, 210, 222],
-  apoio: [90, 107, 126],
-  branco: [255, 255, 255],
-  papel: [251, 250, 247],
-};
-
-// A4 retrato. A margem de baixo é maior porque o rodapé institucional tem três
-// linhas: endereço com CEP, contato e CNPJ.
-const PAGINA = { largura: 210, altura: 297, margemTopo: 10, margemBase: 18, margemLado: 13 };
-
 /** O espaçamento das linhas do RELATÓRIO DE ATIVIDADES, em milímetros. */
 const PAUTA = 7;
 
@@ -144,27 +151,12 @@ const PAUTA = 7;
  * Dados do documento
  * ---------------------------------------------------------------------- */
 
-function texto(valor) {
-  return String(valor ?? "").trim();
-}
-
-function ou(valor) {
-  const limpo = texto(valor);
-  return limpo === "" ? SEM_REGISTRO : limpo;
-}
-
 function moeda(valor) {
   return formatBRL(paraNumeroMoeda(valor));
 }
 
 function moedaSimples(valor) {
   return formatBRLSimples(paraNumeroMoeda(valor));
-}
-
-function escapar(valor) {
-  return String(valor ?? "").replace(/[&<>'"]/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
-  }[c]));
 }
 
 /** "11/09/2026 15:42" -- data e hora da emissão. */
@@ -252,25 +244,6 @@ function objetivandoDe(processo) {
   return partes.length > 0 ? partes.join(" — ") : SEM_REGISTRO;
 }
 
-/** "São José da Laje - AL, 10 de março de 2026" -- ou com o dia e o mês em branco. */
-function localEData(data, ano) {
-  const bruto = texto(data);
-  const partes = /^(\d{4})-(\d{2})-(\d{2})/.exec(bruto);
-  if (partes) {
-    const meses = [
-      "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-      "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-    ];
-    const mes = meses[Number(partes[2]) - 1] ?? "";
-    return `${MUNICIPIO}, ${Number(partes[3])} de ${mes} de ${partes[1]}`;
-  }
-  // Sem data preenchida o papel sai como o formulário oficial: para completar à
-  // mão, já com o ano do exercício.
-  const exercicio = Number(ano);
-  const fim = Number.isFinite(exercicio) && exercicio > 0 ? String(Math.trunc(exercicio)) : "______";
-  return `${MUNICIPIO}, ______ de ____________________ de ${fim}`;
-}
-
 /**
  * Tudo o que as três páginas mostram, lido UMA VEZ do processo.
  *
@@ -340,6 +313,15 @@ export function dadosDoDocumento(
       custeio: ou(p.custeio_despesas),
       objetivando: objetivandoDe(p),
       dataDiarias: ou(dataDasDiarias(p)),
+      // A DATA DESTA FOLHA, no MESMO formato das outras quatro. Em branco, a
+      // folha cai na data de abertura do processo, que é o que ela sempre
+      // imprimiu.
+      localEData: localEData(dataDaRequisicao(p), p.ano),
+      emData: emData(dataDaRequisicao(p)),
+      // A secretaria do encaminhamento, para o despacho "À SECRETARIA DE ___".
+      // ⚠️ NÃO é a secretaria solicitante: vem do cadastro do módulo
+      // FINANCEIRO, apenas lido. Nunca sai em branco no papel.
+      despacho: complementoDoEncaminhamento(p, secretaria),
     },
 
     // PÁGINA 1 — identificação do servidor, na ordem do formulário.
@@ -360,6 +342,13 @@ export function dadosDoDocumento(
     // momento, mesmo que o cargo da pessoa mude depois. Em branco, a linha sai
     // só com o traço, para assinar à mão -- como sempre saiu.
     assinaturas: {
+      // O SERVIDOR que pede a diária: nome, cargo e CPF saem do próprio
+      // processo, que os gravou do cadastro de servidores.
+      servidor: {
+        nome: texto(p.beneficiario_nome),
+        cargo: texto(p.beneficiario_cargo),
+        cpf: texto(p.beneficiario_cpf),
+      },
       secretaria: {
         nome: texto(p.assinante_secretaria_nome),
         cpf: texto(p.assinante_secretaria_cpf),
@@ -396,11 +385,14 @@ export function dadosDoDocumento(
     liquidacao: {
       data: texto(p.liquidacao_data),
       localEData: localEData(dataDaLiquidacao(p), p.ano),
+      emData: emData(dataDaLiquidacao(p)),
       // A SECRETARIA DO ENCAMINHAMENTO desta folha -- a que a prefeita manda
-      // providenciar o pagamento. O modelo oficial traz Finanças, e Finanças
-      // continua sendo o padrão quando nada foi escolhido. ⚠️ Ela não é a
-      // secretaria solicitante: vem do cadastro do módulo FINANCEIRO, só lido.
-      destino: secretariaMunicipalDoEncaminhamento(p),
+      // providenciar o pagamento. Só o NÚCLEO do nome, porque o "À SECRETARIA
+      // DE" já vem impresso no quadro comum. O modelo oficial traz Finanças, e
+      // Finanças continua sendo o padrão quando nada foi escolhido. ⚠️ Ela não
+      // é a secretaria solicitante: vem do cadastro do módulo FINANCEIRO, só
+      // lido, e NUNCA sai em branco no papel.
+      destino: complementoDoEncaminhamento(p),
     },
 
     // PÁGINA 3 — a prestação de contas, que pode estar pendente.
@@ -412,8 +404,8 @@ export function dadosDoDocumento(
       localEData: localEData(dataDaPrestacao(p), p.ano),
     },
 
-    // PÁGINA 1 -- a data da REQUISIÇÃO, a data própria desta folha. Em branco, a
-    // folha sai com a data de abertura, que é o que ela sempre imprimiu.
+    // A data da PÁGINA 1, repetida no topo por compatibilidade com quem já a
+    // lia daqui. O valor é o mesmo de `requisicao.localEData`.
     localEData: localEData(dataDaRequisicao(p), p.ano),
   };
 }
@@ -437,62 +429,17 @@ export function nomeDoArquivo(dados, extensao = "pdf", escopo = "completo") {
  * Impressão (HTML)
  * ---------------------------------------------------------------------- */
 
-// O brasão do repositório, embutido no documento para que a folha nunca saia sem
-// ele por causa de uma imagem que não carregou na janela de impressão.
-function brasaoSvg(lado) {
-  return BRASAO_SVG.replace(
-    /^<svg /,
-    `<svg width="${lado}mm" height="${lado}mm" `,
-  ).replace(/ width="512" height="512"/, "");
-}
-
 /**
- * O brasão do CABEÇALHO, em TODAS as folhas.
+ * O CSS da folha.
  *
- * Brasão enviado em Configurações → Processos sai como imagem; sem imagem
- * enviada, sai o vetor do repositório. Nos dois casos a ALTURA é a que manda e a
- * largura é automática, com um teto de largura -- é o que impede a folha de
- * deformar o brasão e o que o mantém discreto, sem roubar espaço do conteúdo.
+ * ⚠️ A BASE VEM DO ARQUIVO COMUM -- página, cabeçalho, aviso, local/data,
+ * assinaturas (empilhadas, única e na faixa lado a lado), caixa de autorização
+ * da prefeita e rodapé. Aqui ficam SÓ os blocos que existem apenas nos
+ * documentos de diária: a grade de identificação do servidor, os quadros e o
+ * relatório pautado.
  */
-function brasaoDoDocumento(dados, lado) {
-  const endereco = texto(dados?.logoEndereco) || texto(dados?.identidade?.logo_url);
-  // O desenho vetorial só entra quando NÃO existe imagem cadastrada: o
-  // endereço do brasão do repositório é desenhado, não carregado como imagem.
-  const url = texto(dados?.logo?.dataUrl) || (endereco === BRASAO_ARQUIVO ? "" : endereco);
-  if (url === "") return brasaoSvg(lado);
-  return `<img class="brasao" src="${escapar(url)}" alt="${escapar(dados?.identidade?.orgao ?? "")}"`
-    + ` style="height:${lado}mm;max-width:${(lado * 1.6).toFixed(1)}mm">`;
-}
-
 function estilos() {
-  return `
-    @page { size: A4 portrait; margin: 0; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: #fff; }
-    body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35;
-      -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
-    /* A folha tem a altura da página e sempre quebra depois: é isto que faz cada
-       documento do processo começar em folha nova, qualquer que seja o tamanho
-       do conteúdo. A altura é MÍNIMA, não fixa -- conteúdo excepcional
-       transborda para uma folha a mais em vez de ser cortado. */
-    .folha { position: relative; width: ${PAGINA.largura}mm; min-height: ${PAGINA.altura}mm;
-      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 4}mm;
-      page-break-after: always; break-after: page; }
-    .folha:last-child { page-break-after: auto; break-after: auto; }
-
-    .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
-    .cabecalho svg { display: block; flex: 0 0 auto; }
-    /* O brasão enviado entra como imagem: altura fixa e largura automática, para
-       sair SEMPRE na proporção original, sem esticar nem achatar. */
-    .cabecalho img.brasao { display: block; flex: 0 0 auto; width: auto; object-fit: contain; }
-    .orgao { font-size: 10pt; font-weight: bold; letter-spacing: .08em; }
-    .estado { margin-top: .4mm; color: ${COR.apoio}; font-size: 7.5pt; font-weight: bold; letter-spacing: .16em; }
-    .titulo { margin: 1.2mm 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; letter-spacing: .02em; }
-    /* O cabeçalho não tem selo: o número do processo NÃO é impresso. */
-
-    .aviso { margin-top: 2.5mm; border: .8pt solid ${COR.navy}; padding: 1.6mm 2mm; font-size: 8pt; }
-    .aviso strong { letter-spacing: .06em; text-transform: uppercase; }
+  return `${estilosComuns()}
 
     h2 { margin: 4mm 0 1.6mm; padding: 1.2mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
@@ -500,9 +447,6 @@ function estilos() {
     .abertura { margin: 4mm 0 0; text-align: justify; }
     .linha-doc { margin: 2.6mm 0 0; }
     .linha-doc b { letter-spacing: .02em; }
-    /* O valor preenchido sai sobre a linha pontilhada do formulário; vazio, a
-       linha fica lá para ser completada à mão. */
-    .preenchido { border-bottom: .5pt dotted ${COR.apoio}; padding: 0 1mm; }
     .destaque { font-weight: bold; }
 
     .grade { display: flex; flex-wrap: wrap; border: .5pt solid ${COR.linha}; border-bottom: 0; }
@@ -540,117 +484,13 @@ function estilos() {
         transparent 0, transparent ${PAUTA - 0.25}mm, ${COR.linha} ${PAUTA - 0.25}mm, ${COR.linha} ${PAUTA}mm); }
 
     .fecho { margin-top: 4mm; text-align: justify; }
-    .local-data { margin-top: 8mm; text-align: center; font-size: 10pt; }
-
-    /* AS ASSINATURAS DA REQUISIÇÃO SAEM UMA EMBAIXO DA OUTRA, não lado a lado:
-       é o modelo oficial da prefeitura. O vão acima de cada traço é o espaço
-       para assinar à mão, e é medido para as três caberem na MESMA folha. */
-    .assinaturas { margin-top: 6mm; }
-    .assinaturas div { width: 95mm; margin: 9mm auto 0; border-top: .7pt solid ${COR.navy};
-      padding-top: 1.4mm; text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
-    .assinaturas strong { display: block; font-size: 8.5pt; color: ${COR.navy}; }
-    .assinaturas .cargo { display: block; font-size: 7pt; }
-    .assinatura-unica { margin: 12mm auto 0; width: 90mm; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm;
-      text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
-    .assinatura-unica strong { display: block; font-size: 9pt; color: ${COR.navy}; }
-
-    .autorizacao { margin-top: 5mm; border: .8pt solid ${COR.navy}; padding: 3mm; }
-    .autorizacao .rotulo-caixa { font-size: 7.5pt; font-weight: bold; letter-spacing: .1em;
-      text-transform: uppercase; color: ${COR.apoio}; }
-    .autorizacao p { margin: 1.6mm 0 0; }
-    .linhas-a-mao { margin-top: 6mm; }
-    .linhas-a-mao div { margin-top: 5mm; border-bottom: .5pt solid ${COR.apoio}; font-size: 8pt;
-      color: ${COR.apoio}; padding-bottom: .8mm; }
-    /* O valor vindo do cadastro da prefeita, ao lado do rótulo: escuro, para
-       ficar claro no papel que ali já está identificado quem autoriza. */
-    .linhas-a-mao b { margin-left: 1.5mm; font-size: 9pt; color: ${COR.navy}; }
-
-    .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
-      border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
-    .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
   `;
-}
-
-/**
- * O cabeçalho da folha: brasão, órgão, estado e o título do documento.
- *
- * SEM o número do processo e SEM numeração de folha. Os dois existem no
- * sistema, para controle e busca, e nenhum dos dois vai para o papel.
- */
-function cabecalhoHtml(dados, titulo) {
-  const identidade = normalizarIdentidade(dados?.identidade);
-  return `<div class="cabecalho">${brasaoDoDocumento(dados, 16)}`
-    + `<div><div class="orgao">${escapar(identidade.orgao)}</div>`
-    + `<div class="estado">${escapar(identidade.estado)}</div>`
-    + `<div class="titulo">${escapar(titulo)}</div></div>`
-    + `</div>`;
-}
-
-/**
- * O aviso que o papel carrega quando o documento não está finalizado.
- *
- * Rascunho impresso precisa dizer que é rascunho, e processo cancelado precisa
- * dizer que foi anulado -- senão a folha circula como se valesse.
- */
-function avisoHtml(dados) {
-  if (dados.cancelado) {
-    const motivo = dados.motivoCancelamento ? ` Motivo: ${dados.motivoCancelamento}.` : "";
-    return `<div class="aviso"><strong>Processo cancelado.</strong>${escapar(motivo)} O registro, a numeração e o histórico foram preservados.</div>`;
-  }
-  if (dados.rascunho) {
-    return `<div class="aviso"><strong>Rascunho.</strong> Documento ainda não finalizado — sujeito a alteração.</div>`;
-  }
-  return "";
 }
 
 function campo(rotulo, valor, classe = "c50", forte = false) {
   return `<div class="campo ${classe}${forte ? " forte" : ""}">`
     + `<span class="rotulo">${escapar(rotulo)}</span>`
     + `<span class="valor">${escapar(valor)}</span></div>`;
-}
-
-/**
- * O rodapé institucional, igual em todas as folhas.
- *
- * Endereço com CEP, contato e CNPJ, em três linhas. NADA de informação de
- * sistema: quem emitiu e quando não pertencem ao documento oficial -- isso fica
- * só no histórico do processo, dentro do sistema. Sem número de processo e sem
- * numeração de folha.
- */
-function rodapeHtml(dados) {
-  const identidade = normalizarIdentidade(dados?.identidade);
-  // A linha do CNPJ sai só quando existe. Identidade CONGELADA em processo
-  // antigo trazia o CNPJ dentro da linha de contato; ali a terceira linha vem
-  // vazia e o documento continua saindo exatamente como saiu na época.
-  const cnpj = identidade.rodape_cnpj === ""
-    ? ""
-    : `<div>${escapar(identidade.rodape_cnpj)}</div>`;
-  return `<div class="rodape">`
-    + `<div class="endereco">${escapar(identidade.rodape_endereco)}</div>`
-    + `<div>${escapar(identidade.rodape_contato)}</div>`
-    + cnpj
-    + `</div>`;
-}
-
-/** Uma linha de assinatura da folha empilhada: nome, rótulo e cargo. */
-/**
- * Uma linha "Nome: ____" da identificação abaixo da assinatura.
- *
- * Com o cadastro da prefeita preenchido, o valor sai IMPRESSO — é o que o
- * comando pede: sem redigitar em cada processo. Sem cadastro, a linha continua
- * saindo só com o rótulo, para completar à mão, exatamente como saía antes.
- */
-function linhaDeIdentificacaoHtml(rotulo, valor) {
-  const preenchido = texto(valor);
-  return `<div>${escapar(rotulo)}`
-    + (preenchido === "" ? "" : `<b>${escapar(preenchido)}</b>`)
-    + `</div>`;
-}
-
-function assinaturaHtml(nome, papel, cargo = "") {
-  return `<div><strong>${nome ? escapar(nome) : "&nbsp;"}</strong>${escapar(papel)}`
-    + (cargo ? `<span class="cargo">${escapar(cargo)}</span>` : "")
-    + `</div>`;
 }
 
 /** Página 1: REQUISIÇÃO DE DIÁRIAS. */
@@ -689,21 +529,33 @@ function folhaRequisicao(dados) {
     + `<td>${escapar(dados.valor.extenso)}</td>`
     + `</tr></tbody></table>`
 
-    + `<p class="local-data">${escapar(dados.localEData)}</p>`
+    + `<p class="local-data">${escapar(dados.requisicao.localEData)}</p>`
 
-    // AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA.
-    + `<div class="assinaturas">`
-    + assinaturaHtml(
-      dados.servidor.nome === SEM_REGISTRO ? "" : dados.servidor.nome,
-      "Assinatura do Servidor",
-    )
-    + assinaturaHtml(
-      dados.assinaturas.secretaria.nome,
-      "Responsável pela Secretaria",
-      dados.assinaturas.secretaria.cargo,
-    )
-    + assinaturaHtml(dados.prefeita.nome, "Assinatura da Prefeita", dados.prefeita.cargo)
-    + `</div>`
+    // ⚠️ AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA -- a EXCEÇÃO do módulo. Nas
+    // outras folhas com autorização da prefeita elas saem lado a lado; aqui o
+    // modelo oficial as tem empilhadas (servidor, responsável pela secretaria e
+    // prefeita), e é assim que continuam saindo. Abaixo de cada traço vêm NOME,
+    // CARGO e CPF -- a linha do CPF só quando o cadastro tem CPF.
+    + assinaturasEmpilhadasHtml([
+      {
+        nome: dados.assinaturas.servidor.nome,
+        papel: "Assinatura do Servidor",
+        cargo: dados.assinaturas.servidor.cargo,
+        cpf: dados.assinaturas.servidor.cpf,
+      },
+      {
+        nome: dados.assinaturas.secretaria.nome,
+        papel: "Responsável pela Secretaria",
+        cargo: dados.assinaturas.secretaria.cargo,
+        cpf: dados.assinaturas.secretaria.cpf,
+      },
+      {
+        nome: dados.prefeita.nome,
+        papel: "Assinatura da Prefeita",
+        cargo: dados.prefeita.cargo,
+        cpf: dados.prefeita.cpf,
+      },
+    ])
 
     + rodapeHtml(dados)
     + `</div>`;
@@ -748,20 +600,27 @@ function folhaLiquidacao(dados) {
     + `<span class="rotulo">Valor por extenso</span>${escapar(dados.valor.extenso)}</td>`
     + `</tr></tbody></table>`
 
-    + `<div class="autorizacao">`
-    + `<div class="rotulo-caixa">Autorização da Prefeita</div>`
-    + `<p><b>Ciente / Autorizo.</b></p>`
-    + `<p>À ${escapar(dados.liquidacao.destino)}, para as providências de pagamento.</p>`
-    + `<p class="local-data">${escapar(dados.liquidacao.localEData)}</p>`
-    + `<div class="assinatura-unica">`
-    + `<strong>${dados.prefeita.nome === "" ? "&nbsp;" : escapar(dados.prefeita.nome)}</strong>`
-    + `Assinatura da Prefeita</div>`
-    + `<div class="linhas-a-mao">`
-    + linhaDeIdentificacaoHtml("Nome:", dados.prefeita.nome)
-    + linhaDeIdentificacaoHtml("CPF:", dados.prefeita.cpf)
-    + linhaDeIdentificacaoHtml("Cargo:", dados.prefeita.cargo)
-    + `</div>`
-    + `</div>`
+    // ⚠️ ESQUERDA e DIREITA na MESMA faixa, como nas folhas de
+    // material/serviço: à esquerda o local, a data DESTA folha e o traço de quem
+    // atesta, com NOME, CARGO e CPF abaixo; à direita a caixa de autorização da
+    // prefeita. Empilhados, os dois blocos gastavam a folha inteira, e a
+    // identificação da prefeita saía em linhas "Nome: ___ / CPF: ___ / Cargo:
+    // ___" para completar à mão, que o cadastro já dispensa.
+    + faixaDeAssinaturasHtml({
+      esquerda: ladoDoRequisitanteHtml({
+        localEData: dados.liquidacao.localEData,
+        assinatura: {
+          nome: dados.assinaturas.secretaria.nome,
+          cargo: dados.assinaturas.secretaria.cargo,
+          cpf: dados.assinaturas.secretaria.cpf,
+        },
+      }),
+      direita: quadroDaPrefeitaHtml({
+        prefeita: dados.prefeita,
+        destino: dados.liquidacao.destino,
+        em: dados.liquidacao.emData,
+      }),
+    })
 
     + rodapeHtml(dados)
     + `</div>`;
@@ -781,10 +640,15 @@ function folhaPrestacao(dados) {
 
     + `<p class="local-data">${escapar(dados.prestacao.localEData)}</p>`
 
-    + `<div class="assinatura-unica">`
-    + `<strong>${escapar(dados.servidor.nome === SEM_REGISTRO ? "&nbsp;" : dados.servidor.nome)}</strong>`
-    + `${escapar(dados.servidor.cargo === SEM_REGISTRO ? "Cargo do(a) servidor(a)" : dados.servidor.cargo)}`
-    + `</div>`
+    // A PRESTAÇÃO DE CONTAS NÃO TEM AUTORIZAÇÃO DA PREFEITA: ela é o relatório
+    // do servidor depois da viagem. Por isso esta folha NÃO tem a faixa lado a
+    // lado -- tem uma assinatura só, no mesmo layout das outras: traço, NOME,
+    // CARGO e CPF.
+    + assinaturaHtml({
+      nome: dados.assinaturas.servidor.nome,
+      cargo: dados.assinaturas.servidor.cargo || "Cargo do(a) servidor(a)",
+      cpf: dados.assinaturas.servidor.cpf,
+    })
 
     + rodapeHtml(dados)
     + `</div>`;
@@ -825,277 +689,21 @@ export function imprimirProcesso(dados, { escopo = "completo" } = {}) {
  * ---------------------------------------------------------------------- */
 
 /**
- * O BRASÃO NO PDF, em todas as páginas.
+ * O desenhista de uma folha dos documentos de diária.
  *
- * Quando a tela conseguiu preparar a imagem (`dados.logo`), ela é inserida
- * RASTERIZADA EM ALTA RESOLUÇÃO -- 512 px no espaço de ~16 mm dão mais de 800
- * dpi, então não serrilha no papel nem na tela do PDF. A proporção original é
- * respeitada: a imagem é encaixada numa caixa quadrada de `lado`, e é o lado
- * MAIOR dela que toca a caixa, nunca os dois -- ela não estica nem achata.
- *
- * Sem imagem preparada (aba sem canvas, imagem inacessível, brasão em SVG que o
- * jsPDF não desenha), o brasão vetorial do repositório é desenhado com
- * primitivas do PDF. Assim a folha NUNCA sai sem brasão, e nada depende de link
- * externo na hora de gerar.
- *
- * @returns a largura efetivamente ocupada, para o cabeçalho posicionar o texto.
- */
-function desenharBrasaoPdf(pdf, x, y, lado, dados = null) {
-  const preparado = dados?.logo?.dataUrl ? dados.logo : null;
-  if (preparado) {
-    const proporcao = Number(preparado.proporcao)
-      || (Number(preparado.largura) / Number(preparado.altura))
-      || 1;
-    const largura = proporcao >= 1 ? lado : lado * proporcao;
-    const altura = proporcao >= 1 ? lado / proporcao : lado;
-    try {
-      pdf.addImage(preparado.dataUrl, "PNG", x, y + (lado - altura) / 2, largura, altura);
-      return largura;
-    } catch {
-      // Imagem que o jsPDF recusou: cai no desenho vetorial abaixo.
-    }
-  }
-
-  // O brasão do repositório, em primitivas. Traço escuro e cheio, para sair
-  // legível também em IMPRESSORA PRETO E BRANCO.
-  const u = lado / 512;
-  const em = (v) => v * u;
-
-  pdf.setFillColor(...TINTA.papel);
-  pdf.setDrawColor(...TINTA.navy);
-  pdf.setLineWidth(em(16));
-  const escudo = [
-    [em(392), 0],
-    [0, em(190)],
-    [0, em(98), em(-80), em(162), em(-196), em(206)],
-    [em(-116), em(-44), em(-196), em(-108), em(-196), em(-206)],
-    [0, em(-190)],
-  ];
-  pdf.lines(escudo, x + em(60), y + em(72), [1, 1], "FD", true);
-
-  // A faixa escura do chefe do escudo.
-  pdf.setFillColor(...TINTA.navy);
-  pdf.rect(x + em(60), y + em(72), em(392), em(78), "F");
-
-  // A estrela de cinco pontas, em dourado.
-  const estrela = [
-    [em(13), em(40)], [em(42), 0], [em(-34), em(25)], [em(13), em(40)],
-    [em(-34), em(-25)], [em(-34), em(25)], [em(13), em(-40)], [em(-34), em(-25)], [em(42), 0],
-  ];
-  pdf.setFillColor(...TINTA.ouro);
-  pdf.lines(estrela, x + em(256), y + em(78), [1, 1], "F", true);
-
-  // As três linhas de água.
-  pdf.setDrawColor(...TINTA.navy);
-  pdf.setLineWidth(em(11));
-  [200, 240, 280].forEach((base) => {
-    pdf.line(x + em(104), y + em(base), x + em(408), y + em(base));
-  });
-
-  pdf.setFont("times", "bold");
-  pdf.setFontSize(lado * 1.35);
-  pdf.setTextColor(...TINTA.navy);
-  pdf.text("SJL", x + lado / 2, y + em(398), { align: "center" });
-  return lado;
-}
-
-/**
- * O desenhista de uma folha: mantém o cursor vertical, o rodapé institucional e
- * sabe abrir folha de continuação quando o conteúdo de uma página excede a
- * altura útil.
- *
- * Folha de continuação é a exceção, não a regra: no uso normal cada documento
- * do processo cabe na sua folha. Ela existe para NÃO cortar informação.
+ * ⚠️ O MIOLO É COMPARTILHADO: cabeçalho, brasão, rodapé institucional, quebra
+ * de folha, local/data, assinatura com identificação, assinaturas empilhadas,
+ * moldura, quadro da prefeita e faixa lado a lado vivem em
+ * processosDocumentoComum.js e são os MESMOS dos cinco documentos do módulo.
+ * Aqui ficam só os blocos que existem apenas nestes formulários: a faixa de
+ * campos rotulados, os quadros e o relatório pautado.
  */
 function criarPincel(pdf, dados) {
-  const largura = PAGINA.largura;
-  const margem = PAGINA.margemLado;
-  const util = largura - margem * 2;
-  const limite = PAGINA.altura - PAGINA.margemBase - 4;
-  // `folhasUsadas` existe só para saber se já há folha aberta (o `addPage()` do
-  // documento seguinte). NÃO é numeração: o papel não traz número de folha.
-  const estado = { y: 0, titulo: "", folhasUsadas: 0, recuo: 0 };
-
-  // O recuo é o que permite desenhar conteúdo DENTRO de uma moldura sem que o
-  // texto encoste na borda dela.
-  const xEsq = () => margem + estado.recuo;
-  const largUtil = () => util - estado.recuo * 2;
-
-  // A identidade que ESTA folha imprime: a congelada do processo, ou a vigente.
-  const identidade = normalizarIdentidade(dados?.identidade);
-
-  /**
-   * Escreve um texto institucional garantindo que ele CAIBA na largura dada.
-   *
-   * O órgão e as linhas do rodapé são configuráveis, então podem vir mais longos
-   * que o padrão. Aqui a fonte diminui até caber, em vez de o texto invadir a
-   * margem ou empurrar o conteúdo para uma segunda folha.
-   */
-  const textoQueCabe = (valor, xInicio, yLinha, tamanho, largMax, alinhamento = "left") => {
-    let corpo = tamanho;
-    pdf.setFontSize(corpo);
-    while (corpo > 4.5 && pdf.getTextWidth(valor) > largMax) {
-      corpo -= 0.25;
-      pdf.setFontSize(corpo);
-    }
-    pdf.text(valor, xInicio, yLinha, alinhamento === "center" ? { align: "center" } : undefined);
-    pdf.setFontSize(tamanho);
-  };
-
-  /** O rodapé institucional da prefeitura, em TODAS as folhas. */
-  const rodapeInstitucional = () => {
-    const y = PAGINA.altura - PAGINA.margemBase;
-    pdf.setDrawColor(...TINTA.navy);
-    pdf.setLineWidth(0.3);
-    pdf.line(margem, y, largura - margem, y);
-
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(7);
-    pdf.setTextColor(...TINTA.navy);
-    textoQueCabe(identidade.rodape_endereco, largura / 2, y + 3.4, 7, util, "center");
-
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(...TINTA.apoio);
-    textoQueCabe(identidade.rodape_contato, largura / 2, y + 6.4, 7, util, "center");
-
-    // A linha do CNPJ. Sai só quando existe: identidade congelada antiga trazia
-    // o CNPJ junto do contato, e repeti-lo seria erro no documento.
-    if (identidade.rodape_cnpj !== "") {
-      textoQueCabe(identidade.rodape_cnpj, largura / 2, y + 9.4, 7, util, "center");
-    }
-  };
-
-  const cabecalho = (continuacao) => {
-    // O brasão sai em TODAS as folhas, discreto: 16 mm na folha do documento e
-    // 10 mm na de continuação. A largura devolvida é a real, para que um brasão
-    // mais estreito que alto não abra um vão no meio do cabeçalho.
-    const lado = continuacao ? 10 : 16;
-    const topo = PAGINA.margemTopo;
-    const largBrasao = desenharBrasaoPdf(pdf, margem, topo, lado, dados);
-    const x = margem + largBrasao + 4;
-
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(continuacao ? 8 : 10);
-    pdf.setTextColor(...TINTA.navy);
-    // Sem o selo do número à direita, o nome do órgão usa a largura inteira.
-    textoQueCabe(identidade.orgao, x, topo + (continuacao ? 3.8 : 4.6), continuacao ? 8 : 10, largura - margem - x);
-
-    if (!continuacao) {
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(...TINTA.apoio);
-      pdf.text(identidade.estado, x, topo + 8);
-    }
-
-    pdf.setFont("times", "bold");
-    pdf.setFontSize(continuacao ? 9 : 13);
-    pdf.setTextColor(...TINTA.navy);
-    pdf.text(continuacao ? `${estado.titulo} (continuação)` : estado.titulo, x, topo + (continuacao ? 8 : 13.2));
-
-    // ⚠️ O NÚMERO DO PROCESSO NÃO É IMPRESSO. Ele fica no sistema, para
-    // controle, busca e listagem, e nomeia o arquivo do PDF -- mas não sai no
-    // cabeçalho nem em nenhum outro canto da folha.
-
-    const base = topo + (continuacao ? 11 : 17.5);
-    pdf.setDrawColor(...TINTA.navy);
-    pdf.setLineWidth(continuacao ? 0.3 : 0.5);
-    pdf.line(margem, base, largura - margem, base);
-    estado.y = base + 4;
-  };
+  const base = criarPincelBase(pdf, dados);
+  const { estado, xEsq, largUtil } = base;
 
   return {
-    estado,
-    largura,
-    margem,
-    util,
-    limite,
-
-    /** Abre a primeira folha de um documento do processo. */
-    abrirPagina(titulo) {
-      if (estado.folhasUsadas > 0) pdf.addPage();
-      estado.folhasUsadas += 1;
-      estado.titulo = titulo;
-      estado.recuo = 0;
-      cabecalho(false);
-    },
-
-    /** Garante espaço; quando não há, abre folha de continuação. */
-    espaco(necessario) {
-      if (estado.y + necessario <= limite) return;
-      rodapeInstitucional();
-      pdf.addPage();
-      estado.folhasUsadas += 1;
-      cabecalho(true);
-    },
-
-    fecharPagina() {
-      rodapeInstitucional();
-    },
-
-    /** Empurra o cursor para baixo (o respiro entre blocos do formulário). */
-    respiro(altura = 3) {
-      estado.y += altura;
-    },
-
-    secao(rotulo) {
-      this.espaco(12);
-      pdf.setFillColor(...TINTA.navy);
-      pdf.rect(xEsq(), estado.y, largUtil(), 5, "F");
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(8);
-      pdf.setTextColor(...TINTA.branco);
-      pdf.text(String(rotulo).toUpperCase(), xEsq() + 2, estado.y + 3.5);
-      estado.y += 7;
-    },
-
-    /** Um parágrafo corrido do formulário. */
-    paragrafo(conteudo, { negrito = false, tamanho = 10, centralizado = false } = {}) {
-      const entre = tamanho * 0.48;
-      const linhas = pdf.splitTextToSize(String(conteudo ?? ""), largUtil());
-      this.espaco(linhas.length * entre + 2);
-      pdf.setFont("helvetica", negrito ? "bold" : "normal");
-      pdf.setFontSize(tamanho);
-      pdf.setTextColor(...TINTA.navy);
-      linhas.forEach((linha, indice) => {
-        if (centralizado) {
-          pdf.text(linha, largura / 2, estado.y + entre * 0.8 + indice * entre, { align: "center" });
-        } else {
-          pdf.text(linha, xEsq(), estado.y + entre * 0.8 + indice * entre);
-        }
-      });
-      estado.y += linhas.length * entre + 2;
-    },
-
-    /**
-     * Uma linha do formulário: rótulo em negrito e o valor sobre a linha
-     * pontilhada, como em "Requisita: ___ Diária(s) ...".
-     */
-    linha(rotulo, valor, { destaque = false } = {}) {
-      const entre = 4.8;
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(10);
-      const largRotulo = pdf.getTextWidth(`${rotulo} `);
-      pdf.setFont("helvetica", destaque ? "bold" : "normal");
-      const linhas = pdf.splitTextToSize(String(valor ?? ""), largUtil() - largRotulo);
-      const altura = Math.max(1, linhas.length) * entre;
-      this.espaco(altura + 2);
-
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(10);
-      pdf.setTextColor(...TINTA.navy);
-      pdf.text(rotulo, xEsq(), estado.y + 3.4);
-
-      pdf.setFont("helvetica", destaque ? "bold" : "normal");
-      pdf.setDrawColor(...TINTA.linha);
-      pdf.setLineWidth(0.2);
-      const total = Math.max(1, linhas.length);
-      for (let indice = 0; indice < total; indice += 1) {
-        const y = estado.y + 3.4 + indice * entre;
-        pdf.text(linhas[indice] ?? "", xEsq() + largRotulo, y);
-        pdf.line(xEsq() + largRotulo, y + 1.2, xEsq() + largUtil(), y + 1.2);
-      }
-
-      estado.y += altura + 2;
-    },
+    ...base,
 
     /** Uma faixa de campos rotulados, em colunas proporcionais. */
     campos(itens) {
@@ -1229,183 +837,7 @@ function criarPincel(pdf, dados) {
 
       estado.y += altura + 2;
     },
-
-    /** "São José da Laje - AL, 10 de março de 2026", centralizado. */
-    localData(conteudo) {
-      this.espaco(12);
-      this.respiro(5);
-      this.paragrafo(conteudo, { centralizado: true });
-    },
-
-    /**
-     * Área de assinaturas.
-     *
-     * `empilhadas` desenha uma EMBAIXO DA OUTRA, cada uma com o seu traço, o
-     * nome e o rótulo, e com um vão acima do traço para assinar à mão -- é como
-     * a Requisição de Diárias sai no papel da prefeitura. A medida do vão é
-     * escolhida para as três caberem na MESMA folha.
-     *
-     * Sem `empilhadas`, o desenho lado a lado de antes: é o que as folhas de uma
-     * assinatura só (Liquidação e Prestação de Contas) continuam usando.
-     */
-    assinaturas(nomes, { aoPe = true, empilhadas = false } = {}) {
-      const nomeDaLinha = (item) => {
-        const valor = texto(item.nome);
-        return valor === SEM_REGISTRO || valor === "" ? " " : valor;
-      };
-
-      if (empilhadas) {
-        const vaoDaCaneta = 9;   // o espaço acima do traço, para assinar à mão
-        const peDaLinha = 8;     // o traço, o nome e o rótulo embaixo dele
-        const linhaDoCargo = (item) => (texto(item.cargo) ? 3 : 0);
-        const altura = nomes.reduce(
-          (soma, item) => soma + vaoDaCaneta + peDaLinha + linhaDoCargo(item),
-          0,
-        );
-        this.espaco(altura + 2);
-        // Havendo folga, o bloco desce para o pé da folha, como no formulário.
-        const piso = limite - altura;
-        if (aoPe && estado.y < piso) estado.y = piso;
-
-        const larguraCampo = Math.min(95, largUtil());
-        const centro = xEsq() + largUtil() / 2;
-
-        nomes.forEach((item) => {
-          estado.y += vaoDaCaneta;
-          pdf.setDrawColor(...TINTA.navy);
-          pdf.setLineWidth(0.3);
-          pdf.line(centro - larguraCampo / 2, estado.y, centro + larguraCampo / 2, estado.y);
-
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(8.5);
-          pdf.setTextColor(...TINTA.navy);
-          pdf.text(nomeDaLinha(item), centro, estado.y + 3.4, { align: "center" });
-
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(7.5);
-          pdf.setTextColor(...TINTA.apoio);
-          pdf.text(item.papel, centro, estado.y + 7, { align: "center" });
-          if (texto(item.cargo)) {
-            pdf.setFontSize(7);
-            pdf.text(texto(item.cargo), centro, estado.y + 10, { align: "center" });
-          }
-
-          estado.y += peDaLinha + linhaDoCargo(item);
-        });
-        return;
-      }
-
-      const altura = 14;
-      this.espaco(altura + 4);
-      // Se ainda há folga, as assinaturas descem para perto do rodapé.
-      const piso = limite - altura;
-      if (aoPe && estado.y < piso) estado.y = piso;
-      else estado.y += 8;
-
-      const larguraCampo = (largUtil() - 6 * (nomes.length - 1)) / nomes.length;
-      let x = xEsq();
-      nomes.forEach((item) => {
-        pdf.setDrawColor(...TINTA.navy);
-        pdf.setLineWidth(0.3);
-        pdf.line(x, estado.y, x + larguraCampo, estado.y);
-
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(8.5);
-        pdf.setTextColor(...TINTA.navy);
-        pdf.text(nomeDaLinha(item), x + larguraCampo / 2, estado.y + 3.4, { align: "center" });
-
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(...TINTA.apoio);
-        pdf.text(item.papel, x + larguraCampo / 2, estado.y + 7, { align: "center" });
-
-        x += larguraCampo + 6;
-      });
-      estado.y += altura;
-    },
-
-    /**
-     * Linhas rotuladas da identificação (Nome, CPF, Cargo).
-     *
-     * Cada item pode ser um texto ("Nome:") ou `{ rotulo, valor }`. Com valor,
-     * ele sai IMPRESSO ao lado do rótulo -- é o cadastro da prefeita chegando
-     * ao papel sem redigitação. Sem valor, a linha fica em branco para
-     * completar à mão, como antes.
-     */
-    linhasAMao(itens) {
-      itens.forEach((item) => {
-        const rotulo = typeof item === "string" ? item : texto(item?.rotulo);
-        const valor = typeof item === "string" ? "" : texto(item?.valor);
-        this.espaco(8);
-        estado.y += 5;
-        pdf.setDrawColor(...TINTA.apoio);
-        pdf.setLineWidth(0.2);
-        pdf.line(xEsq(), estado.y, xEsq() + largUtil(), estado.y);
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(8);
-        pdf.setTextColor(...TINTA.apoio);
-        pdf.text(rotulo, xEsq() + 1, estado.y - 1.2);
-        if (valor !== "") {
-          const recuoDoValor = pdf.getTextWidth(rotulo) + 2.5;
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(9);
-          pdf.setTextColor(...TINTA.navy);
-          pdf.text(valor, xEsq() + 1 + recuoDoValor, estado.y - 1.2);
-        }
-      });
-      estado.y += 2;
-    },
-
-    /**
-     * Uma moldura em volta de um bloco do formulário (a autorização da
-     * prefeita). O conteúdo é desenhado com recuo, para não encostar na borda.
-     */
-    moldura(rotulo, desenhar) {
-      this.espaco(60);
-      const inicio = estado.y;
-      estado.recuo = 3;
-      estado.y += 3;
-
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(...TINTA.apoio);
-      pdf.text(String(rotulo).toUpperCase(), xEsq(), estado.y + 2.6);
-      estado.y += 5;
-
-      desenhar();
-
-      estado.y += 3;
-      pdf.setDrawColor(...TINTA.navy);
-      pdf.setLineWidth(0.35);
-      pdf.rect(margem, inicio, util, estado.y - inicio);
-      estado.recuo = 0;
-      estado.y += 2;
-    },
-
-    aviso(mensagem) {
-      if (!mensagem) return;
-      const linhas = pdf.splitTextToSize(mensagem, largUtil() - 4);
-      const altura = linhas.length * 3.4 + 3.4;
-      this.espaco(altura + 2);
-      pdf.setDrawColor(...TINTA.navy);
-      pdf.setLineWidth(0.35);
-      pdf.rect(xEsq(), estado.y, largUtil(), altura);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(...TINTA.navy);
-      linhas.forEach((linha, indice) => pdf.text(linha, xEsq() + 2, estado.y + 3.6 + indice * 3.4));
-      estado.y += altura + 1.5;
-    },
   };
-}
-
-function textoDoAviso(dados) {
-  if (dados.cancelado) {
-    const motivo = dados.motivoCancelamento ? ` Motivo: ${dados.motivoCancelamento}.` : "";
-    return `PROCESSO CANCELADO.${motivo} O registro, a numeração e o histórico foram preservados.`;
-  }
-  if (dados.rascunho) return "RASCUNHO. Documento ainda não finalizado — sujeito a alteração.";
-  return "";
 }
 
 /** Página 1: REQUISIÇÃO DE DIÁRIAS. */
@@ -1448,24 +880,30 @@ function paginaRequisicaoPdf(pincel, dados) {
     { rotulo: "Valor por Extenso", valor: dados.valor.extenso, largura: 0.52 },
   ]);
 
-  pincel.localData(dados.localEData);
-  // AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA, na mesma folha.
-  pincel.assinaturas(
-    [
-      { nome: dados.servidor.nome, papel: "Assinatura do Servidor" },
-      {
-        nome: dados.assinaturas.secretaria.nome,
-        papel: "Responsável pela Secretaria",
-        cargo: dados.assinaturas.secretaria.cargo,
-      },
-      {
-        nome: dados.prefeita.nome,
-        papel: "Assinatura da Prefeita",
-        cargo: dados.prefeita.cargo,
-      },
-    ],
-    { empilhadas: true },
-  );
+  pincel.localData(dados.requisicao.localEData);
+  // ⚠️ AS TRÊS ASSINATURAS, UMA EMBAIXO DA OUTRA, na mesma folha -- a EXCEÇÃO
+  // do módulo, como o modelo oficial desta requisição a tem. Abaixo de cada
+  // traço: NOME, CARGO e CPF.
+  pincel.assinaturasEmpilhadas([
+    {
+      nome: dados.assinaturas.servidor.nome,
+      papel: "Assinatura do Servidor",
+      cargo: dados.assinaturas.servidor.cargo,
+      cpf: dados.assinaturas.servidor.cpf,
+    },
+    {
+      nome: dados.assinaturas.secretaria.nome,
+      papel: "Responsável pela Secretaria",
+      cargo: dados.assinaturas.secretaria.cargo,
+      cpf: dados.assinaturas.secretaria.cpf,
+    },
+    {
+      nome: dados.prefeita.nome,
+      papel: "Assinatura da Prefeita",
+      cargo: dados.prefeita.cargo,
+      cpf: dados.prefeita.cpf,
+    },
+  ]);
   pincel.fecharPagina();
 }
 
@@ -1523,19 +961,19 @@ function paginaLiquidacaoPdf(pincel, dados) {
     },
   ]);
 
-  pincel.moldura("Autorização da Prefeita", () => {
-    pincel.paragrafo("Ciente / Autorizo.", { negrito: true });
-    pincel.paragrafo(`À ${dados.liquidacao.destino}, para as providências de pagamento.`);
-    pincel.localData(dados.liquidacao.localEData);
-    pincel.assinaturas(
-      [{ nome: dados.prefeita.nome, papel: "Assinatura da Prefeita" }],
-      { aoPe: false },
-    );
-    pincel.linhasAMao([
-      { rotulo: "Nome:", valor: dados.prefeita.nome },
-      { rotulo: "CPF:", valor: dados.prefeita.cpf },
-      { rotulo: "Cargo:", valor: dados.prefeita.cargo },
-    ]);
+  // ⚠️ A MESMA FAIXA DAS FOLHAS DE MATERIAL/SERVIÇO: à esquerda o local, a data
+  // DESTA folha e o traço de quem atesta, com NOME, CARGO e CPF; à direita a
+  // caixa de autorização da prefeita, já com o nome e o CPF do cadastro.
+  pincel.faixaDeAssinaturas({
+    localEData: dados.liquidacao.localEData,
+    assinatura: {
+      nome: dados.assinaturas.secretaria.nome,
+      cargo: dados.assinaturas.secretaria.cargo,
+      cpf: dados.assinaturas.secretaria.cpf,
+    },
+    prefeita: dados.prefeita,
+    destino: dados.liquidacao.destino,
+    em: dados.liquidacao.emData,
   });
 
   pincel.fecharPagina();
@@ -1554,12 +992,15 @@ function paginaPrestacaoPdf(pincel, dados) {
   pincel.paragrafo("Eis a prestação de contas, a qual submeto à apreciação e aprovação.");
 
   pincel.localData(dados.prestacao.localEData);
-  pincel.assinaturas([
-    {
-      nome: dados.servidor.nome,
-      papel: dados.servidor.cargo === SEM_REGISTRO ? "Cargo do(a) servidor(a)" : dados.servidor.cargo,
-    },
-  ]);
+  // A PRESTAÇÃO DE CONTAS NÃO TEM AUTORIZAÇÃO DA PREFEITA -- é o relatório do
+  // servidor depois da viagem --, então não tem faixa lado a lado: tem uma
+  // assinatura só, no layout comum (traço, NOME, CARGO e CPF).
+  pincel.assinatura({
+    nome: dados.assinaturas.servidor.nome,
+    cargo: dados.assinaturas.servidor.cargo || "Cargo do(a) servidor(a)",
+    cpf: dados.assinaturas.servidor.cpf,
+    aoPe: true,
+  });
   pincel.fecharPagina();
 }
 

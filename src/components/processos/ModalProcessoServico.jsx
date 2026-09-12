@@ -264,7 +264,7 @@ export default function ModalProcessoServico({
   /**
    * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
    *
-   * O "À SECRETARIA MUNICIPAL DE ______" não pode sair em branco no papel, então
+   * O "À SECRETARIA DE ______" não pode sair em branco no papel, então
    * o processo já nasce com um destino sugerido -- a própria solicitante, se ela
    * tem financeiro, ou Finanças. ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez:
    * processo já gravado abre como estava, e limpar a escolha à mão continua
@@ -826,7 +826,7 @@ function Bloco({ titulo, apoio = null, children }) {
 /**
  * A SECRETARIA A QUEM A PREFEITA ENCAMINHA O PROCESSO.
  *
- * É o "À SECRETARIA MUNICIPAL DE ______" do despacho -- que antes saía EM BRANCO
+ * É o "À SECRETARIA DE ______" do despacho -- que antes saía EM BRANCO
  * no papel, para completar à mão. Agora é escolhido aqui e sai impresso já
  * preenchido, nas duas páginas.
  *
@@ -1387,7 +1387,7 @@ function SecaoRequisicao({
           documento caber em UMA folha. */}
       <Bloco
         titulo="Autorização da prefeita"
-        apoio="O despacho impresso na página 1, ao lado da assinatura do requisitante. O “À SECRETARIA MUNICIPAL DE ___” sai JÁ PREENCHIDO com a secretaria escolhida aqui."
+        apoio="O despacho impresso na página 1, ao lado da assinatura do requisitante. O “À SECRETARIA DE ___” sai JÁ PREENCHIDO com a secretaria escolhida aqui."
       >
         <CampoEncaminhamento
           formulario={formulario}
@@ -1401,7 +1401,7 @@ function SecaoRequisicao({
             secretaria acima. */}
         {String(formulario.despacho_secretaria ?? "").trim() !== "" && (
           <CampoTexto
-            rotulo="À SECRETARIA MUNICIPAL DE (escrito à mão neste processo)"
+            rotulo="À SECRETARIA DE (escrito à mão neste processo)"
             valor={formulario.despacho_secretaria}
             onChange={(v) => definir("despacho_secretaria", v)}
             desabilitado={somenteLeitura}
@@ -1774,7 +1774,7 @@ function SecaoLiquidacao({
           secretariasFinanceiras={secretariasFinanceiras}
           somenteLeitura={somenteLeitura}
           onEscolher={onEscolherEncaminhamento}
-          apoio="Sai impresso como “À SECRETARIA DE ______, para as providências de pagamento”. Lida do cadastro de secretarias do módulo financeiro, que este módulo apenas LÊ."
+          apoio="Sai impresso como “À SECRETARIA DE ______” no quadro de autorização da prefeita. Lida do cadastro de secretarias do módulo financeiro, que este módulo apenas LÊ."
         />
       </Bloco>
 

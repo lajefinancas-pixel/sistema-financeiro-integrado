@@ -78,6 +78,9 @@ const ARQUIVOS_DO_MODULO = [
   "src/lib/processosDiarias.js",
   "src/lib/processosDiariasDados.js",
   "src/lib/processosDiariasDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/lib/processosDiariasTabela.js",
   "src/lib/processosDiariasTabelaDados.js",
   "src/lib/processosIdentidade.js",
@@ -460,7 +463,9 @@ test("o papel traz a lei, o rodapé institucional em toda folha e a pauta da pre
   // As três assinaturas da requisição e a autorização da Prefeita.
   assert.ok(html.includes("Assinatura do Servidor"));
   assert.ok(html.includes("Assinatura da Prefeita"));
-  assert.ok(html.includes("Secretaria Municipal de Finanças"));
+  // O DESPACHO DA PREFEITA sai PREENCHIDO com a secretaria escolhida, no rótulo
+  // padronizado de todas as folhas do módulo: "À SECRETARIA DE <núcleo>".
+  assert.ok(html.includes('À SECRETARIA DE <span class="preenchido">Finanças</span>'));
 });
 
 test("a folha em branco sai assim mesmo: prestação pendente não impede a impressão", () => {
