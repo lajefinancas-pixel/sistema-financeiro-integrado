@@ -13,6 +13,7 @@ import {
   alterarItem,
   aplicarCalculo,
   dadosDaNotaParaDocumento,
+  dadosDePagamentoSugeridos,
   dadosDoFornecedorParaDocumento,
   fornecedorAtendeBusca,
   itensDoProcesso,
@@ -21,6 +22,7 @@ import {
   numeroDoItem,
   numeroDoProcesso,
   opcoesDePagamentoDoFornecedor,
+  precisaEscolherPagamento,
   primeiroErro,
   processoParaFormulario,
   removerItem,
@@ -216,6 +218,16 @@ export default function ModalProcessoServico({
    * daquele fornecedor -- sem alterar nenhuma das três coisas.
    */
   const fornecedorId = formulario.fornecedor_id;
+
+  /**
+   * O fornecedor ACABOU DE SER ESCOLHIDO nesta tela?
+   *
+   * É o que separa "escolher o fornecedor", que PUXA os dados de pagamento do
+   * cadastro, de "reabrir um documento", que NÃO os puxa: documento já gravado
+   * mantém o que está escrito nele, mesmo que o cadastro tenha mudado depois.
+   */
+  const puxarPagamentoDoCadastroRef = React.useRef(null);
+
   React.useEffect(() => {
     if (!fornecedorId) {
       setFormasPagamento([]);
@@ -225,11 +237,24 @@ export default function ModalProcessoServico({
     let vivo = true;
     setCarregandoNotas(true);
     (async () => {
-      // Formas de pagamento: leitura, para a pessoa escolher qual conta ou qual
-      // chave PIX vai impressa no documento.
+      // Formas de pagamento: leitura, para preencher o documento com a conta e a
+      // chave PIX cadastradas e para a pessoa poder trocar por outra.
       try {
         const formas = await listarFormasPagamento(fornecedorId);
-        if (vivo) setFormasPagamento(Array.isArray(formas) ? formas : []);
+        if (!vivo) return;
+        setFormasPagamento(Array.isArray(formas) ? formas : []);
+
+        // ⚠️ CÓPIA PARA O DOCUMENTO, num só sentido. Banco, agência, conta,
+        // chave PIX e titular entram preenchidos -- a forma PRINCIPAL de cada
+        // tipo --, e nada é gravado no cadastro do fornecedor.
+        if (puxarPagamentoDoCadastroRef.current === String(fornecedorId)) {
+          puxarPagamentoDoCadastroRef.current = null;
+          const sugerido = dadosDePagamentoSugeridos(Array.isArray(formas) ? formas : []);
+          if (Object.keys(sugerido).length > 0) {
+            setSujo(true);
+            setFormulario((atual) => ({ ...atual, ...sugerido }));
+          }
+        }
       } catch {
         if (vivo) setFormasPagamento([]);
       }
@@ -464,15 +489,23 @@ export default function ModalProcessoServico({
   /**
    * Escolhe o FORNECEDOR no cadastro e PUXA os dados dele para o documento.
    *
-   * Traz razão social, CPF/CNPJ, endereço, banco, agência, conta, PIX e
-   * titular. COPIA num só sentido: nada é gravado no cadastro do fornecedor --
-   * ele não é criado, não é alterado e não é marcado como pago. O vínculo
-   * interno (`fornecedor_id`) fica guardado para a busca e para a auditoria.
+   * Traz razão social, CPF/CNPJ, endereço e TODOS os dados de pagamento
+   * cadastrados na Vida do Fornecedor -- banco, agência, conta, chave PIX e
+   * titular --, sem precisar digitar de novo o que já está cadastrado. Havendo
+   * mais de uma conta ou mais de uma chave, entra a PRINCIPAL e a tela oferece a
+   * troca.
+   *
+   * COPIA num só sentido: nada é gravado no cadastro do fornecedor -- ele não é
+   * criado, não é alterado e não é marcado como pago. O vínculo interno
+   * (`fornecedor_id`) fica guardado para a busca e para a auditoria.
    */
   async function puxarFornecedor(fornecedor) {
     setAviso(null);
     setSujo(true);
     setBuscaFornecedor("");
+    // A escolha ACONTECEU AGORA: a leitura das formas de pagamento pode
+    // preencher o documento. Reabrir documento gravado não passa por aqui.
+    puxarPagamentoDoCadastroRef.current = String(fornecedor?.id ?? "");
 
     // O cadastro completo tem o endereço, que a lista da busca não traz. Falha
     // na leitura não impede nada: o que a lista tem já entra no documento.
@@ -632,6 +665,12 @@ export default function ModalProcessoServico({
     () => opcoesDePagamentoDoFornecedor(formasPagamento),
     [formasPagamento],
   );
+  // Há de fato uma ESCOLHA a fazer -- mais de uma conta, ou mais de uma chave
+  // PIX? Uma conta e um PIX não são escolha: os dois entram no papel juntos.
+  const escolhaDePagamentoNecessaria = React.useMemo(
+    () => precisaEscolherPagamento(formasPagamento),
+    [formasPagamento],
+  );
 
   const situacao = situacaoServicoInfo(formulario.situacao);
   const numero = numeroDoProcesso(formulario);
@@ -747,6 +786,7 @@ export default function ModalProcessoServico({
               onPuxarFornecedor={puxarFornecedor}
               onSoltarFornecedor={soltarFornecedor}
               opcoesDePagamento={opcoesDePagamento}
+              escolhaDePagamentoNecessaria={escolhaDePagamentoNecessaria}
               onEscolherFormaDePagamento={escolherFormaDePagamento}
               notas={notas}
               carregandoNotas={carregandoNotas}
@@ -1507,6 +1547,7 @@ function SecaoLiquidacao({
   onPuxarFornecedor,
   onSoltarFornecedor,
   opcoesDePagamento = [],
+  escolhaDePagamentoNecessaria = false,
   onEscolherFormaDePagamento,
   notas = [],
   carregandoNotas = false,
@@ -1584,7 +1625,7 @@ function SecaoLiquidacao({
       {/* O FAVORECIDO: do cadastro de fornecedores ou à mão. */}
       <Bloco
         titulo="Favorecido(a)"
-        apoio="Buscar no cadastro traz razão social, CPF/CNPJ, endereço, banco, agência, conta e PIX. Editar aqui vale só para este documento — o cadastro do fornecedor não muda."
+        apoio="Buscar no cadastro traz razão social, CPF/CNPJ, endereço e os dados de pagamento já cadastrados: banco, agência, conta, chave PIX e titular. Editar aqui vale só para este documento — o cadastro do fornecedor não muda."
       >
         {fornecedorEscolhido ? (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-black/10 bg-[#F8FAFC] px-3 py-2.5">
@@ -1676,11 +1717,17 @@ function SecaoLiquidacao({
       </Bloco>
 
       {/* Mais de uma conta ou mais de um PIX: a escolha é de quem monta o
-          documento, e não do cadastro. */}
+          documento, e não do cadastro. Escolher o fornecedor já preencheu a
+          PRINCIPAL de cada tipo; aqui se TROCA por outra. */}
       {opcoesDePagamento.length > 1 && !somenteLeitura && (
         <Bloco
           titulo="Qual conta ou chave PIX vai no documento"
-          apoio="O fornecedor tem mais de uma forma cadastrada. Escolha a que sai impressa — PIX e conta não se excluem: o papel tem linha para os dois."
+          apoio={
+            (escolhaDePagamentoNecessaria
+              ? "O fornecedor tem mais de uma conta ou mais de uma chave PIX cadastrada. A marcada como PRINCIPAL já entrou preenchida abaixo — toque em outra para trocar neste documento. "
+              : "A conta e a chave PIX cadastradas já entraram preenchidas abaixo — toque em uma delas para preencher de novo. ")
+            + "PIX e conta não se excluem: o papel tem linha para os dois. Trocar aqui vale só para este documento, sem alterar o cadastro do fornecedor."
+          }
         >
           <ul className="space-y-1.5">
             {opcoesDePagamento.map((opcao) => (

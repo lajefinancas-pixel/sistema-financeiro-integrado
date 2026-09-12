@@ -758,6 +758,53 @@ export function opcoesDePagamentoDoFornecedor(formas = []) {
 }
 
 /**
+ * O que o fornecedor ESCOLHIDO já preenche sozinho no documento.
+ *
+ * Escolher o fornecedor deixava banco, agência, conta e chave PIX em branco, e
+ * obrigava a digitar de novo o que já estava cadastrado na Vida do Fornecedor.
+ * Aqui a conta e a chave que o cadastro tem entram no documento na hora: a
+ * PRINCIPAL de cada tipo, porque é a escolha mais provável -- e havendo mais de
+ * uma, a tela continua oferecendo a troca por qualquer outra.
+ *
+ * A conta e o PIX NÃO se excluem: o papel tem linha para os dois, e os dois são
+ * preenchidos juntos quando o cadastro tem os dois. O titular vem do PIX quando
+ * há PIX, como o modelo oficial imprime.
+ *
+ * ⚠️ SOMENTE LEITURA, e num só sentido. Isto COPIA para o documento; nada aqui
+ * cria, altera ou apaga forma de pagamento de fornecedor nenhum -- e o que for
+ * editado no documento continua valendo só para o documento.
+ */
+export function dadosDePagamentoSugeridos(formas = []) {
+  const opcoes = opcoesDePagamentoDoFornecedor(formas);
+  const sugerido = {};
+  // A ordem importa: a conta primeiro, o PIX depois -- o titular impresso é o do
+  // PIX quando existe um PIX cadastrado.
+  [
+    opcoes.find((opcao) => opcao.tipo === "bancaria") ?? null,
+    opcoes.find((opcao) => opcao.tipo === "pix") ?? null,
+  ].forEach((opcao) => {
+    if (!opcao) return;
+    Object.entries(opcao.dados).forEach(([campo, valor]) => {
+      if (texto(valor) !== "") sugerido[campo] = valor;
+    });
+  });
+  return sugerido;
+}
+
+/**
+ * Precisa ESCOLHER qual conta ou qual chave vai no documento?
+ *
+ * Só quando há mais de uma do mesmo tipo -- duas contas, ou duas chaves PIX. Uma
+ * conta e um PIX não são uma escolha: os dois entram no papel juntos.
+ */
+export function precisaEscolherPagamento(formas = []) {
+  const opcoes = opcoesDePagamentoDoFornecedor(formas);
+  const contas = opcoes.filter((opcao) => opcao.tipo === "bancaria").length;
+  const chaves = opcoes.filter((opcao) => opcao.tipo === "pix").length;
+  return contas > 1 || chaves > 1;
+}
+
+/**
  * Preenchimento MANUAL: o favorecido não está cadastrado e NÃO passa a estar.
  *
  * Soltar o vínculo é só apagar `fornecedor_id`. O texto já digitado continua no

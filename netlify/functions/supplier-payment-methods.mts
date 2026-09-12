@@ -32,6 +32,19 @@ function cleanPayload(input: any) {
   };
 }
 
+/**
+ * Tira o "principal" dos OUTROS registros DO MESMO TIPO do fornecedor.
+ *
+ * Por tipo, e não do fornecedor inteiro: há uma conta principal E uma chave PIX
+ * principal, que convivem. É o que o formulário único exige -- ele grava conta e
+ * PIX na mesma passada, e marcar "principal" ali vale para a conta entre as
+ * contas e para a chave entre as chaves, sem uma apagar a marcação da outra.
+ */
+async function limparPrincipalDoTipo(tx: any, supplierId: string, kind: string) {
+  await tx.update(supplierPaymentMethods).set({ isPrimary: false })
+    .where(and(eq(supplierPaymentMethods.supplierId, supplierId), eq(supplierPaymentMethods.kind, kind)));
+}
+
 export default async (req: Request) => {
   try {
     const { supabase, user } = await authenticatedSupabase(req);
@@ -67,7 +80,7 @@ export default async (req: Request) => {
     if (req.method === "POST") {
       await requireSpecialPermission(supabase, `cadastrar_${permissionPrefix}`);
       const [created] = await db.transaction(async (tx) => {
-        if (payload.isPrimary) await tx.update(supplierPaymentMethods).set({ isPrimary: false }).where(eq(supplierPaymentMethods.supplierId, supplierId));
+        if (payload.isPrimary) await limparPrincipalDoTipo(tx, supplierId, payload.kind);
         const rows = await tx.insert(supplierPaymentMethods).values({ ...payload, supplierId, createdBy: user.id, updatedBy: user.id }).returning();
         await tx.insert(supplierPaymentMethodEvents).values({ supplierId, paymentMethodId: rows[0].id, action: "created", newValue: rows[0], userId: user.id });
         return rows;
@@ -83,7 +96,7 @@ export default async (req: Request) => {
     if (req.method === "PATCH") {
       await requireSpecialPermission(supabase, `editar_${permissionPrefix}`);
       const [updated] = await db.transaction(async (tx) => {
-        if (payload.isPrimary) await tx.update(supplierPaymentMethods).set({ isPrimary: false }).where(eq(supplierPaymentMethods.supplierId, supplierId));
+        if (payload.isPrimary) await limparPrincipalDoTipo(tx, supplierId, payload.kind);
         const rows = await tx.update(supplierPaymentMethods).set({ ...payload, updatedBy: user.id, updatedAt: new Date() }).where(eq(supplierPaymentMethods.id, id)).returning();
         await tx.insert(supplierPaymentMethodEvents).values({ supplierId, paymentMethodId: id, action: "updated", previousValue: previous, newValue: rows[0], userId: user.id });
         return rows;
