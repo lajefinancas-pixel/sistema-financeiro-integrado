@@ -591,7 +591,18 @@ const CAMPOS = {
   // social, o CPF/CNPJ ou os dados bancários do fornecedor.
   numero: "Número do processo",
   ano: "Ano",
-  data_processo: "Data do processo",
+  data_processo: "Data do processo (abertura)",
+  // CADA DOCUMENTO TEM A DATA DELE: a da requisição na página 1, a da
+  // liquidação na 2 e a da prestação de contas na 3 das diárias. A data de
+  // abertura acima serve à listagem, e não manda em nenhuma delas.
+  requisicao_data: "Data da requisição (página 1)",
+  prestacao_data: "Data da prestação de contas (página 3)",
+  // A secretaria a quem a PREFEITA encaminha o processo no despacho. ⚠️ Não é a
+  // solicitante: vem do cadastro de secretarias do módulo FINANCEIRO, que o
+  // módulo Processos apenas lê.
+  encaminhar_secretaria_id: "Encaminhar à Secretaria de",
+  encaminhar_secretaria_nome: "Encaminhar à Secretaria de (nome gravado)",
+  despacho_secretaria: "Despacho · secretaria de destino",
   // A SOLICITANTE é quem REQUISITA, do cadastro próprio do módulo Processos;
   // `secretaria_id` é a secretaria do módulo FINANCEIRO, e continua rotulada
   // porque processo antigo a gravou e o histórico dele precisa seguir legível.
@@ -626,7 +637,7 @@ const CAMPOS = {
   transporte_outro: "Transporte (outro)",
   pix: "PIX",
   titular: "Titular",
-  liquidacao_data: "Liquidação · data",
+  liquidacao_data: "Liquidação · data (página 2)",
   liquidacao_data_saida: "Liquidação · data de saída",
   liquidacao_data_retorno: "Liquidação · data de retorno",
   liquidacao_quantidade: "Liquidação · quantidade de diárias",

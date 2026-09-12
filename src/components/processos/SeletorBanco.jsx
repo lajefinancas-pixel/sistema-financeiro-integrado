@@ -22,6 +22,12 @@ import {
  *
  * Sem o cadastro no banco de dados (a migration é rodada à mão), o componente
  * cai no campo de texto de sempre: o banco continua podendo ser digitado.
+ *
+ * ⚠️ O CAMPO OCUPA UMA LINHA, como os vizinhos. A lista NÃO fica aberta embaixo
+ * dele: ela aparece só quando se digita, FLUTUA sobre o conteúdo e desaparece ao
+ * escolher ou ao sair do campo. Aberta embaixo, ela empurrava Agência, Conta,
+ * PIX e Titular para baixo e tomava meia tela. A altura é limitada e a rolagem é
+ * DENTRO da lista, com alvos grandes para o toque no iPad.
  */
 export default function SeletorBanco({
   bancos = [],
@@ -37,6 +43,9 @@ export default function SeletorBanco({
 }) {
   const [busca, setBusca] = React.useState("");
   const [aberto, setAberto] = React.useState(false);
+  // A lista existe enquanto se digita, e só: campo em branco é campo de uma
+  // linha, sem lista nenhuma embaixo empurrando os outros campos.
+  const procurando = String(busca).trim() !== "";
 
   const disponiveis = React.useMemo(
     () => bancosParaEscolha(bancos, { manterCodigo: codigo }),
@@ -54,10 +63,25 @@ export default function SeletorBanco({
   const temEscolha = numeroDoBancoFormatado(codigo) !== "" || String(nome ?? "").trim() !== "";
   const semCadastro = disponiveis.length === 0;
 
+  // Quantos itens a lista DESENHA. A rolagem é dentro dela, e quem procura um
+  // banco específico digita o número ou mais letras -- não rola duzentas linhas.
+  const LIMITE_DA_LISTA = 30;
+  const mostrados = encontrados.slice(0, LIMITE_DA_LISTA);
+
   const escolher = (banco) => {
     onEscolher?.(banco);
+    // Escolhido, o campo volta a ocupar uma linha: a lista fecha porque a busca
+    // se esvazia.
     setBusca("");
     setAberto(false);
+  };
+
+  /** Sair do campo fecha a lista. O que foi digitado e não escolhido some. */
+  const sairDoCampo = (evento) => {
+    // No toque e no clique, o alvo seguinte pode ser um item da própria lista:
+    // aí o campo não "saiu", e fechar aqui cancelaria a escolha.
+    if (evento?.currentTarget?.contains?.(evento.relatedTarget)) return;
+    setBusca("");
   };
 
   return (
@@ -112,15 +136,20 @@ export default function SeletorBanco({
           )}
         </div>
       ) : (
-        <>
+        // `relative` é o que faz a lista flutuar ANCORADA neste campo: ela sai do
+        // fluxo da página e não desloca Agência, Conta, PIX e Titular.
+        <div className="relative" onBlur={sairDoCampo}>
           <div className="mt-1 flex items-center gap-2 rounded-lg border border-black/10 px-3">
             <Search size={14} className="shrink-0 text-[#0F2A44]/40" />
             <input
               type="text"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setBusca("");
+              }}
               disabled={somenteLeitura}
-              placeholder="Buscar por número ou nome (001, bb, brasil...)"
+              placeholder="Digite o número ou o nome (001, bb, brasil...)"
               className="w-full bg-transparent py-2 text-sm text-[#0F2A44] outline-none"
             />
             {temEscolha && (
@@ -134,26 +163,46 @@ export default function SeletorBanco({
             )}
           </div>
 
-          <ul className="mt-2 max-h-44 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/10">
-            {encontrados.length === 0 ? (
-              <li className="px-3 py-2 text-[11px] text-[#0F2A44]/45">
-                Nenhum banco com esse número ou nome. Cadastre-o em Configurações → Processos.
-              </li>
-            ) : (
-              encontrados.map((banco) => (
-                <li key={banco.id ?? banco.numero}>
-                  <button
-                    type="button"
-                    onClick={() => escolher(banco)}
-                    className="block w-full px-3 py-2 text-left hover:bg-black/[0.03]"
-                  >
-                    <span className="block truncate text-sm text-[#0F2A44]">{rotuloDoBanco(banco)}</span>
-                  </button>
+          {/* A LISTA FLUTUANTE: só existe enquanto se digita. `absolute` e
+              `z-20` a põem SOBRE o conteúdo; `max-h-56` com `overflow-y-auto`
+              limitam a altura e rolam por dentro; `overscroll-contain` evita que
+              a rolagem do dedo arraste o formulário atrás dela. */}
+          {procurando && (
+            <ul
+              className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 divide-y divide-black/5
+                overflow-y-auto overscroll-contain rounded-lg border border-black/10 bg-white shadow-lg"
+            >
+              {mostrados.length === 0 ? (
+                <li className="px-3 py-2.5 text-[11px] text-[#0F2A44]/45">
+                  Nenhum banco com esse número ou nome. Cadastre-o em Configurações → Processos.
                 </li>
-              ))
-            )}
-          </ul>
-        </>
+              ) : (
+                mostrados.map((banco) => (
+                  <li key={banco.id ?? banco.numero}>
+                    <button
+                      type="button"
+                      // No toque, `onClick` chega depois do `blur`: o
+                      // `onPointerDown` garante a escolha que o dedo fez.
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        escolher(banco);
+                      }}
+                      onClick={() => escolher(banco)}
+                      className="block w-full px-3 py-2.5 text-left hover:bg-black/[0.03] active:bg-black/[0.06]"
+                    >
+                      <span className="block truncate text-sm text-[#0F2A44]">{rotuloDoBanco(banco)}</span>
+                    </button>
+                  </li>
+                ))
+              )}
+              {encontrados.length > mostrados.length && (
+                <li className="px-3 py-2 text-[11px] text-[#0F2A44]/45">
+                  Mostrando {mostrados.length} de {encontrados.length}. Digite mais para afinar a busca.
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
       )}
 
       {erro !== "" && <p className="mt-1 text-[11px] text-[#B3261E]">{erro}</p>}

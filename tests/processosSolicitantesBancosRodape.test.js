@@ -233,16 +233,21 @@ test("2. a data do processo é sugestão inicial, e o documento imprime a escolh
     assert.equal(linha.data_processo, escolhida);
   });
 
-  // E é a escolhida que sai impressa na página 1.
-  const dados = dadosDoDocumento(processoDeExemplo({ data_processo: "2026-01-05" }), {});
+  // E é a escolhida que sai impressa na página 1 -- agora pela DATA DA
+  // REQUISIÇÃO, que é a data PRÓPRIA daquela folha.
+  const dados = dadosDoDocumento(
+    processoDeExemplo({ data_processo: "2026-01-05", requisicao_data: "2026-01-05" }),
+    {},
+  );
   assert.equal(dados.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
   assert.ok(htmlDoProcesso(dados, { escopo: "requisicao" }).includes("5 de janeiro de 2026"));
 
-  // As TRÊS páginas têm cada uma a SUA data: a liquidação e a prestação de
-  // contas imprimem a delas quando informadas, e nunca a de hoje.
+  // As TRÊS páginas têm cada uma a SUA data: a requisição imprime a dela, a
+  // liquidação a dela e a prestação de contas a dela, e nunca a de hoje.
   const tresDatas = dadosDoDocumento(
     processoDeExemplo({
       data_processo: "2026-01-05",
+      requisicao_data: "2026-01-05",
       liquidacao_data: "2026-04-02",
       prestacao_data: "2026-05-20",
     }),
@@ -257,14 +262,22 @@ test("2. a data do processo é sugestão inicial, e o documento imprime a escolh
   assert.ok(folhas[1].includes("2 de abril de 2026"));
   assert.ok(folhas[2].includes("20 de maio de 2026"));
 
-  // Sem data própria, a página 2 acompanha a data do processo -- e não a de hoje.
-  const semLiquidacao = dadosDoDocumento(processoDeExemplo({ data_processo: "2026-01-05" }), {});
-  assert.equal(semLiquidacao.liquidacao.localEData, semLiquidacao.localEData);
+  // Sem data própria, as folhas acompanham a data de abertura do processo -- e
+  // não a de hoje. É o que mantém o processo ANTIGO imprimindo como sempre.
+  const semDatasProprias = dadosDoDocumento(
+    processoDeExemplo({ data_processo: "2026-01-05", requisicao_data: "" }),
+    {},
+  );
+  assert.equal(semDatasProprias.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
+  assert.equal(semDatasProprias.liquidacao.localEData, semDatasProprias.localEData);
 
   // O campo da tela é de data e é editável: não há `disabled` fixo nele.
   const modal = await read("src/components/processos/ModalProcessoDiaria.jsx");
-  assert.ok(/rotulo="Data do processo"\s*\n\s*tipo="date"/.test(modal));
+  assert.ok(/rotulo="Data do processo \(abertura\)"\s*\n\s*tipo="date"/.test(modal));
   assert.ok(/onChange=\{\(v\) => definir\("data_processo", v\)\}/.test(modal));
+  // E cada documento tem o campo DELE, também editável.
+  assert.ok(/rotulo="Data da Requisição de Diárias"\s*\n\s*tipo="date"/.test(modal));
+  assert.ok(/onChange=\{\(v\) => definir\("requisicao_data", v\)\}/.test(modal));
 });
 
 /* -------------------------------------------------------------------------

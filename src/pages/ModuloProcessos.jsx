@@ -9,7 +9,10 @@ import { usePermissoesProcessos } from "../lib/permissoesProcessos.js";
 import { podeVerDiarias } from "../lib/processosDiarias.js";
 import { podeVerServicos } from "../lib/processosServicos.js";
 import { podeVerServidores } from "../lib/processosServidores.js";
-import { carregarSecretarias } from "../lib/processosDiariasDados.js";
+import {
+  carregarSecretarias,
+  carregarSecretariasFinanceiras,
+} from "../lib/processosDiariasDados.js";
 import { carregarServidores } from "../lib/processosServidoresDados.js";
 import { carregarBancos, carregarSolicitantes } from "../lib/processosCadastrosDados.js";
 import { listaDeSecretariasDoProcesso } from "../lib/processosSecretariasSolicitantes.js";
@@ -56,6 +59,10 @@ export default function ModuloProcessos() {
     fornecedores: [],
     solicitantes: [],
     secretariasFinanceiras: [],
+    // As secretarias ATIVAS do cadastro do financeiro -- as que têm financeiro e
+    // podem receber o encaminhamento da prefeita. ⚠️ LEITURA: nada é criado,
+    // alterado ou excluído nesse cadastro a partir do módulo Processos.
+    secretariasDoEncaminhamento: [],
     bancos: [],
     servidores: [],
     carregando: true,
@@ -76,16 +83,38 @@ export default function ModuloProcessos() {
       // As secretarias do financeiro: LEITURA, e só para o processo antigo
       // continuar mostrando a secretaria que gravou.
       carregarSecretarias().catch(() => []),
+      // As secretarias ATIVAS do financeiro, para a escolha "Encaminhar à
+      // Secretaria de": é o MESMO cadastro de Saldos das Contas e dos
+      // Pagamentos Diários, filtrado como lá. Só leitura -- e, sem ele, o
+      // documento segue imprimindo Finanças, como sempre imprimiu.
+      carregarSecretariasFinanceiras().catch(() => []),
       carregarBancos().catch(() => []),
       // O cadastro de servidores pode ainda não existir no banco (a migration é
       // rodada à mão): sem ele, o formulário da diária continua sendo
       // preenchido à mão, como sempre foi.
       carregarServidores().catch(() => []),
-    ]).then(([fornecedores, solicitantes, secretariasFinanceiras, bancos, servidores]) => {
-      if (ativo) {
-        setApoio({ fornecedores, solicitantes, secretariasFinanceiras, bancos, servidores, carregando: false });
-      }
-    });
+    ]).then(
+      ([
+        fornecedores,
+        solicitantes,
+        secretariasFinanceiras,
+        secretariasDoEncaminhamento,
+        bancos,
+        servidores,
+      ]) => {
+        if (ativo) {
+          setApoio({
+            fornecedores,
+            solicitantes,
+            secretariasFinanceiras,
+            secretariasDoEncaminhamento,
+            bancos,
+            servidores,
+            carregando: false,
+          });
+        }
+      },
+    );
 
     return () => {
       ativo = false;
@@ -154,6 +183,7 @@ export default function ModuloProcessos() {
             fornecedores={apoio.fornecedores}
             solicitantes={apoio.solicitantes}
             secretarias={secretariasParaConsulta}
+            secretariasFinanceiras={apoio.secretariasDoEncaminhamento}
             bancos={apoio.bancos}
             servidores={apoio.servidores}
             carregandoApoio={apoio.carregando}
@@ -174,6 +204,7 @@ export default function ModuloProcessos() {
             fornecedores={apoio.fornecedores}
             solicitantes={apoio.solicitantes}
             secretarias={secretariasParaConsulta}
+            secretariasFinanceiras={apoio.secretariasDoEncaminhamento}
             bancos={apoio.bancos}
             servidores={apoio.servidores}
             carregandoApoio={apoio.carregando}

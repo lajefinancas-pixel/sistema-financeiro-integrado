@@ -48,12 +48,18 @@ import {
   TITULO_PAGINA_1,
   TITULO_PAGINA_2,
   dataBR,
+  dataDaLiquidacao,
+  dataDaRequisicao,
   itensParaDocumento,
   nomeDaSecretaria,
   numeroDoProcesso,
   situacaoServicoInfo,
   valorExtensoDoProcesso,
 } from "./processosServicos.js";
+import {
+  complementoDoEncaminhamento,
+  destinoDaLiquidacao,
+} from "./processosEncaminhamento.js";
 import {
   BRASAO_SVG,
   IDENTIDADE_PADRAO,
@@ -192,14 +198,16 @@ function requisitanteDe(nome) {
   return /^secretaria/i.test(limpo) ? limpo : `Secretaria Municipal de ${limpo}`;
 }
 
-/** O complemento de "À SECRETARIA MUNICIPAL DE ___" na autorização da página 1. */
+/**
+ * O complemento de "À SECRETARIA MUNICIPAL DE ___" na autorização da página 1.
+ *
+ * É A SECRETARIA DO ENCAMINHAMENTO -- a que a prefeita manda providenciar --, e
+ * não a solicitante. Ela sai do que o processo GRAVOU; sem nada gravado, o
+ * documento cai no que já fazia antes e, no limite, escreve Finanças. ⚠️ Este
+ * campo NÃO SAI EM BRANCO no papel.
+ */
 function destinoDoDespacho(processo, secretaria) {
-  const escrito = texto(processo?.despacho_secretaria);
-  if (escrito !== "") return escrito;
-  // A secretaria solicitante, sem o prefixo que a própria frase já traz.
-  const limpo = texto(secretaria).replace(/^secretaria\s+municipal\s+d[eoa]s?\s+/i, "")
-    .replace(/^secretaria\s+d[eoa]s?\s+/i, "");
-  return limpo;
+  return complementoDoEncaminhamento(processo, secretaria);
 }
 
 const MESES = [
@@ -324,8 +332,10 @@ export function dadosDoDocumento(
       // itens que não existem.
       semItens: itensParaDocumento(p).length === 0,
       despacho: destinoDoDespacho(p, secretaria),
-      localEData: localEData(p.data_processo, p.ano),
-      emData: emData(p.data_processo),
+      // A DATA DESTA FOLHA é a da requisição, e não a da liquidação: a
+      // requisição é feita num dia e a liquidação, dias ou semanas depois.
+      localEData: localEData(dataDaRequisicao(p), p.ano),
+      emData: emData(dataDaRequisicao(p)),
     },
 
     // QUEM ASSINA. É conteúdo GRAVADO no processo, não uma leitura do cadastro
@@ -356,8 +366,12 @@ export function dadosDoDocumento(
         || (texto(p.nota_numero) !== "" ? `Nota fiscal nº ${texto(p.nota_numero)}` : ""),
       ),
       orgao: requisitanteDe(secretaria),
-      localEData: localEData(texto(p.liquidacao_data) || p.data_processo, p.ano),
-      emData: emData(texto(p.liquidacao_data) || p.data_processo),
+      // A SECRETARIA DO ENCAMINHAMENTO desta folha. O modelo oficial traz
+      // Finanças, e Finanças continua sendo o padrão quando nada foi escolhido.
+      destino: destinoDaLiquidacao(p),
+      // A DATA DESTA FOLHA é a da liquidação.
+      localEData: localEData(dataDaLiquidacao(p), p.ano),
+      emData: emData(dataDaLiquidacao(p)),
     },
 
     favorecido: {
@@ -499,6 +513,25 @@ function estilos() {
     .autorizacao p { margin: 1.6mm 0 0; }
     .autorizacao .ciente { font-weight: bold; letter-spacing: .08em; }
 
+    /* A FAIXA DE ASSINATURAS da folha da requisição: o requisitante à
+       ESQUERDA e a autorização da prefeita à DIREITA, na MESMA faixa
+       horizontal -- nunca uma abaixo da outra. Empilhadas, as duas gastavam o
+       dobro da altura e empurravam a requisição para uma segunda folha.
+       ⚠️ Isto é da REQUISIÇÃO: nas DIÁRIAS as assinaturas continuam
+       empilhadas, como definido lá. */
+    .faixa-assinaturas { display: flex; align-items: stretch; gap: 6mm; margin-top: 6mm;
+      page-break-inside: avoid; break-inside: avoid; }
+    /* O quadro da prefeita fica um pouco mais largo: é ele que tem texto dentro
+       -- "À SECRETARIA MUNICIPAL DE ______" precisa caber numa linha. */
+    .faixa-assinaturas > * { min-width: 0; }
+    .faixa-assinaturas .lado { flex: 42 1 0; }
+    .faixa-assinaturas .autorizacao { flex: 58 1 0; }
+    /* A coluna da esquerda empurra a assinatura para o pé da faixa, na altura da
+       linha de assinatura da prefeita. */
+    .faixa-assinaturas .lado { display: flex; flex-direction: column; justify-content: flex-end; }
+    .faixa-assinaturas .autorizacao { margin-top: 0; }
+    .faixa-assinaturas .assinatura-unica { margin: 10mm auto 0; width: 100%; max-width: 78mm; }
+
     .assinatura-unica { margin: 12mm auto 0; width: 90mm; border-top: .7pt solid ${COR.navy}; padding-top: 1.4mm;
       text-align: center; font-size: 7.5pt; color: ${COR.apoio}; }
     .assinatura-unica strong { display: block; font-size: 9pt; color: ${COR.navy}; }
@@ -619,6 +652,16 @@ function folhaRequisicao(dados) {
 
     + `<p class="local-data">${escapar(dados.requisicao.localEData)}</p>`
 
+    // ⚠️ LADO A LADO: à ESQUERDA o requisitante, à DIREITA a autorização da
+    // prefeita, na MESMA faixa horizontal.
+    + `<div class="faixa-assinaturas">`
+    + `<div class="lado">`
+    + assinaturaHtml(
+      dados.assinaturas.requisitante.nome,
+      "(assinatura, nome e identificação funcional do requisitante)",
+      dados.assinaturas.requisitante.cargo,
+    )
+    + `</div>`
     + `<div class="autorizacao">`
     + `<div class="rotulo-caixa">Autorização da prefeita</div>`
     + `<p class="ciente">CIENTE/AUTORIZO</p>`
@@ -627,12 +670,7 @@ function folhaRequisicao(dados) {
     + `<p>${escapar(dados.requisicao.emData)}</p>`
     + assinaturaHtml("", "PREFEITA")
     + `</div>`
-
-    + assinaturaHtml(
-      dados.assinaturas.requisitante.nome,
-      "(assinatura, nome e identificação funcional do requisitante)",
-      dados.assinaturas.requisitante.cargo,
-    )
+    + `</div>`
 
     + rodapeHtml(dados)
     + `</div>`;
@@ -676,7 +714,7 @@ function folhaLiquidacao(dados) {
     + `<div class="autorizacao">`
     + `<div class="rotulo-caixa">Autorização da prefeita</div>`
     + `<p class="ciente">CIENTE/AUTORIZO</p>`
-    + `<p>À ${escapar(SECRETARIA_DE_FINANCAS)}</p>`
+    + `<p>À ${escapar(dados.liquidacao.destino)}</p>`
     + `<p>Para providências que o caso requer &nbsp; ${escapar(dados.liquidacao.emData)}</p>`
     + assinaturaHtml("", "PREFEITA")
     + `</div>`
@@ -803,10 +841,16 @@ function criarPincel(pdf, dados) {
   const limite = PAGINA.altura - PAGINA.margemBase - 4;
   // `folhasUsadas` existe só para saber se já há folha aberta (o `addPage()` do
   // documento seguinte). NÃO é numeração: o papel não traz número de folha.
-  const estado = { y: 0, titulo: "", folhasUsadas: 0, recuo: 0 };
+  // `colX`/`colLarg` são a COLUNA corrente: fora de uma faixa lado a lado elas
+  // ficam em zero e todo o desenho usa a largura inteira da folha, como sempre.
+  // `travado` impede a quebra de folha no meio de uma faixa -- meia faixa numa
+  // folha e meia na outra não é documento.
+  const estado = { y: 0, titulo: "", folhasUsadas: 0, recuo: 0, colX: 0, colLarg: 0, travado: false };
 
-  const xEsq = () => margem + estado.recuo;
-  const largUtil = () => util - estado.recuo * 2;
+  const xBase = () => (estado.colLarg > 0 ? estado.colX : margem);
+  const largBase = () => (estado.colLarg > 0 ? estado.colLarg : util);
+  const xEsq = () => xBase() + estado.recuo;
+  const largUtil = () => largBase() - estado.recuo * 2;
 
   // A identidade que ESTA folha imprime: a congelada do processo, ou a vigente.
   const identidade = normalizarIdentidade(dados?.identidade);
@@ -912,6 +956,10 @@ function criarPincel(pdf, dados) {
 
     /** Garante espaço; quando não há, abre folha de continuação. */
     espaco(necessario) {
+      // Dentro de uma faixa lado a lado a folha já foi garantida antes de a
+      // faixa começar: aqui a quebra é proibida, para as duas colunas não se
+      // separarem.
+      if (estado.travado) return;
       if (estado.y + necessario <= limite) return;
       rodapeInstitucional();
       pdf.addPage();
@@ -949,7 +997,8 @@ function criarPincel(pdf, dados) {
       pdf.setTextColor(...TINTA.navy);
       linhas.forEach((linha, indice) => {
         if (centralizado) {
-          pdf.text(linha, largura / 2, estado.y + entre * 0.8 + indice * entre, { align: "center" });
+          // No meio da COLUNA corrente -- que, fora de uma faixa, é a folha toda.
+          pdf.text(linha, xBase() + largBase() / 2, estado.y + entre * 0.8 + indice * entre, { align: "center" });
         } else {
           pdf.text(linha, xEsq(), estado.y + entre * 0.8 + indice * entre);
         }
@@ -1292,9 +1341,45 @@ function criarPincel(pdf, dados) {
       estado.y += 3;
       pdf.setDrawColor(...TINTA.navy);
       pdf.setLineWidth(0.35);
-      pdf.rect(margem, inicio, util, estado.y - inicio);
+      pdf.rect(xBase(), inicio, largBase(), estado.y - inicio);
       estado.recuo = 0;
       estado.y += 2;
+    },
+
+    /**
+     * DUAS ÁREAS LADO A LADO, na MESMA faixa horizontal.
+     *
+     * É a base do fim da página 1: o REQUISITANTE à esquerda e a AUTORIZAÇÃO DA
+     * PREFEITA à direita, uma ao lado da outra. Empilhadas, as duas gastavam o
+     * dobro da altura e empurravam o documento para uma segunda folha.
+     *
+     * As duas colunas começam no MESMO y; a faixa termina na mais alta das duas,
+     * e a folha é garantida ANTES de a faixa começar, para nenhuma das metades
+     * sobrar para a folha seguinte.
+     */
+    faixaLadoALado({ esquerda, direita, proporcao = 0.5, vao = 6, altura = 62 } = {}) {
+      this.espaco(altura + 2);
+      const topo = estado.y;
+      const largEsquerda = (util - vao) * proporcao;
+      const largDireita = util - vao - largEsquerda;
+
+      const desenharColuna = (x, larg, desenhar) => {
+        estado.colX = x;
+        estado.colLarg = larg;
+        estado.y = topo;
+        estado.travado = true;
+        if (typeof desenhar === "function") desenhar();
+        estado.travado = false;
+        const fim = estado.y;
+        estado.colX = 0;
+        estado.colLarg = 0;
+        return fim;
+      };
+
+      const fimEsquerda = desenharColuna(margem, largEsquerda, esquerda);
+      const fimDireita = desenharColuna(margem + largEsquerda + vao, largDireita, direita);
+
+      estado.y = Math.max(fimEsquerda, fimDireita);
     },
 
     aviso(mensagem) {
@@ -1349,18 +1434,33 @@ function paginaRequisicaoPdf(pincel, dados) {
 
   pincel.localData(dados.requisicao.localEData);
 
-  pincel.moldura("Autorização da prefeita", () => {
-    pincel.paragrafo("CIENTE/AUTORIZO", { negrito: true });
-    pincel.linha(DESPACHO_PAGINA_1, dados.requisicao.despacho);
-    pincel.paragrafo("Para providências que o caso requer");
-    pincel.paragrafo(dados.requisicao.emData);
-    pincel.assinatura({ papel: "PREFEITA" });
-  });
-
-  pincel.assinatura({
-    nome: dados.assinaturas.requisitante.nome,
-    papel: "(assinatura, nome e identificação funcional do requisitante)",
-    cargo: dados.assinaturas.requisitante.cargo,
+  // ⚠️ AS DUAS ÁREAS DE ASSINATURA SAEM LADO A LADO, na mesma faixa: o
+  // REQUISITANTE à esquerda e a AUTORIZAÇÃO DA PREFEITA à direita. Uma abaixo da
+  // outra gastava o dobro da altura e jogava a requisição para uma segunda
+  // folha. ⚠️ Isto é da REQUISIÇÃO: nas DIÁRIAS as assinaturas continuam uma
+  // abaixo da outra, como definido lá.
+  pincel.faixaLadoALado({
+    // O quadro da prefeita fica um pouco mais largo: é ele que tem texto dentro.
+    proporcao: 0.42,
+    // O respiro à esquerda é o que deixa a linha de assinatura do requisitante
+    // na mesma altura da linha da prefeita, dentro do quadro ao lado.
+    esquerda: () => {
+      pincel.respiro(35);
+      pincel.assinatura({
+        nome: dados.assinaturas.requisitante.nome,
+        papel: "(assinatura, nome e identificação funcional do requisitante)",
+        cargo: dados.assinaturas.requisitante.cargo,
+      });
+    },
+    direita: () => {
+      pincel.moldura("Autorização da prefeita", () => {
+        pincel.paragrafo("CIENTE/AUTORIZO", { negrito: true });
+        pincel.linha(DESPACHO_PAGINA_1, dados.requisicao.despacho);
+        pincel.paragrafo("Para providências que o caso requer");
+        pincel.paragrafo(dados.requisicao.emData);
+        pincel.assinatura({ papel: "PREFEITA" });
+      });
+    },
   });
 
   pincel.fecharPagina();
@@ -1427,7 +1527,7 @@ function paginaLiquidacaoPdf(pincel, dados) {
 
   pincel.moldura("Autorização da prefeita", () => {
     pincel.paragrafo("CIENTE/AUTORIZO", { negrito: true });
-    pincel.paragrafo(`À ${SECRETARIA_DE_FINANCAS}`);
+    pincel.paragrafo(`À ${dados.liquidacao.destino}`);
     pincel.paragrafo(`Para providências que o caso requer     ${dados.liquidacao.emData}`);
     pincel.assinatura({ papel: "PREFEITA" });
   });

@@ -24,6 +24,7 @@ import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
 import { camposDoSignatario } from "./processosServidores.js";
 import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
+import { CAMPOS_ENCAMINHAMENTO } from "./processosEncaminhamento.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -368,6 +369,11 @@ export const CAMPOS_ASSINANTE_LIQUIDACAO = Object.values(camposDoSignatario(SIGN
  * dado, e não porque alguém o copia.
  */
 export const CAMPOS_COMPARTILHADOS = [
+  // ⚠️ `data_processo` É A DATA DE ABERTURA do processo, e só isso: ela serve à
+  // listagem e à ordenação. ELA NÃO MANDA NA DATA DOS DOCUMENTOS -- cada
+  // documento tem a data DELE (`requisicao_data` na página 1,
+  // `liquidacao_data` na página 2), porque a requisição é feita num dia e a
+  // liquidação, dias ou semanas depois.
   "data_processo",
   // A SECRETARIA SOLICITANTE vem do cadastro PRÓPRIO do módulo Processos, e não
   // do cadastro de secretarias do módulo financeiro: quem REQUISITA quase nunca
@@ -375,10 +381,18 @@ export const CAMPOS_COMPARTILHADOS = [
   "solicitante_id",
   "objeto",
   "observacoes",
+  // A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- a que recebe o processo para
+  // as providências, no despacho das DUAS páginas. ⚠️ Ela não é a solicitante:
+  // vem do cadastro de secretarias do MÓDULO FINANCEIRO, que este módulo só LÊ.
+  ...CAMPOS_ENCAMINHAMENTO,
 ];
 
 /** Campos PRÓPRIOS da página 1 (a Requisição de Material/Serviço). */
 export const CAMPOS_REQUISICAO = [
+  // A DATA DESTA PÁGINA: a data da Requisição de Material/Serviço. É ela que
+  // sai no "São José da Laje/AL, ___ de ___ de ___" e no "Em, __/__/__" da
+  // autorização da prefeita desta folha -- e não a data da liquidação.
+  "requisicao_data",
   // Um dos quatro tipos, marcado com "X"; os outros três saem em branco.
   "tipo",
   // "À SECRETARIA MUNICIPAL DE ____", no despacho da prefeita.
@@ -405,6 +419,7 @@ export const CAMPOS_LIQUIDACAO = [
   "titular",
   "valor_total",
   "valor_extenso",
+  // A DATA DESTA PÁGINA: a data da Liquidação/Solicitação de Pagamento.
   "liquidacao_data",
   "liquidacao_observacoes",
   // ⚠️ A NF é CONSULTA: estes campos são a CÓPIA do que a nota diz, guardada no
@@ -508,9 +523,14 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   const branco = {
     ano,
     numero: null,
-    // ⚠️ A data de hoje é SUGESTÃO INICIAL, não é trava. O campo é editável e o
-    // documento imprime a data escolhida.
+    // ⚠️ A data de hoje é SUGESTÃO INICIAL, não é trava. Os campos são
+    // editáveis, inclusive para trás, e cada documento imprime a data
+    // escolhida NELE.
     data_processo: hoje,
+    // A data da página 1 nasce sugerida porque a requisição é o documento que
+    // se faz no ato. A da página 2 nasce em branco: a liquidação é preenchida
+    // quando a nota chega, e até lá a folha sai com a data de abertura.
+    requisicao_data: hoje,
     solicitante_id: "",
     fornecedor_id: null,
     nota_id: null,
@@ -553,6 +573,15 @@ export function processoParaFormulario(processo) {
     formulario[campo] = valor;
   });
 
+  // ⚠️ A DATA DA REQUISIÇÃO DO PROCESSO JÁ GRAVADO É A DELE, ou nenhuma.
+  // `processoVazio` sugere a data de hoje, e essa sugestão é só do processo
+  // NOVO: processo antigo, gravado antes desta coluna existir, tem a coluna
+  // vazia e precisa continuar imprimindo pela data de abertura -- e não ganhar
+  // a data de hoje só por ter sido reaberto e salvo.
+  if (processo?.id !== null && processo?.id !== undefined) {
+    formulario.requisicao_data = processo?.requisicao_data ?? "";
+  }
+
   formulario.id = processo?.id ?? null;
   formulario.numero = processo?.numero ?? null;
   formulario.ano = processo?.ano ?? base.ano;
@@ -568,7 +597,7 @@ export function processoParaFormulario(processo) {
   return formulario;
 }
 
-const CAMPOS_DATA = new Set(["data_processo", "liquidacao_data", "nota_emissao"]);
+const CAMPOS_DATA = new Set(["data_processo", "requisicao_data", "liquidacao_data", "nota_emissao"]);
 const CAMPOS_MOEDA = new Set(["valor_total", "nota_valor_bruto", "nota_retencoes", "nota_valor_liquido"]);
 
 /**
@@ -599,6 +628,9 @@ export function formularioParaBanco(formulario) {
 
   ["data_processo", "objeto", "observacoes"]
     .concat(
+      // O encaminhamento da prefeita: o id só para a tela remarcar a opção, e o
+      // NOME congelado, que é o que o documento imprime.
+      CAMPOS_ENCAMINHAMENTO,
       CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, ["valor_extenso"],
       // Os dados da secretaria solicitante vão GRAVADOS no processo. É o
       // congelamento: trocar o secretário no cadastro amanhã não reescreve o
@@ -857,6 +889,32 @@ export function dataBR(valor) {
   return bruto;
 }
 
+/* -------------------------------------------------------------------------
+ * A data de cada documento
+ * ---------------------------------------------------------------------- */
+
+/**
+ * A DATA DA REQUISIÇÃO -- a data da página 1.
+ *
+ * Cada documento do processo tem a data DELE: a requisição é feita num dia e a
+ * liquidação, dias ou semanas depois. Sem data própria gravada -- o caso do
+ * processo criado antes de o campo existir -- vale a data de abertura, que é
+ * exatamente o que essas folhas já imprimiam.
+ */
+export function dataDaRequisicao(processo) {
+  return texto(processo?.requisicao_data) || texto(processo?.data_processo);
+}
+
+/**
+ * A DATA DA LIQUIDAÇÃO -- a data da página 2.
+ *
+ * Mesma regra: a data própria da liquidação quando existe, a de abertura
+ * quando ainda não foi preenchida.
+ */
+export function dataDaLiquidacao(processo) {
+  return texto(processo?.liquidacao_data) || texto(processo?.data_processo);
+}
+
 /**
  * O nome da secretaria SOLICITANTE do processo.
  *
@@ -1010,6 +1068,9 @@ export function duplicarProcesso(processo, { ano = new Date().getFullYear(), hoj
     ano,
     situacao: "rascunho",
     data_processo: hoje,
+    // As datas dos documentos voltam ao ponto de partida: a cópia é um processo
+    // NOVO, e as datas do mês passado não são as dele.
+    requisicao_data: hoje,
     liquidacao_data: "",
     duplicado_de: processo?.id ?? null,
     duplicado_de_numero: numeroDoProcesso(processo),
@@ -1077,7 +1138,7 @@ export function identificacaoDoProcesso(processo) {
 
 const CAMPOS_AUDITADOS = [
   "data_processo", "solicitante_id", "objeto", "observacoes", "itens",
-  "fornecedor_id", "nota_id", "valor_extenso_manual",
+  "fornecedor_id", "nota_id", "valor_extenso_manual", ...CAMPOS_ENCAMINHAMENTO,
   ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_SOLICITANTE_NO_PROCESSO,
 ];
 

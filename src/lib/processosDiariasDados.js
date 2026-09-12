@@ -118,6 +118,11 @@ const COLUNAS = [
   "liquidacao_quantidade", "liquidacao_valor", "liquidacao_relatorio",
   "liquidacao_documentos", "liquidacao_responsavel", "liquidacao_observacoes",
   "prestacao_relatorio", "prestacao_data",
+  // A DATA PRÓPRIA DA PÁGINA 1 e o ENCAMINHAMENTO da prefeita (a secretaria a
+  // quem ela manda o processo, com o nome CONGELADO). ⚠️ O encaminhamento vem do
+  // cadastro de secretarias do módulo FINANCEIRO, que este módulo só LÊ, e não é
+  // a secretaria solicitante.
+  "requisicao_data", "encaminhar_secretaria_id", "encaminhar_secretaria_nome",
   "situacao", "finalizada_em", "cancelada_em", "motivo_cancelamento",
   "criado_em", "atualizado_em",
 ].join(",");
@@ -165,6 +170,33 @@ export async function carregarProcesso(id) {
  */
 export async function carregarSecretarias() {
   const { data, error } = await supabase.from("secretarias").select("id,nome").order("nome");
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * As secretarias ATIVAS do cadastro FINANCEIRO, para o ENCAMINHAMENTO da prefeita.
+ *
+ * É a lista que o campo "Encaminhar à Secretaria de" oferece: as secretarias que
+ * têm financeiro, porque é uma delas que recebe o processo para as providências.
+ * A leitura é a MESMA de Saldos das Contas e de Pagamentos Diários -- ativas, em
+ * ordem de nome --, e é por ser lida do cadastro que uma secretaria com
+ * financeiro criada amanhã aparece sozinha na escolha, sem mexer em código.
+ *
+ * ⚠️ APENAS LEITURA. Nada aqui cria, altera, inativa ou apaga secretaria: é um
+ * `select`, e é só isso. O cadastro financeiro continua sendo mantido onde
+ * sempre foi, em Saldos das Contas.
+ *
+ * ⚠️ Ela NÃO é a lista da secretaria SOLICITANTE. Quem requisita vem do cadastro
+ * próprio do módulo (`carregarSolicitantes`) e pode ser qualquer secretaria do
+ * município.
+ */
+export async function carregarSecretariasFinanceiras() {
+  const { data, error } = await supabase
+    .from("secretarias")
+    .select("id,nome")
+    .eq("ativo", true)
+    .order("nome");
   if (error) throw error;
   return data ?? [];
 }
