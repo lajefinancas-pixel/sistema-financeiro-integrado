@@ -4,10 +4,12 @@
 // escrevia de um jeito ("BB", "Banco do Brasil", "001"). Agora é uma LISTA com
 // busca, e o documento sai no formato do modelo oficial: "001 — Banco do Brasil".
 //
-// O cadastro é do módulo Processos e é ADITIVO: novos bancos entram pela tela de
-// Configurações → Processos, sem deploy. Ele NÃO é o card "Bancos utilizados" do
-// módulo financeiro, que continua sendo o que é — uma leitura das contas
-// bancárias cadastradas — e não é tocado aqui.
+// O cadastro é ADITIVO: novos bancos entram pela tela de Configurações → GERAL,
+// sem deploy. Ele mudou de lugar porque deixou de servir só aos documentos: a
+// MESMA lista alimenta os dados para pagamento do fornecedor e o cadastro das
+// contas bancárias, então é configuração do sistema inteiro. Ele NÃO é o card
+// "Bancos utilizados" do módulo financeiro, que continua sendo o que é — uma
+// leitura das contas bancárias cadastradas — e não é tocado aqui.
 //
 // ⚠️ O número e o nome são GRAVADOS no processo e no cadastro do servidor como
 // texto. Não há chave estrangeira para cá: corrigir ou inativar um banco no
@@ -23,9 +25,20 @@ export const TABELA_BANCOS = "processos_bancos";
 /** A migration que cria o cadastro. Rodada À MÃO no SQL Editor do Supabase. */
 export const MIGRATION_BANCOS = "20260911240000_processos_solicitantes_e_bancos.sql";
 
+/**
+ * A migration que abre a LEITURA da lista para qualquer pessoa autenticada.
+ *
+ * A lista é referência pública — só número e nome —, e passou a ser usada em
+ * telas de quem não tem permissão no módulo Processos. As regras de ESCRITA
+ * seguem idênticas. Rodada À MÃO no SQL Editor do Supabase.
+ */
+export const MIGRATION_BANCOS_LEITURA_GERAL =
+  "20260912180000_processos_bancos_leitura_para_autenticados.sql";
+
 export const AVISO_MIGRATION_BANCOS =
-  `O cadastro de Bancos ainda não existe neste banco. Rode a migration ${MIGRATION_BANCOS} no SQL Editor do `
-  + "Supabase e recarregue a página. Enquanto isso, o banco continua podendo ser digitado à mão, como antes.";
+  `O cadastro de Bancos ainda não existe neste banco, ou a sua leitura ainda não foi liberada. Rode as `
+  + `migrations ${MIGRATION_BANCOS} e ${MIGRATION_BANCOS_LEITURA_GERAL} no SQL Editor do Supabase e `
+  + "recarregue a página. Enquanto isso, o banco continua podendo ser digitado à mão, como antes.";
 
 export const SITUACOES_BANCO = [
   { id: "ativo", rotulo: "Ativo" },

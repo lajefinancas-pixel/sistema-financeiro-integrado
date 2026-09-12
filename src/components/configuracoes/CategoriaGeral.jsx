@@ -2,6 +2,7 @@ import React from "react";
 import { Building2 } from "lucide-react";
 import { Alerta, Campo, CLASSE_ENTRADA } from "../equipe/comuns";
 import { Cartao, RodapeFormulario, SeletorLogomarca } from "./comuns";
+import BlocoBancos from "./BlocoBancos";
 import {
   enviarLogomarca,
   formatarCNPJ,
@@ -14,11 +15,19 @@ import { mensagemAmigavel } from "../../lib/erros";
 import { registrarEvento } from "../../lib/auditoria";
 
 /**
- * Categoria GERAL: identificação da instituição e do sistema.
+ * Categoria GERAL: identificação da instituição e do sistema, e o cadastro de
+ * BANCOS.
  *
  * O que é salvo aqui alimentará os cabeçalhos de relatórios e impressões nas
  * próximas etapas — por isso a tela já grava nome, CNPJ, contato, endereço e a
  * logomarca no Storage.
+ *
+ * O cadastro de BANCOS veio para cá porque deixou de ser um cadastro só dos
+ * documentos do módulo Processos: a mesma lista de número e nome alimenta os
+ * dados para pagamento do fornecedor e o cadastro das contas bancárias. É
+ * configuração do sistema inteiro, então é aqui que ela fica. Ele tem o seu
+ * próprio formulário e o seu próprio salvamento — não entra no envio dos dados
+ * da instituição.
  */
 export default function CategoriaGeral({ valores, autoria, podeEditar, onSalvo }) {
   const [form, setForm] = React.useState(valores);
@@ -79,118 +88,125 @@ export default function CategoriaGeral({ valores, autoria, podeEditar, onSalvo }
   }
 
   return (
-    <form onSubmit={salvar} className="space-y-5">
-      <Cartao
-        titulo="Identificação da instituição"
-        descricao="Estes dados identificam o sistema na tela e serão usados nos cabeçalhos de relatórios e impressões."
-        icone={Building2}
-        rodape={
-          <RodapeFormulario
-            ultimaAlteracao={textoUltimaAlteracao(autoria)}
-            podeEditar={podeEditar}
-            salvando={salvando}
-            alterado={alterado}
-          />
-        }
-      >
-        <div className="space-y-5">
-          {erro && <Alerta tipo="erro">{erro}</Alerta>}
-          {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
+    // Dois blocos irmãos: o formulário da instituição e, abaixo, o cadastro de
+    // bancos. Irmãos de propósito -- um <form> dentro do outro é HTML inválido,
+    // e o cadastro de bancos salva por conta própria, banco a banco.
+    <div className="space-y-5">
+      <form onSubmit={salvar} className="space-y-5">
+        <Cartao
+          titulo="Identificação da instituição"
+          descricao="Estes dados identificam o sistema na tela e serão usados nos cabeçalhos de relatórios e impressões."
+          icone={Building2}
+          rodape={
+            <RodapeFormulario
+              ultimaAlteracao={textoUltimaAlteracao(autoria)}
+              podeEditar={podeEditar}
+              salvando={salvando}
+              alterado={alterado}
+            />
+          }
+        >
+          <div className="space-y-5">
+            {erro && <Alerta tipo="erro">{erro}</Alerta>}
+            {sucesso && <Alerta tipo="sucesso">{sucesso}</Alerta>}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Campo label="Nome da instituição" obrigatorio dica="Ex.: Secretaria Municipal de Finanças.">
-              <input
-                type="text"
-                value={form.nome_instituicao ?? ""}
-                onChange={(e) => alterar("nome_instituicao", e.target.value)}
-                disabled={!podeEditar}
-                maxLength={120}
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Campo label="Nome da instituição" obrigatorio dica="Ex.: Secretaria Municipal de Finanças.">
+                <input
+                  type="text"
+                  value={form.nome_instituicao ?? ""}
+                  onChange={(e) => alterar("nome_instituicao", e.target.value)}
+                  disabled={!podeEditar}
+                  maxLength={120}
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
 
-            <Campo label="Nome do sistema" obrigatorio dica="Como o sistema é chamado nos documentos.">
-              <input
-                type="text"
-                value={form.nome_sistema ?? ""}
-                onChange={(e) => alterar("nome_sistema", e.target.value)}
-                disabled={!podeEditar}
-                maxLength={120}
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
+              <Campo label="Nome do sistema" obrigatorio dica="Como o sistema é chamado nos documentos.">
+                <input
+                  type="text"
+                  value={form.nome_sistema ?? ""}
+                  onChange={(e) => alterar("nome_sistema", e.target.value)}
+                  disabled={!podeEditar}
+                  maxLength={120}
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
 
-            <Campo label="CNPJ">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.cnpj ?? ""}
-                onChange={(e) => alterar("cnpj", formatarCNPJ(e.target.value))}
-                disabled={!podeEditar}
-                placeholder="00.000.000/0000-00"
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
+              <Campo label="CNPJ">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.cnpj ?? ""}
+                  onChange={(e) => alterar("cnpj", formatarCNPJ(e.target.value))}
+                  disabled={!podeEditar}
+                  placeholder="00.000.000/0000-00"
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
 
-            <Campo label="Telefone">
-              <input
-                type="text"
-                inputMode="tel"
-                value={form.telefone ?? ""}
-                onChange={(e) => alterar("telefone", formatarTelefone(e.target.value))}
-                disabled={!podeEditar}
-                placeholder="(00) 00000-0000"
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
+              <Campo label="Telefone">
+                <input
+                  type="text"
+                  inputMode="tel"
+                  value={form.telefone ?? ""}
+                  onChange={(e) => alterar("telefone", formatarTelefone(e.target.value))}
+                  disabled={!podeEditar}
+                  placeholder="(00) 00000-0000"
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
 
-            <Campo label="E-mail institucional">
-              <input
-                type="email"
-                value={form.email ?? ""}
-                onChange={(e) => alterar("email", e.target.value)}
-                disabled={!podeEditar}
-                placeholder="financas@instituicao.gov.br"
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
+              <Campo label="E-mail institucional">
+                <input
+                  type="email"
+                  value={form.email ?? ""}
+                  onChange={(e) => alterar("email", e.target.value)}
+                  disabled={!podeEditar}
+                  placeholder="financas@instituicao.gov.br"
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
 
-            <Campo label="Endereço" dica="Logradouro, número, bairro, cidade e UF.">
-              <input
-                type="text"
-                value={form.endereco ?? ""}
-                onChange={(e) => alterar("endereco", e.target.value)}
-                disabled={!podeEditar}
-                maxLength={240}
-                className={CLASSE_ENTRADA}
-              />
-            </Campo>
-          </div>
+              <Campo label="Endereço" dica="Logradouro, número, bairro, cidade e UF.">
+                <input
+                  type="text"
+                  value={form.endereco ?? ""}
+                  onChange={(e) => alterar("endereco", e.target.value)}
+                  disabled={!podeEditar}
+                  maxLength={240}
+                  className={CLASSE_ENTRADA}
+                />
+              </Campo>
+            </div>
 
-          <div className="pt-4 border-t border-black/5">
-            <span className="text-xs font-medium text-[#0F2A44]/70">Logomarca</span>
-            <div className="mt-3">
-              <SeletorLogomarca
-                urlAtual={logoAtual}
-                arquivo={logo}
-                limiteMb={LIMITE_LOGO_MB}
-                desabilitado={!podeEditar || salvando}
-                onSelecionar={(arquivo) => {
-                  setSucesso(null);
-                  setErro(null);
-                  setLogoRemovida(false);
-                  setLogo(arquivo);
-                }}
-                onRemover={() => {
-                  setSucesso(null);
-                  setLogo(null);
-                  setLogoRemovida(true);
-                }}
-              />
+            <div className="pt-4 border-t border-black/5">
+              <span className="text-xs font-medium text-[#0F2A44]/70">Logomarca</span>
+              <div className="mt-3">
+                <SeletorLogomarca
+                  urlAtual={logoAtual}
+                  arquivo={logo}
+                  limiteMb={LIMITE_LOGO_MB}
+                  desabilitado={!podeEditar || salvando}
+                  onSelecionar={(arquivo) => {
+                    setSucesso(null);
+                    setErro(null);
+                    setLogoRemovida(false);
+                    setLogo(arquivo);
+                  }}
+                  onRemover={() => {
+                    setSucesso(null);
+                    setLogo(null);
+                    setLogoRemovida(true);
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </Cartao>
-    </form>
+        </Cartao>
+      </form>
+
+      <BlocoBancos podeEditar={podeEditar} />
+    </div>
   );
 }

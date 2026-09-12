@@ -1,16 +1,45 @@
 import React from "react";
 import { CreditCard, Pencil, Plus, Star, Trash2, X } from "lucide-react";
 import { excluirFormaPagamento, listarFormasPagamento, salvarFormaPagamento } from "../../lib/dadosPagamentoFornecedor";
+import SeletorBanco from "../processos/SeletorBanco";
+import { dadosDoBancoParaDocumento } from "../../lib/processosBancos";
+import { carregarBancos } from "../../lib/processosCadastrosDados";
 
 const VAZIO = { kind: "pix", pixKeyType: "cnpj", pixKey: "", bankName: "", bankCode: "", agency: "", account: "", accountDigit: "", accountType: "corrente", holderName: "", holderDocument: "", isPrimary: false };
 
+/**
+ * Dados para pagamento do fornecedor: PIX e contas bancárias.
+ *
+ * O BANCO deixou de ser texto livre. Ele vem do cadastro de bancos
+ * (Configurações → Geral) pelo MESMO componente de escolha usado nos documentos:
+ * a escolha na lista preenche NOME e CÓDIGO juntos, e nunca mais um sem o outro.
+ *
+ * ⚠️ NADA JÁ CADASTRADO É CONVERTIDO OU APAGADO. Conta gravada antes, com o nome
+ * do banco digitado à mão, continua exatamente como está e continua abrindo e
+ * salvando: o campo mostra o que ela gravou, e trocar para um banco da lista só
+ * acontece se a pessoa escolher.
+ *
+ * Sem o cadastro de bancos no banco de dados (a migration é rodada à mão), o
+ * componente cai no campo de texto de sempre.
+ */
 export default function DadosParaPagamento({ fornecedorId, permissoes = {}, onChange }) {
   const [formas, setFormas] = React.useState([]);
   const [form, setForm] = React.useState(null);
+  const [bancos, setBancos] = React.useState([]);
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
   const onChangeRef = React.useRef(onChange);
   React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  // A lista de bancos é REFERÊNCIA: só leitura, e a falha dela não impede o
+  // cadastro -- o campo volta a ser digitado, como era antes.
+  React.useEffect(() => {
+    let vivo = true;
+    carregarBancos({ apenasAtivos: true })
+      .then(({ registros }) => { if (vivo) setBancos(registros); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
 
   const carregar = React.useCallback(async () => {
     try {
@@ -22,7 +51,14 @@ export default function DadosParaPagamento({ fornecedorId, permissoes = {}, onCh
   React.useEffect(() => { carregar(); }, [carregar]);
 
   async function salvar(e) {
-    e.preventDefault(); setSalvando(true); setErro(null);
+    e.preventDefault();
+    // O banco continua OBRIGATÓRIO na conta bancária, como era com o campo de
+    // texto: o `required` saiu do input, então a conferência é feita aqui.
+    if (form.kind === "bank" && String(form.bankName ?? "").trim() === "") {
+      setErro("Escolha o banco da conta na lista.");
+      return;
+    }
+    setSalvando(true); setErro(null);
     try { await salvarFormaPagamento(fornecedorId, form); setForm(null); await carregar(); }
     catch (e) { setErro(e.message); } finally { setSalvando(false); }
   }
@@ -52,7 +88,20 @@ export default function DadosParaPagamento({ fornecedorId, permissoes = {}, onCh
         {!formas.length && <div className="text-xs text-[#0F2A44]/45">Dados para pagamento pendentes.</div>}
       </div>
       {form && <form onSubmit={salvar} className="mt-4 rounded-xl bg-[#F5F7F8] p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm text-[#0F2A44]">{form.id ? "Editar" : "Adicionar"} {form.kind === "pix" ? "PIX" : "conta bancária"}</strong><button type="button" onClick={() => setForm(null)}><X size={16}/></button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {form.kind === "pix" ? <><select value={form.pixKeyType} onChange={(e)=>setForm({...form,pixKeyType:e.target.value})} className="rounded-lg border px-3 py-2 text-sm"><option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="email">E-mail</option><option value="telefone">Telefone</option><option value="aleatoria">Chave aleatória</option></select><input required value={form.pixKey} onChange={(e)=>setForm({...form,pixKey:e.target.value})} placeholder="Chave PIX" className="rounded-lg border px-3 py-2 text-sm"/></> : <><input required value={form.bankName} onChange={(e)=>setForm({...form,bankName:e.target.value})} placeholder="Banco" className="rounded-lg border px-3 py-2 text-sm"/><input value={form.bankCode} onChange={(e)=>setForm({...form,bankCode:e.target.value})} placeholder="Código do banco" className="rounded-lg border px-3 py-2 text-sm"/><input value={form.agency} onChange={(e)=>setForm({...form,agency:e.target.value})} placeholder="Agência" className="rounded-lg border px-3 py-2 text-sm"/><input required value={form.account} onChange={(e)=>setForm({...form,account:e.target.value})} placeholder="Conta" className="rounded-lg border px-3 py-2 text-sm"/><input value={form.accountDigit} onChange={(e)=>setForm({...form,accountDigit:e.target.value})} placeholder="Dígito" className="rounded-lg border px-3 py-2 text-sm"/><select value={form.accountType} onChange={(e)=>setForm({...form,accountType:e.target.value})} className="rounded-lg border px-3 py-2 text-sm"><option value="corrente">Corrente</option><option value="poupanca">Poupança</option><option value="pagamento">Pagamento</option><option value="outra">Outra</option></select></>}
+        {form.kind === "pix" ? <><select value={form.pixKeyType} onChange={(e)=>setForm({...form,pixKeyType:e.target.value})} className="rounded-lg border px-3 py-2 text-sm"><option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="email">E-mail</option><option value="telefone">Telefone</option><option value="aleatoria">Chave aleatória</option></select><input required value={form.pixKey} onChange={(e)=>setForm({...form,pixKey:e.target.value})} placeholder="Chave PIX" className="rounded-lg border px-3 py-2 text-sm"/></> : <><div className="sm:col-span-2 lg:col-span-1">{/* A escolha na lista preenche NOME e CÓDIGO juntos. */}<SeletorBanco
+            bancos={bancos}
+            codigo={form.bankCode}
+            nome={form.bankName}
+            rotulo="Banco"
+            ajuda="Do cadastro de Bancos"
+            onEscolher={(banco) => {
+              const dados = dadosDoBancoParaDocumento(banco);
+              setErro(null);
+              setForm((atual) => ({ ...atual, bankName: dados.banco, bankCode: dados.banco_codigo }));
+            }}
+            onLimpar={() => setForm((atual) => ({ ...atual, bankName: "", bankCode: "" }))}
+            aoDigitarNome={(valor) => setForm((atual) => ({ ...atual, bankName: valor }))}
+          /></div><input value={form.agency} onChange={(e)=>setForm({...form,agency:e.target.value})} placeholder="Agência" className="rounded-lg border px-3 py-2 text-sm"/><input required value={form.account} onChange={(e)=>setForm({...form,account:e.target.value})} placeholder="Conta" className="rounded-lg border px-3 py-2 text-sm"/><input value={form.accountDigit} onChange={(e)=>setForm({...form,accountDigit:e.target.value})} placeholder="Dígito" className="rounded-lg border px-3 py-2 text-sm"/><select value={form.accountType} onChange={(e)=>setForm({...form,accountType:e.target.value})} className="rounded-lg border px-3 py-2 text-sm"><option value="corrente">Corrente</option><option value="poupanca">Poupança</option><option value="pagamento">Pagamento</option><option value="outra">Outra</option></select></>}
         <input required value={form.holderName} onChange={(e)=>setForm({...form,holderName:e.target.value})} placeholder="Nome do titular" className="rounded-lg border px-3 py-2 text-sm"/><input value={form.holderDocument} onChange={(e)=>setForm({...form,holderDocument:e.target.value})} placeholder="CPF/CNPJ do titular" className="rounded-lg border px-3 py-2 text-sm"/><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPrimary} onChange={(e)=>setForm({...form,isPrimary:e.target.checked})}/> Marcar como principal</label></div><button disabled={salvando} className="mt-3 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white disabled:opacity-50">{salvando ? "Salvando..." : "Salvar dados"}</button></form>}
     </section>
   );

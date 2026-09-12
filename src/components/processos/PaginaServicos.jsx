@@ -63,7 +63,7 @@ import {
   prepararLogoParaDocumento,
 } from "../../lib/processosIdentidadeDados.js";
 import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdentidade.js";
-import { carregarPrefeitas } from "../../lib/processosCadastrosDados.js";
+import { carregarPrefeitas, registrosDoCadastro } from "../../lib/processosCadastrosDados.js";
 import { prefeitaVigente } from "../../lib/processosPrefeita.js";
 
 /**
@@ -142,7 +142,7 @@ export default function PaginaServicos({
         // Sem a logomarca do sistema o documento cai no degrau seguinte.
       }
       try {
-        const cadastradas = await carregarPrefeitas();
+        const cadastradas = registrosDoCadastro(await carregarPrefeitas());
         if (vivo) setPrefeita(prefeitaVigente(cadastradas));
       } catch {
         // Sem o cadastro da prefeita as linhas dela saem em branco, para

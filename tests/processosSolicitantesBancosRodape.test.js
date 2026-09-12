@@ -488,11 +488,20 @@ test("6. cadastrar um banco novo funciona, e não precisa de deploy", async () =
   // A SITUAÇÃO não sai por edição: inativar e reativar têm caminho próprio.
   assert.deepEqual(bancoParaBanco(novo), { numero: "422", nome: "Banco Safra" });
 
-  // O cadastro é uma TELA, em Configurações → Processos: banco novo entra por
-  // lá, sem deploy.
+  // O cadastro é uma TELA: banco novo entra por lá, sem deploy.
+  //
+  // ⚠️ A TELA DOS BANCOS MUDOU DE LUGAR. Ela ficava em Configurações → Processos,
+  // quando a lista servia só aos documentos do módulo. Agora a MESMA lista
+  // alimenta os dados para pagamento do fornecedor e o cadastro das contas
+  // bancárias, então ela é configuração GERAL, do sistema inteiro, e mora em
+  // Configurações → Geral. As SOLICITANTES continuam onde sempre estiveram.
+  const bancos = await read("src/components/configuracoes/BlocoBancos.jsx");
+  assert.ok(/criarBanco/.test(bancos));
+  assert.ok(/salvarBanco/.test(bancos));
+  const geral = await read("src/components/configuracoes/CategoriaGeral.jsx");
+  assert.ok(/<BlocoBancos/.test(geral));
+
   const configuracoes = await read("src/components/configuracoes/CategoriaProcessos.jsx");
-  assert.ok(/criarBanco/.test(configuracoes));
-  assert.ok(/salvarBanco/.test(configuracoes));
   assert.ok(/criarSolicitante/.test(configuracoes));
   assert.ok(/salvarSolicitante/.test(configuracoes));
 
