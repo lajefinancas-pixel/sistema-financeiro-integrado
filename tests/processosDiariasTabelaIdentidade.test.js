@@ -482,7 +482,10 @@ test("teste 8: a imagem enviada é impressa na proporção original, sem deforma
 });
 
 test("teste 8: o brasão do PDF respeita a proporção e cabe na caixa", async () => {
-  const documento = await read("src/lib/processosDiariasDocumento.js");
+  // O desenho do brasão no PDF mora no COMPONENTE COMPARTILHADO dos documentos:
+  // é o mesmo cabeçalho para as cinco folhas do módulo, não uma cópia por
+  // documento.
+  const documento = await read("src/lib/processosDocumentoComum.js");
   assert.match(documento, /const largura = proporcao >= 1 \? lado : lado \* proporcao;/);
   assert.match(documento, /const altura = proporcao >= 1 \? lado \/ proporcao : lado;/);
   // Resolução de impressão: o raster é gerado grande e reduzido na folha.
@@ -577,7 +580,8 @@ test("teste 9: texto institucional comprido encolhe para caber, e não empurra a
   const dados = dadosDoDocumento(processoDeExemplo(), { secretarias: SECRETARIAS, identidade });
   assert.equal(montarPdfDoProcesso(dados, { escopo: "completo" }).getNumberOfPages(), 3);
 
-  const documento = await read("src/lib/processosDiariasDocumento.js");
+  // O encolhimento do texto institucional também é do componente comum.
+  const documento = await read("src/lib/processosDocumentoComum.js");
   assert.match(documento, /textoQueCabe/);
   // O limite do cadastro existe para o texto nunca chegar absurdo na folha.
   assert.equal(primeiroErroDaIdentidade(validarIdentidade({ ...identidade, orgao: "A".repeat(300) })) !== null, true);

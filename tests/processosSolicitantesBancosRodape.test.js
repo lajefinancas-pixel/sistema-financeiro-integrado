@@ -110,6 +110,9 @@ const ARQUIVOS_DO_ENVIO = [
   "src/lib/processosDiarias.js",
   "src/lib/processosDiariasDados.js",
   "src/lib/processosDiariasDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/lib/processosServidores.js",
   "src/lib/processosServidoresDados.js",
   "src/lib/processosIdentidade.js",
@@ -239,7 +242,7 @@ test("2. a data do processo é sugestão inicial, e o documento imprime a escolh
     processoDeExemplo({ data_processo: "2026-01-05", requisicao_data: "2026-01-05" }),
     {},
   );
-  assert.equal(dados.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
+  assert.equal(dados.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
   assert.ok(htmlDoProcesso(dados, { escopo: "requisicao" }).includes("5 de janeiro de 2026"));
 
   // As TRÊS páginas têm cada uma a SUA data: a requisição imprime a dela, a
@@ -253,9 +256,9 @@ test("2. a data do processo é sugestão inicial, e o documento imprime a escolh
     }),
     {},
   );
-  assert.equal(tresDatas.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
-  assert.equal(tresDatas.liquidacao.localEData, "São José da Laje - AL, 2 de abril de 2026");
-  assert.equal(tresDatas.prestacao.localEData, "São José da Laje - AL, 20 de maio de 2026");
+  assert.equal(tresDatas.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
+  assert.equal(tresDatas.liquidacao.localEData, "São José da Laje/AL, 2 de abril de 2026");
+  assert.equal(tresDatas.prestacao.localEData, "São José da Laje/AL, 20 de maio de 2026");
 
   const folhas = textoDasFolhas(montarPdfDoProcesso(tresDatas, { escopo: "completo" }));
   assert.ok(folhas[0].includes("5 de janeiro de 2026"));
@@ -268,7 +271,7 @@ test("2. a data do processo é sugestão inicial, e o documento imprime a escolh
     processoDeExemplo({ data_processo: "2026-01-05", requisicao_data: "" }),
     {},
   );
-  assert.equal(semDatasProprias.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
+  assert.equal(semDatasProprias.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
   assert.equal(semDatasProprias.liquidacao.localEData, semDatasProprias.localEData);
 
   // O campo da tela é de data e é editável: não há `disabled` fixo nele.

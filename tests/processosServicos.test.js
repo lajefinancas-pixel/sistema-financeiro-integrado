@@ -83,6 +83,9 @@ const ARQUIVOS_DO_MODULO = [
   "src/lib/processosServicos.js",
   "src/lib/processosServicosDados.js",
   "src/lib/processosServicosDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/components/processos/PaginaServicos.jsx",
   "src/components/processos/ModalProcessoServico.jsx",
   "src/components/processos/PreVisualizacaoProcessoServico.jsx",

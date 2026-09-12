@@ -93,6 +93,9 @@ const ARQUIVOS_DO_ENVIO = [
   "src/lib/processosDiarias.js",
   "src/lib/processosDiariasDados.js",
   "src/lib/processosDiariasDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/components/processos/ModalProcessoServico.jsx",
   "src/components/processos/ModalProcessoDiaria.jsx",
   "src/components/processos/PaginaServicos.jsx",
@@ -241,9 +244,9 @@ test("2. diárias: requisição, liquidação e prestação de contas saem com d
   assert.equal(dataDaPrestacao(processo), "2026-05-30");
 
   const dados = dadosDaDiaria(processo, {});
-  assert.equal(dados.localEData, "São José da Laje - AL, 3 de fevereiro de 2026");
-  assert.equal(dados.liquidacao.localEData, "São José da Laje - AL, 20 de abril de 2026");
-  assert.equal(dados.prestacao.localEData, "São José da Laje - AL, 30 de maio de 2026");
+  assert.equal(dados.localEData, "São José da Laje/AL, 3 de fevereiro de 2026");
+  assert.equal(dados.liquidacao.localEData, "São José da Laje/AL, 20 de abril de 2026");
+  assert.equal(dados.prestacao.localEData, "São José da Laje/AL, 30 de maio de 2026");
 
   const folhas = textoDasFolhas(pdfDaDiaria(dados, { escopo: "completo" }));
   assert.equal(folhas.length, 3);
@@ -326,6 +329,9 @@ test("4. na requisição impressa, a autorização da prefeita sai ao lado da as
     servicoDeExemplo({
       requisicao_data: "2026-02-03",
       encaminhar_secretaria_nome: "Secretaria Municipal de Assistência Social",
+      requisitante_nome: "Carla Dias do Nascimento",
+      requisitante_cargo: "Chefe de Setor",
+      requisitante_cpf: "555.666.777-88",
     }),
     {},
   );
@@ -333,7 +339,13 @@ test("4. na requisição impressa, a autorização da prefeita sai ao lado da as
   // No HTML: UMA faixa horizontal com os dois lados dentro dela.
   const html = htmlDoServico(dados, { escopo: "requisicao" });
   const faixa = html.slice(html.indexOf('<div class="faixa-assinaturas">'));
-  assert.match(faixa, /<div class="lado">[\s\S]*?identificação funcional do requisitante/);
+  // ⚠️ Abaixo do traço sai a IDENTIFICAÇÃO -- nome, cargo e CPF --, e NÃO mais
+  // a legenda "(assinatura, nome e identificação funcional do requisitante)",
+  // que era redundante com o que o sistema já imprime.
+  assert.match(faixa, /<div class="lado">[\s\S]*?<strong>Carla Dias do Nascimento<\/strong>/);
+  assert.match(faixa, /<div class="lado">[\s\S]*?<span class="cargo">Chefe de Setor<\/span>/);
+  assert.match(faixa, /<div class="lado">[\s\S]*?<span class="cargo">CPF: 555\.666\.777-88<\/span>/);
+  assert.doesNotMatch(html, /identificação funcional do requisitante/);
   assert.match(faixa, /<div class="autorizacao">[\s\S]*?CIENTE\/AUTORIZO/);
   // A faixa é uma linha só (flex), e não quebra no meio.
   assert.match(html, /\.faixa-assinaturas \{ display: flex/);
@@ -346,7 +358,7 @@ test("4. na requisição impressa, a autorização da prefeita sai ao lado da as
   const pdf = pdfDoServico(dados, { escopo: "requisicao" });
   assert.equal(pdf.getNumberOfPages(), 1, "a requisição deve caber em UMA folha");
   const posicoes = posicoesDaFolha(pdf, 1);
-  const requisitante = acharTexto(posicoes, "identificação funcional do requisitante");
+  const requisitante = acharTexto(posicoes, "Carla Dias do Nascimento");
   const ciente = acharTexto(posicoes, "CIENTE/AUTORIZO");
   // ⚠️ O rótulo EXATO: "AUTORIZAÇÃO DA PREFEITA" é o título do quadro, e não a
   // linha de assinatura dela.
@@ -382,13 +394,16 @@ test("5. nas diárias as três assinaturas continuam empilhadas, como definido",
   const dados = dadosDaDiaria(diariaDeExemplo(), {});
   const html = htmlDaDiaria(dados, { escopo: "completo" });
 
-  // A faixa lado a lado é da REQUISIÇÃO de material/serviço, e não entra aqui.
-  assert.doesNotMatch(html, /faixa-assinaturas/);
-  const documento = semComentarios(await read("src/lib/processosDiariasDocumento.js"));
-  assert.ok(!documento.includes("faixaLadoALado"));
+  // A FAIXA LADO A LADO passou a valer em TODAS as folhas que têm autorização da
+  // prefeita, e a folha 2 das diárias é uma delas. A EXCEÇÃO -- já definida -- é
+  // esta folha 1: as três assinaturas da REQUISIÇÃO DE DIÁRIAS seguem
+  // empilhadas, como no modelo oficial.
+  const [folha1, folha2] = folhasDoHtml(html);
+  assert.doesNotMatch(folha1, /faixa-assinaturas/);
+  assert.match(folha2, /<div class="faixa-assinaturas">/);
 
   // As três saem no MESMO bloco, uma embaixo da outra.
-  const bloco = html.slice(html.indexOf('<div class="assinaturas">'));
+  const bloco = folha1.slice(folha1.indexOf('<div class="assinaturas">'));
   const ordem = ["Assinatura do Servidor", "Responsável pela Secretaria", "Assinatura da Prefeita"];
   ordem.forEach((rotulo, i) => {
     assert.ok(bloco.includes(rotulo));
@@ -417,28 +432,36 @@ test("6. o encaminhamento escolhido sai impresso preenchido, nas duas áreas", (
   // O nome sai do campo do processo, e sem o prefixo repetido.
   assert.equal(servico.requisicao.despacho, "Assistência Social");
   const html = htmlDoServico(servico, { escopo: "completo" });
-  assert.match(html, /À SECRETARIA MUNICIPAL DE <span class="preenchido">Assistência Social<\/span>/);
+  // ⚠️ O RÓTULO É O MESMO NAS QUATRO FOLHAS QUE TÊM AUTORIZAÇÃO DA PREFEITA:
+  // "À SECRETARIA DE ______", seguido do núcleo cadastrado. Antes cada
+  // documento escrevia do seu jeito.
+  const despachos = html.match(/À SECRETARIA DE <span class="preenchido">[^<]*<\/span>/g) ?? [];
+  assert.equal(despachos.length, 2, "as DUAS folhas do serviço trazem o despacho");
+  despachos.forEach((linha) =>
+    assert.equal(linha, 'À SECRETARIA DE <span class="preenchido">Assistência Social</span>'),
+  );
   // Nada de linha em branco para completar à mão.
-  assert.doesNotMatch(html, /À SECRETARIA MUNICIPAL DE\s*<span class="preenchido">\s*<\/span>/);
+  assert.doesNotMatch(html, /À SECRETARIA DE\s*<span class="preenchido">\s*<\/span>/);
   assert.ok(textoDasFolhas(pdfDoServico(servico, { escopo: "requisicao" }))[0].includes("Assistência Social"));
 
-  // A folha 2 encaminha a mesma secretaria, no lugar do Finanças fixo.
-  assert.equal(servico.liquidacao.destino, "SECRETARIA DE ASSISTÊNCIA SOCIAL");
-  assert.match(html, /À SECRETARIA DE ASSISTÊNCIA SOCIAL/);
+  // A folha 2 encaminha a mesma secretaria, no lugar do Finanças fixo -- e o
+  // valor guardado é o NÚCLEO, porque o prefixo quem imprime é o quadro.
+  assert.equal(servico.liquidacao.destino, "Assistência Social");
 
-  // Nas diárias, a redação da folha 2 do modelo oficial.
+  // Nas diárias, a folha 2 usa o MESMO quadro, com o mesmo rótulo.
   const diaria = dadosDaDiaria(
     diariaDeExemplo({ encaminhar_secretaria_nome: "Secretaria Municipal de Saúde" }),
     {},
   );
-  assert.equal(diaria.liquidacao.destino, "Secretaria Municipal de Saúde");
+  assert.equal(diaria.liquidacao.destino, "Saúde");
   assert.match(
     htmlDaDiaria(diaria, { escopo: "completo" }),
-    /À Secretaria Municipal de Saúde, para as providências de pagamento\./,
+    /À SECRETARIA DE <span class="preenchido">Saúde<\/span>/,
   );
 
   // SEM escolha, o padrão do modelo oficial: Finanças.
   assert.equal(ENCAMINHAMENTO_PADRAO, "Finanças");
+  assert.equal(complementoDoEncaminhamento({}), "Finanças");
   assert.equal(destinoDaLiquidacao({}), "SECRETARIA DE FINANÇAS");
   assert.equal(secretariaMunicipalDoEncaminhamento({}), "Secretaria Municipal de Finanças");
 
@@ -617,7 +640,7 @@ test("10. processo já criado abre normalmente e imprime como sempre imprimiu", 
   assert.equal(dados.requisicao.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
   assert.equal(dados.liquidacao.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
   assert.equal(dados.requisicao.despacho, "Educação");
-  assert.equal(dados.liquidacao.destino, "SECRETARIA DE FINANÇAS");
+  assert.equal(dados.liquidacao.destino, "Finanças");
   assert.equal(pdfDoServico(dados, { escopo: "completo" }).getNumberOfPages(), 2);
 
   // O despacho escrito à mão no processo antigo continua sendo o impresso.
@@ -640,12 +663,12 @@ test("10. processo já criado abre normalmente e imprime como sempre imprimiu", 
   const formularioDiaria = processoParaFormularioDiaria(antigaDiaria);
   assert.equal(formularioDiaria.requisicao_data, "");
   const daDiaria = dadosDaDiaria(antigaDiaria, {});
-  assert.equal(daDiaria.localEData, "São José da Laje - AL, 5 de janeiro de 2026");
+  assert.equal(daDiaria.localEData, "São José da Laje/AL, 5 de janeiro de 2026");
   assert.equal(daDiaria.liquidacao.localEData, daDiaria.localEData);
   assert.equal(dataDaPrestacao(antigaDiaria), "");
   assert.equal(
     daDiaria.prestacao.localEData,
-    "São José da Laje - AL, ______ de ____________________ de 2026",
+    "São José da Laje/AL, ______ de ____________________ de 2026",
   );
 });
 

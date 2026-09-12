@@ -221,13 +221,17 @@ test("1. o documento de diária sai com nome, CPF e cargo da prefeita PREENCHIDO
 
   const html = htmlDoProcesso(dados, { escopo: "completo" });
 
-  // A área de autorização: "Ciente / Autorizo" com quem autoriza identificado.
-  assert.match(html, /Autorização da Prefeita/);
-  assert.match(html, /Ciente \/ Autorizo/);
-  // A identificação abaixo da linha de assinatura, com os três campos.
-  assert.match(html, /<div>Nome:<b>Ana Maria da Silva<\/b><\/div>/);
-  assert.match(html, /<div>CPF:<b>111\.222\.333-44<\/b><\/div>/);
-  assert.match(html, /<div>Cargo:<b>Prefeita Municipal<\/b><\/div>/);
+  // A área de autorização: "CIENTE/AUTORIZO" com quem autoriza identificado.
+  assert.match(html, /Autorização da prefeita/);
+  assert.match(html, /CIENTE\/AUTORIZO/);
+  // A IDENTIFICAÇÃO SAI ABAIXO DO TRAÇO, e não mais em linhas "Nome:/CPF:/Cargo:"
+  // para preencher à mão: o nome em destaque, o papel, o cargo e o CPF, na
+  // mesma ordem de todas as assinaturas do módulo.
+  const quadro = html.match(/<div class="autorizacao">[\s\S]*?<\/div><\/div>/)?.[0] ?? "";
+  assert.match(quadro, /<strong>Ana Maria da Silva<\/strong>PREFEITA/);
+  assert.match(quadro, /<span class="cargo">Prefeita Municipal<\/span>/);
+  assert.match(quadro, /<span class="cargo">CPF: 111\.222\.333-44<\/span>/);
+  assert.doesNotMatch(html, /<div>Nome:|<div>CPF:|<div>Cargo:/);
   // E a assinatura da página 1 também deixa de ser redigitada.
   assert.match(html, /<strong>Ana Maria da Silva<\/strong>Assinatura da Prefeita/);
 
@@ -243,22 +247,26 @@ test("1. o documento de serviços/materiais sai com a mesma identificação pron
   const html = htmlDoServico(dados, { escopo: "completo" });
 
   assert.match(html, /<strong>Ana Maria da Silva<\/strong>PREFEITA/);
-  assert.match(html, /Prefeita Municipal — CPF: 111\.222\.333-44/);
+  assert.match(html, /<span class="cargo">Prefeita Municipal<\/span>/);
+  assert.match(html, /<span class="cargo">CPF: 111\.222\.333-44<\/span>/);
 
   const impresso = textoDasFolhas(pdfDoServico(dados, { escopo: "completo" })).join(" || ");
   assert.ok(impresso.includes("Ana Maria da Silva"));
   assert.ok(impresso.includes("111.222.333-44"));
 });
 
-test("1. sem cadastro, as linhas da prefeita saem EM BRANCO para preencher à mão", () => {
+test("1. sem cadastro, a linha da prefeita sai EM BRANCO para preencher à mão", () => {
   const dados = dadosDoDocumento(diaria(), { secretarias: SECRETARIAS });
   assert.deepEqual(dados.prefeita, { nome: "", cpf: "", cargo: "" });
 
   const html = htmlDoProcesso(dados, { escopo: "completo" });
-  // As linhas continuam lá, só sem valor -- é o papel de antes deste cadastro.
-  assert.match(html, /<div>Nome:<\/div>/);
-  assert.match(html, /<div>CPF:<\/div>/);
-  assert.match(html, /Assinatura da Prefeita/);
+  // O traço continua lá, com o papel de quem assina -- só sem nome, sem cargo e
+  // sem CPF. ⚠️ NÃO sai "CPF:" vazio: a linha da identificação simplesmente não
+  // é impressa quando não há o que imprimir.
+  assert.match(html, /<strong>&nbsp;<\/strong>Assinatura da Prefeita/);
+  assert.match(html, /<strong>&nbsp;<\/strong>PREFEITA/);
+  assert.doesNotMatch(html, /CPF: <|CPF: <\/span>|<span class="cargo">CPF:\s*<\/span>/);
+  assert.doesNotMatch(html, /<div>Nome:|<div>CPF:|<div>Cargo:/);
   assert.doesNotMatch(html, /undefined|null/);
 });
 
@@ -804,6 +812,9 @@ const ARQUIVOS_TOCADOS = [
   "src/lib/processosServicosDados.js",
   "src/lib/processosDiariasDocumento.js",
   "src/lib/processosServicosDocumento.js",
+  // O COMPONENTE COMPARTILHADO dos cinco documentos: cabeçalho, rodapé,
+  // assinaturas e regras de data moram aqui, e não copiados documento a documento.
+  "src/lib/processosDocumentoComum.js",
   "src/components/configuracoes/CategoriaProcessos.jsx",
   "src/components/processos/PaginaDiarias.jsx",
   "src/components/processos/PaginaServicos.jsx",

@@ -1,3 +1,16 @@
+-- ⚠️⚠️ NÃO RODE ESTE ARQUIVO. ELE ABORTA. SUBSTITUÍDO POR:
+--    supabase/migrations/20260912160000_storage_logomarca_politicas_corrigidas.sql
+--
+-- Este arquivo morre no SQL Editor com
+--   ERROR: 42883: function public.pode_editar_configuracoes() does not exist
+-- na primeira política que confere permissão, porque chama uma função que nunca
+-- foi criada neste banco (ela só existe em 20260811140000_configuracoes_sistema.sql,
+-- que ficou pela metade) e porque os blocos abaixo só tratam
+-- `insufficient_privilege` -- um erro de outra classe aborta o script inteiro.
+-- Nada dele chega a ser aplicado. O arquivo fica aqui apenas como registro; o
+-- conserto, com a função garantida ANTES das políticas, está no arquivo acima.
+--
+-- ---------------------------------------------------------------------------
 -- DEPÓSITO DE IMAGENS DO SISTEMA — BUCKET E POLÍTICAS DA LOGOMARCA/BRASÃO.
 --
 -- ATENÇÃO: esta migration precisa ser rodada MANUALMENTE no SQL Editor do

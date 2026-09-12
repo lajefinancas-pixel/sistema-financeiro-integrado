@@ -395,7 +395,7 @@ export const CAMPOS_REQUISICAO = [
   "requisicao_data",
   // Um dos quatro tipos, marcado com "X"; os outros três saem em branco.
   "tipo",
-  // "À SECRETARIA MUNICIPAL DE ____", no despacho da prefeita.
+  // "À SECRETARIA DE ____", no despacho da prefeita.
   "despacho_secretaria",
   // Quem assina como requisitante. É conteúdo do DOCUMENTO: nome, CPF e cargo
   // ficam gravados no processo e não são lidos do cadastro na hora de imprimir
