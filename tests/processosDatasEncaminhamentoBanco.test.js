@@ -6,6 +6,7 @@ import {
   CAMPOS_ENCAMINHAMENTO,
   ENCAMINHAMENTO_PADRAO,
   complementoDoEncaminhamento,
+  complementoDoEncaminhamentoDaLiquidacao,
   dadosDoEncaminhamentoParaDocumento,
   destinoDaLiquidacao,
   encaminhamentoPeloNome,
@@ -13,6 +14,7 @@ import {
   secretariaMunicipalDoEncaminhamento,
   secretariasParaEncaminhamento,
   sugerirEncaminhamento,
+  sugerirEncaminhamentoDaLiquidacao,
 } from "../src/lib/processosEncaminhamento.js";
 import {
   CAMPOS_REQUISICAO as CAMPOS_REQUISICAO_SERVICO,
@@ -465,21 +467,38 @@ test("6. o encaminhamento escolhido sai impresso preenchido, nas duas áreas", (
   assert.equal(destinoDaLiquidacao({}), "SECRETARIA DE FINANÇAS");
   assert.equal(secretariaMunicipalDoEncaminhamento({}), "Secretaria Municipal de Finanças");
 
-  // A escolha é SUGERIDA: solicitante com financeiro recebe o próprio
-  // processo; solicitante sem financeiro manda para Finanças.
+  // A escolha é SUGERIDA, E CADA FOLHA TEM A SUA: a REQUISIÇÃO volta para a
+  // casa que pediu quando ela tem financeiro, e a LIQUIDAÇÃO vai para Finanças,
+  // que é quem paga. As duas seguem trocáveis até a finalização.
+  const daSaude = sugerirEncaminhamento({
+    secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
+    nomeDaSolicitante: "Secretaria Municipal de Saúde",
+  });
+  assert.equal(daSaude.despacho_secretaria, "Secretaria Municipal de Saúde");
+  assert.equal(daSaude.encaminhar_secretaria_nome, "Secretaria Municipal de Finanças");
+  // Solicitante SEM financeiro -- Turismo -- manda as duas folhas para Finanças.
+  const doTurismo = sugerirEncaminhamento({
+    secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
+    nomeDaSolicitante: "Secretaria Municipal de Turismo",
+  });
+  assert.equal(doTurismo.despacho_secretaria, "Secretaria Municipal de Finanças");
+  assert.equal(doTurismo.encaminhar_secretaria_nome, "Secretaria Municipal de Finanças");
+  // A liquidação sozinha nunca sugere a solicitante: é sempre quem paga.
+  assert.deepEqual(
+    sugerirEncaminhamentoDaLiquidacao({ secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO }),
+    { encaminhar_secretaria_id: "fin-1", encaminhar_secretaria_nome: "Secretaria Municipal de Finanças" },
+  );
+
+  // ⚠️ PROCESSO ANTIGO CONTINUA IMPRIMINDO O QUE IMPRIMIA. Ele tem só um dos
+  // dois campos gravado, e cada folha cai no campo do outro antes de cair em
+  // Finanças -- o papel já emitido sai igual.
   assert.equal(
-    sugerirEncaminhamento({
-      secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
-      nomeDaSolicitante: "Secretaria Municipal de Saúde",
-    }).encaminhar_secretaria_nome,
-    "Secretaria Municipal de Saúde",
+    complementoDoEncaminhamento({ encaminhar_secretaria_nome: "Secretaria Municipal de Educação" }),
+    "Educação",
   );
   assert.equal(
-    sugerirEncaminhamento({
-      secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
-      nomeDaSolicitante: "Secretaria Municipal de Turismo",
-    }).encaminhar_secretaria_nome,
-    "Secretaria Municipal de Finanças",
+    complementoDoEncaminhamentoDaLiquidacao({ despacho_secretaria: "Educação" }),
+    "Educação",
   );
 
   // ⚠️ O ENCAMINHAMENTO NÃO É A SOLICITANTE: Turismo requisita, Finanças recebe.

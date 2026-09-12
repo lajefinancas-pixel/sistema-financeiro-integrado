@@ -381,10 +381,6 @@ export const CAMPOS_COMPARTILHADOS = [
   "solicitante_id",
   "objeto",
   "observacoes",
-  // A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- a que recebe o processo para
-  // as providências, no despacho das DUAS páginas. ⚠️ Ela não é a solicitante:
-  // vem do cadastro de secretarias do MÓDULO FINANCEIRO, que este módulo só LÊ.
-  ...CAMPOS_ENCAMINHAMENTO,
 ];
 
 /** Campos PRÓPRIOS da página 1 (a Requisição de Material/Serviço). */
@@ -395,7 +391,12 @@ export const CAMPOS_REQUISICAO = [
   "requisicao_data",
   // Um dos quatro tipos, marcado com "X"; os outros três saem em branco.
   "tipo",
-  // "À SECRETARIA DE ____", no despacho da prefeita.
+  // "À SECRETARIA DE ____", no despacho da prefeita DESTA folha. ⚠️ CAMPO DESTA
+  // PÁGINA, e não compartilhado: a requisição volta para a casa que pediu e a
+  // liquidação segue para quem paga, então cada folha guarda o destino dela
+  // (a página 2 usa `encaminhar_secretaria_id`/`_nome`). Trocar aqui não mexe
+  // na outra folha. A lista de opções vem do cadastro de secretarias do MÓDULO
+  // FINANCEIRO, que este módulo só LÊ.
   "despacho_secretaria",
   // Quem assina como requisitante. É conteúdo do DOCUMENTO: nome, CPF e cargo
   // ficam gravados no processo e não são lidos do cadastro na hora de imprimir
@@ -405,6 +406,12 @@ export const CAMPOS_REQUISICAO = [
 
 /** Campos PRÓPRIOS da página 2 (a Liquidação/Solicitação de Pagamento). */
 export const CAMPOS_LIQUIDACAO = [
+  // A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA NESTA FOLHA -- a que recebe o
+  // processo para as providências de pagamento, e por isso sugerida como
+  // FINANÇAS. ⚠️ É o destino DESTA página; o da requisição é
+  // `despacho_secretaria`, ali em cima. A lista vem do cadastro de secretarias
+  // do MÓDULO FINANCEIRO, que este módulo só LÊ.
+  ...CAMPOS_ENCAMINHAMENTO,
   "atestado",
   "referencia",
   "fundamentacao",

@@ -18,10 +18,23 @@
 // secretaria com financeiro criada amanhã apareça sozinha na escolha, sem
 // ninguém mexer em código.
 //
+// ⚠️ UMA ESCOLHA POR FOLHA, COM PADRÃO PRÓPRIO. A requisição e a liquidação não
+// vão para o mesmo lugar, então cada folha tem o campo dela:
+//
+//   REQUISIÇÃO  -> `despacho_secretaria`; sugere a própria SOLICITANTE quando
+//                  ela tem financeiro, e Finanças quando não tem;
+//   LIQUIDAÇÃO  -> `encaminhar_secretaria_id`/`_nome`; sugere FINANÇAS, que é
+//                  quem paga e é o que o modelo oficial já traz impresso.
+//
+// Trocar uma NÃO arrasta a outra, e as duas seguem editáveis até a finalização.
+// Processo criado antes disto tem só um campo preenchido: cada folha cai no
+// campo do outro antes de cair em Finanças, e por isso o papel já emitido
+// continua saindo exatamente como saía.
+//
 // ⚠️ O CONGELAMENTO CONTINUA VALENDO. O processo grava dentro dele o NOME da
-// secretaria escolhida (`encaminhar_secretaria_nome`), e é esse nome que o
-// documento imprime. Renomear a secretaria no cadastro financeiro amanhã não
-// reescreve o documento emitido hoje.
+// secretaria escolhida, e é esse nome que o documento imprime. Renomear a
+// secretaria no cadastro financeiro amanhã não reescreve o documento emitido
+// hoje.
 //
 // Documental, não financeiro: nada aqui debita conta, dá baixa em NF, altera
 // saldo, cria pagamento ou toca na Programação Diária.
@@ -41,10 +54,6 @@ export const ENCAMINHAMENTO_PADRAO = "Finanças";
 
 function texto(valor) {
   return String(valor ?? "").trim();
-}
-
-function vazio(valor) {
-  return texto(valor) === "";
 }
 
 function semAcento(valor) {
@@ -125,46 +134,118 @@ export function dadosDoEncaminhamentoParaDocumento(secretaria) {
   };
 }
 
+/** A coluna onde a REQUISIÇÃO (página 1) guarda o encaminhamento dela. */
+export const CAMPO_ENCAMINHAMENTO_REQUISICAO = "despacho_secretaria";
+
 /**
- * A SUGESTÃO da criação: a solicitante quando ela tem financeiro, Finanças quando não.
+ * O que a escolha da REQUISIÇÃO leva gravado: o nome da secretaria.
  *
- * É só sugestão: o campo continua editável até a finalização, e o processo
- * finalizado guarda a secretaria que foi escolhida no momento.
+ * A página 1 grava em `despacho_secretaria`, que é desde o começo a coluna do
+ * despacho DESTA folha ("À SECRETARIA DE ____", na autorização da prefeita da
+ * requisição). Ela guarda só o nome, e é esse nome que congela: renomear a
+ * secretaria no cadastro financeiro amanhã não reescreve o documento de hoje.
  */
-export function sugerirEncaminhamento({ secretariasFinanceiras = [], nomeDaSolicitante = "" } = {}) {
-  const lista = secretariasParaEncaminhamento(secretariasFinanceiras);
-  const solicitante = encaminhamentoPeloNome(lista, nomeDaSolicitante);
-  if (solicitante) return dadosDoEncaminhamentoParaDocumento(solicitante);
-
-  const financas = encaminhamentoPeloNome(lista, ENCAMINHAMENTO_PADRAO);
-  if (financas) return dadosDoEncaminhamentoParaDocumento(financas);
-
-  // Cadastro financeiro ainda não lido (ou vazio): o papel sai com Finanças
-  // escrito, que é o destino de sempre, e sem id nenhum gravado.
-  return { encaminhar_secretaria_id: null, encaminhar_secretaria_nome: ENCAMINHAMENTO_PADRAO };
+export function dadosDoEncaminhamentoDaRequisicao(secretaria) {
+  return { [CAMPO_ENCAMINHAMENTO_REQUISICAO]: secretaria ? texto(secretaria.nome) : "" };
 }
 
 /**
- * O COMPLEMENTO impresso depois de "À SECRETARIA DE ___".
+ * A SUGESTÃO da criação, UMA POR FOLHA -- e elas são DIFERENTES de propósito.
+ *
+ * ⚠️ UMA SOLICITA, A OUTRA PAGA, e por isso cada folha nasce apontando para um
+ * lugar:
+ *
+ *   REQUISIÇÃO  -> a própria secretaria SOLICITANTE quando ela tem financeiro
+ *                  (o processo volta para a casa que pediu), senão Finanças;
+ *   LIQUIDAÇÃO  -> FINANÇAS, sempre. É quem paga, é o que o modelo oficial já
+ *                  traz impresso, e é o padrão pedido para esta folha.
+ *
+ * As duas saem na MESMA chamada porque as duas folhas nascem juntas, no mesmo
+ * registro -- e as duas continuam editáveis, cada uma por conta própria, até a
+ * finalização. Trocar o destino da requisição NÃO arrasta o da liquidação.
+ */
+export function sugerirEncaminhamento({ secretariasFinanceiras = [], nomeDaSolicitante = "" } = {}) {
+  const lista = secretariasParaEncaminhamento(secretariasFinanceiras);
+  const financas = encaminhamentoPeloNome(lista, ENCAMINHAMENTO_PADRAO);
+  const solicitante = encaminhamentoPeloNome(lista, nomeDaSolicitante);
+
+  return {
+    // A página 1: a solicitante com financeiro, ou Finanças. Cadastro financeiro
+    // ainda não lido: o papel sai com Finanças escrito, que é o destino de
+    // sempre, em vez de sair em branco.
+    ...dadosDoEncaminhamentoDaRequisicao(solicitante ?? financas ?? { nome: ENCAMINHAMENTO_PADRAO }),
+    // A página 2: Finanças. Sem a secretaria no cadastro, o nome vai escrito e
+    // sem id -- o campo não sai em branco no papel de jeito nenhum.
+    ...(financas
+      ? dadosDoEncaminhamentoParaDocumento(financas)
+      : { encaminhar_secretaria_id: null, encaminhar_secretaria_nome: ENCAMINHAMENTO_PADRAO }),
+  };
+}
+
+/**
+ * A sugestão de QUEM PAGA, isolada: FINANÇAS.
+ *
+ * É o que a folha de LIQUIDAÇÃO usa. As DIÁRIAS chamam esta, e não a de cima,
+ * porque a Requisição de Diárias não tem despacho da prefeita -- ela tem as três
+ * assinaturas empilhadas, e nenhum "À SECRETARIA DE" para preencher.
+ */
+export function sugerirEncaminhamentoDaLiquidacao({ secretariasFinanceiras = [] } = {}) {
+  const financas = encaminhamentoPeloNome(
+    secretariasParaEncaminhamento(secretariasFinanceiras),
+    ENCAMINHAMENTO_PADRAO,
+  );
+  return financas
+    ? dadosDoEncaminhamentoParaDocumento(financas)
+    : { encaminhar_secretaria_id: null, encaminhar_secretaria_nome: ENCAMINHAMENTO_PADRAO };
+}
+
+/**
+ * O COMPLEMENTO impresso depois de "À SECRETARIA DE ___" na REQUISIÇÃO.
  *
  * A ordem é a do congelamento, e é ela que faz processo antigo continuar
  * imprimindo o que sempre imprimiu:
  *
- *   1. a secretaria de encaminhamento GRAVADA no processo;
- *   2. o texto que foi escrito à mão no campo antigo do despacho -- processo
- *      criado antes deste campo existir tem só isto;
+ *   1. a secretaria escolhida NESTA folha (`despacho_secretaria`);
+ *   2. o encaminhamento único que o processo antigo gravou, de quando as duas
+ *      folhas dividiam um só campo -- é isto que preserva o papel já emitido;
  *   3. a secretaria solicitante, como o documento fazia antes;
  *   4. Finanças, para o campo NUNCA sair em branco no papel.
+ *
+ * O núcleo é aplicado em todos os casos: o "À SECRETARIA DE" já está impresso no
+ * quadro, e sem isto o papel sairia "À SECRETARIA DE SECRETARIA DE EDUCAÇÃO".
  */
 export function complementoDoEncaminhamento(processo, nomeDaSolicitante = "") {
-  const gravado = nucleoDaSecretaria(processo?.encaminhar_secretaria_nome);
-  if (gravado !== "") return gravado;
+  const daFolha = nucleoDaSecretaria(processo?.[CAMPO_ENCAMINHAMENTO_REQUISICAO]);
+  if (daFolha !== "") return daFolha;
 
-  const escrito = texto(processo?.despacho_secretaria);
-  if (escrito !== "") return escrito;
+  const legado = nucleoDaSecretaria(processo?.encaminhar_secretaria_nome);
+  if (legado !== "") return legado;
 
   const solicitante = nucleoDaSecretaria(nomeDaSolicitante);
   if (solicitante !== "") return solicitante;
+
+  return ENCAMINHAMENTO_PADRAO;
+}
+
+/**
+ * O COMPLEMENTO impresso depois de "À SECRETARIA DE ___" na LIQUIDAÇÃO.
+ *
+ * A folha de quem PAGA tem o destino DELA, e o padrão é Finanças:
+ *
+ *   1. a secretaria escolhida NESTA folha (`encaminhar_secretaria_nome`);
+ *   2. o despacho escrito no campo antigo, para o processo que só tem ele
+ *      continuar imprimindo o que sempre imprimiu;
+ *   3. Finanças, que é o que o modelo oficial traz e o que esta folha nunca
+ *      deixa de ter.
+ *
+ * ⚠️ Ela NÃO cai na secretaria solicitante: quem solicita não é quem paga.
+ */
+export function complementoDoEncaminhamentoDaLiquidacao(processo) {
+  const daFolha = nucleoDaSecretaria(processo?.encaminhar_secretaria_nome);
+  if (daFolha !== "") return daFolha;
+
+  const legado = nucleoDaSecretaria(processo?.[CAMPO_ENCAMINHAMENTO_REQUISICAO]);
+  if (legado !== "") return legado;
 
   return ENCAMINHAMENTO_PADRAO;
 }
@@ -177,9 +258,7 @@ export function complementoDoEncaminhamento(processo, nomeDaSolicitante = "") {
  * escolha gravada, sai a secretaria escolhida.
  */
 export function destinoDaLiquidacao(processo) {
-  const gravado = nucleoDaSecretaria(processo?.encaminhar_secretaria_nome);
-  const nucleo = gravado === "" ? ENCAMINHAMENTO_PADRAO : gravado;
-  return `SECRETARIA DE ${nucleo}`.toUpperCase();
+  return `SECRETARIA DE ${complementoDoEncaminhamentoDaLiquidacao(processo)}`.toUpperCase();
 }
 
 /**
@@ -191,11 +270,10 @@ export function destinoDaLiquidacao(processo) {
  * gravada, a frase sai palavra por palavra como sempre saiu.
  */
 export function secretariaMunicipalDoEncaminhamento(processo) {
-  const gravado = nucleoDaSecretaria(processo?.encaminhar_secretaria_nome);
-  return `Secretaria Municipal de ${gravado === "" ? ENCAMINHAMENTO_PADRAO : gravado}`;
+  return `Secretaria Municipal de ${complementoDoEncaminhamentoDaLiquidacao(processo)}`;
 }
 
-/** O rótulo que a tela mostra para o encaminhamento gravado no processo. */
+/** O rótulo que a tela mostra para o encaminhamento da LIQUIDAÇÃO. */
 export function rotuloDoEncaminhamento(processo) {
   const gravado = texto(processo?.encaminhar_secretaria_nome);
   return gravado === "" ? "" : gravado;

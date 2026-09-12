@@ -34,6 +34,7 @@ import {
   ENCAMINHAMENTO_PADRAO,
   secretariasParaEncaminhamento,
   sugerirEncaminhamento,
+  sugerirEncaminhamentoDaLiquidacao,
 } from "../src/lib/processosEncaminhamento.js";
 
 /**
@@ -455,7 +456,7 @@ test("5. a área da prefeita traz nome, cargo e CPF do cadastro, com o despacho 
  * TESTE 6 -- "À SECRETARIA DE ___" sai PREENCHIDO nas quatro folhas
  * ---------------------------------------------------------------------- */
 
-test("6. o “À SECRETARIA DE ___” sai preenchido, e a lista vem do módulo financeiro", () => {
+test("6. o “À SECRETARIA DE ___” sai preenchido, e a lista vem do módulo financeiro", async () => {
   const daDiaria = dadosDaDiaria(
     diaria({ encaminhar_secretaria_nome: "Secretaria Municipal de Saúde" }),
     {},
@@ -488,11 +489,28 @@ test("6. o “À SECRETARIA DE ___” sai preenchido, e a lista vem do módulo f
   assert.match(folhaUm, /<div class="assinaturas">/);
   assert.match(folhaUm, /Assinatura da Prefeita/);
   assert.ok(!folhaTres.includes("À SECRETARIA DE"));
-  // O valor escolhido, porém, é UM só e vale para o processo inteiro: as folhas
-  // que têm quadro imprimem todas a MESMA secretaria.
+  // ⚠️ CADA FOLHA GUARDA O DESTINO DELA, e o processo acima -- criado antes
+  // disto, com só um dos dois campos gravado -- imprime nas três folhas
+  // exatamente o que sempre imprimiu: a folha que não tem campo próprio cai no
+  // campo do outro antes de cair em Finanças.
   assert.equal(daDiaria.liquidacao.destino, "Saúde");
   assert.equal(doServico.requisicao.despacho, "Saúde");
   assert.equal(doServico.liquidacao.destino, "Saúde");
+
+  // Escolhas DIFERENTES por folha saem diferentes no papel: a requisição volta
+  // para a casa que pediu, a liquidação segue para quem paga.
+  const separadas = dadosDoServico(
+    servico({
+      despacho_secretaria: "Secretaria Municipal de Saúde",
+      encaminhar_secretaria_nome: "Secretaria Municipal de Finanças",
+    }),
+    {},
+  );
+  assert.equal(separadas.requisicao.despacho, "Saúde");
+  assert.equal(separadas.liquidacao.destino, "Finanças");
+  const folhasSeparadas = folhasDoHtml(htmlDoServico(separadas, { escopo: "completo" }));
+  assert.match(folhasSeparadas[0], /À SECRETARIA DE <span class="preenchido">Saúde<\/span>/);
+  assert.match(folhasSeparadas[1], /À SECRETARIA DE <span class="preenchido">Finanças<\/span>/);
 
   // SEM escolha, o padrão do modelo oficial: Finanças. Nunca em branco.
   const semEscolha = dadosDoServico(servico(), {});
@@ -517,27 +535,55 @@ test("6. o “À SECRETARIA DE ___” sai preenchido, e a lista vem do módulo f
   assert.equal(doServico.requisicao.despacho, "Saúde");
   assert.ok(html.includes("Secretaria Municipal de Turismo"), "a solicitante continua impressa");
 
-  // A sugestão: a solicitante quando ela TEM financeiro; Finanças quando não tem.
+  // A SUGESTÃO, UMA POR FOLHA: na REQUISIÇÃO, a solicitante quando ela TEM
+  // financeiro e Finanças quando não tem; na LIQUIDAÇÃO, sempre Finanças.
   assert.deepEqual(
     sugerirEncaminhamento({
       secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
       nomeDaSolicitante: "Secretaria Municipal de Saúde",
     }),
-    { encaminhar_secretaria_id: "fin-2", encaminhar_secretaria_nome: "Secretaria Municipal de Saúde" },
+    {
+      despacho_secretaria: "Secretaria Municipal de Saúde",
+      encaminhar_secretaria_id: "fin-1",
+      encaminhar_secretaria_nome: "Secretaria Municipal de Finanças",
+    },
   );
   assert.deepEqual(
     sugerirEncaminhamento({
       secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO,
       nomeDaSolicitante: "Secretaria Municipal de Turismo",
     }),
+    {
+      despacho_secretaria: "Secretaria Municipal de Finanças",
+      encaminhar_secretaria_id: "fin-1",
+      encaminhar_secretaria_nome: "Secretaria Municipal de Finanças",
+    },
+  );
+  // A diária só tem o despacho da liquidação -- a requisição dela fecha com as
+  // três assinaturas empilhadas --, e por isso usa a sugestão só desta folha.
+  assert.deepEqual(
+    sugerirEncaminhamentoDaLiquidacao({ secretariasFinanceiras: SECRETARIAS_DO_FINANCEIRO }),
     { encaminhar_secretaria_id: "fin-1", encaminhar_secretaria_nome: "Secretaria Municipal de Finanças" },
   );
   // Cadastro financeiro ainda não lido: sai Finanças escrito e nenhum id gravado
   // -- o campo NUNCA vai ao papel em branco, e nada é inventado no cadastro.
   assert.deepEqual(sugerirEncaminhamento(), {
+    despacho_secretaria: "Finanças",
     encaminhar_secretaria_id: null,
     encaminhar_secretaria_nome: "Finanças",
   });
+  assert.deepEqual(sugerirEncaminhamentoDaLiquidacao(), {
+    encaminhar_secretaria_id: null,
+    encaminhar_secretaria_nome: "Finanças",
+  });
+
+  // ⚠️ A TELA ENTREGA OS DOIS CAMPOS, cada um com o seu manipulador: o mesmo
+  // componente de escolha serve as duas folhas, sem cópia de código.
+  const servicoJsx = await read("src/components/processos/ModalProcessoServico.jsx");
+  assert.match(servicoJsx, /nomeGravado=\{formulario\.despacho_secretaria\}/);
+  assert.match(servicoJsx, /nomeGravado=\{formulario\.encaminhar_secretaria_nome\}/);
+  assert.match(servicoJsx, /function escolherEncaminhamentoDaRequisicao\(/);
+  assert.match(servicoJsx, /function escolherEncaminhamento\(/);
 });
 
 /* -------------------------------------------------------------------------
@@ -739,6 +785,12 @@ test("9. a migration do Storage cria a função ANTES das políticas, e não abo
   // IDEMPOTENTE: rodar de novo tem o mesmo efeito.
   assert.match(sql, /on conflict \(id\) do nothing/);
   assert.match(sql, /create or replace function/);
+  // ⚠️ A EXISTÊNCIA DA FUNÇÃO É CONFERIDA POR ASSINATURA, com to_regprocedure.
+  // Comparar pg_get_function_identity_arguments com 'text' NÃO funciona: esse
+  // texto vem com o nome do parâmetro ('acao text') e a conferência nunca
+  // casaria -- num banco que já tem a função, ela seria recriada sempre.
+  assert.match(sql, /to_regprocedure\('public\.pode_em_administracao\(text\)'\)/);
+  assert.ok(!sql.includes("pg_get_function_identity_arguments"));
   // E termina mostrando o que ficou valendo, para conferência no SQL Editor.
   assert.match(sql, /from pg_policies/);
   assert.match(sql, /from storage\.buckets where id = 'configuracoes'/);
@@ -750,6 +802,18 @@ test("9b. o arquivo que abortava está marcado como substituído, e ninguém o r
   assert.ok(antigo.includes("20260912160000_storage_logomarca_politicas_corrigidas.sql"));
   // A migration aplicada de operações de pagamento não foi tocada por nada disto.
   assert.doesNotMatch(antigo, /pagamentos|saldos|baixas/i);
+});
+
+test("9c. a execução de verdade é ensaiada em Postgres, e não só conferida no texto", async () => {
+  // ⚠️ TEXTO NÃO É EXECUÇÃO. O arquivo que abortava também "parecia certo": a
+  // prova de que este roda de ponta a ponta está em
+  // tests/storageLogomarcaPostgresReal.test.js, que executa a migration
+  // VERBATIM num Postgres em memória -- bucket, função, as quatro políticas, a
+  // logomarca já enviada sobrevivendo e a segunda execução dando no mesmo.
+  const ensaio = await read("tests/storageLogomarcaPostgresReal.test.js");
+  assert.ok(ensaio.includes(MIGRATION_STORAGE), "o ensaio roda ESTE arquivo");
+  assert.match(ensaio, /await db\.exec\(migration\(\)\)/);
+  assert.match(ensaio, /LOGOMARCA_EM_USO/);
 });
 
 /* -------------------------------------------------------------------------

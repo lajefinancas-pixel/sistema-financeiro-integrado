@@ -58,6 +58,7 @@ import {
 } from "./processosServicos.js";
 import {
   complementoDoEncaminhamento,
+  complementoDoEncaminhamentoDaLiquidacao,
 } from "./processosEncaminhamento.js";
 import {
   IDENTIDADE_PADRAO,
@@ -352,11 +353,12 @@ export function dadosDoDocumento(
         || (texto(p.nota_numero) !== "" ? `Nota fiscal nº ${texto(p.nota_numero)}` : ""),
       ),
       orgao: requisitanteDe(secretaria),
-      // A SECRETARIA DO ENCAMINHAMENTO desta folha, no MESMO formato da página
+      // A SECRETARIA DO ENCAMINHAMENTO DESTA FOLHA, no MESMO formato da página
       // 1: só o núcleo, porque o "À SECRETARIA DE" já está impresso no quadro.
-      // O modelo oficial traz Finanças, e Finanças continua sendo o padrão
-      // quando nada foi escolhido. ⚠️ NUNCA SAI EM BRANCO no papel.
-      destino: complementoDoEncaminhamento(p),
+      // ⚠️ É A ESCOLHA DA LIQUIDAÇÃO, não a da requisição: as duas folhas têm
+      // campo próprio, e esta tem FINANÇAS por padrão -- é quem paga, e é o que
+      // o modelo oficial já traz impresso. NUNCA SAI EM BRANCO no papel.
+      destino: complementoDoEncaminhamentoDaLiquidacao(p),
       // A DATA DESTA FOLHA é a da liquidação.
       localEData: localEData(dataDaLiquidacao(p), p.ano),
       emData: emData(dataDaLiquidacao(p)),
