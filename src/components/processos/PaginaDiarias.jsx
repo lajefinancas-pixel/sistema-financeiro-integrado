@@ -17,7 +17,10 @@ import ModalProcessoDiaria from "./ModalProcessoDiaria.jsx";
 import { podeVerServidores } from "../../lib/processosServidores.js";
 import PreVisualizacaoProcesso from "./PreVisualizacaoProcesso.jsx";
 import ModalHistoricoProcesso from "./ModalHistoricoProcesso.jsx";
-import { mensagemAmigavel } from "../../lib/erros.js";
+// ⚠️ As falhas desta tela passam por `mensagemFalhaDoProcesso`, não pela
+// mensagem genérica: recusa por TIPO de coluna (22P02) precisa dizer ao
+// operador que não foi ele, que nada foi gravado e qual migration corrige.
+import { mensagemFalhaDoProcesso } from "../../lib/processosErros.js";
 import {
   AVISO_MIGRATION_PROCESSOS,
   SITUACOES,
@@ -175,7 +178,7 @@ export default function PaginaDiarias({
         setFaltaMigration(true);
         setProcessos([]);
       } else {
-        setErro(mensagemAmigavel(falha, "Não foi possível carregar os processos de diária."));
+        setErro(mensagemFalhaDoProcesso(falha, "Não foi possível carregar os processos de diária."));
       }
     } finally {
       setCarregando(false);
@@ -243,7 +246,7 @@ export default function PaginaDiarias({
       await carregar();
       return true;
     } catch (falha) {
-      setErroForm(mensagemAmigavel(falha, "Não foi possível criar este processo."));
+      setErroForm(mensagemFalhaDoProcesso(falha, "Não foi possível criar este processo."));
       return false;
     } finally {
       setSalvando(false);
@@ -264,7 +267,7 @@ export default function PaginaDiarias({
       setProcessos((atual) => atual.map((p) => (p.id === atualizado.id ? atualizado : p)));
       return true;
     } catch (falha) {
-      setErroForm(mensagemAmigavel(falha, "Não foi possível salvar as alterações."));
+      setErroForm(mensagemFalhaDoProcesso(falha, "Não foi possível salvar as alterações."));
       return false;
     } finally {
       if (!silencioso) setSalvando(false);
@@ -272,7 +275,20 @@ export default function PaginaDiarias({
   }
 
   /** FINALIZAR NÃO É PAGAR: fecha o documento, e nada mais. */
-  async function finalizar(formulario) {
+  /**
+   * FINALIZAR, e -- quando pedido -- JÁ ABRIR A IMPRESSÃO, numa única ação.
+   *
+   * `comImpressao` é o botão "Finalizar e imprimir" do formulário. A ordem
+   * importa: FINALIZA primeiro, e só imprime se a finalização deu certo, com
+   * o processo JÁ FINALIZADO em mãos -- é ele que carrega a identidade visual
+   * e a prefeita congeladas, que são o que o papel precisa mostrar. Falha na
+   * finalização não imprime nada.
+   *
+   * NADA DISTO É PAGAR. Finalizar fecha o papel; imprimir só o põe em papel.
+   * Nenhum saldo, baixa, NF, conta ou programação é tocado por qualquer um
+   * dos dois.
+   */
+  async function finalizar(formulario, { comImpressao = false } = {}) {
     setSalvando(true);
     setErroForm(null);
     try {
@@ -288,14 +304,17 @@ export default function PaginaDiarias({
       });
       setAberto(null);
       marcarSalvamento();
+      // A impressão sai do processo FINALIZADO, com os congelamentos dentro.
+      if (comImpressao) await imprimir(atualizado, "completo");
       setAviso(
-        `Processo nº ${numeroDoProcesso(atualizado)} finalizado. Finalizar não é pagar: nenhum saldo, ` +
-          "baixa, NF ou programação foi alterado.",
+        `Processo nº ${numeroDoProcesso(atualizado)} finalizado${comImpressao ? " e enviado para impressão" : ""}. ` +
+          "Finalizar não é pagar: nenhum saldo, baixa, NF ou programação foi alterado" +
+          `${comImpressao ? ", e imprimir não altera o processo" : ""}.`,
       );
       await carregar();
       return true;
     } catch (falha) {
-      setErroForm(mensagemAmigavel(falha, "Não foi possível finalizar este processo."));
+      setErroForm(mensagemFalhaDoProcesso(falha, "Não foi possível finalizar este processo."));
       return false;
     } finally {
       setSalvando(false);
@@ -310,7 +329,7 @@ export default function PaginaDiarias({
       setAviso(`Processo nº ${numeroDoProcesso(processo)} reaberto para edição.`);
       await carregar();
     } catch (falha) {
-      setErro(mensagemAmigavel(falha, "Não foi possível reabrir este processo."));
+      setErro(mensagemFalhaDoProcesso(falha, "Não foi possível reabrir este processo."));
     }
   }
 
@@ -380,7 +399,7 @@ export default function PaginaDiarias({
         processo,
         registros: [],
         carregando: false,
-        erro: mensagemAmigavel(falha, "Não foi possível carregar o histórico."),
+        erro: mensagemFalhaDoProcesso(falha, "Não foi possível carregar o histórico."),
       });
     }
   }
@@ -631,6 +650,7 @@ export default function PaginaDiarias({
           onCriar={criar}
           onSalvar={salvar}
           onFinalizar={finalizar}
+          onFinalizarEImprimir={(formulario) => finalizar(formulario, { comImpressao: true })}
           onPreVisualizar={() => {
             if (aberto.processo) abrirPrevia(aberto.processo);
           }}

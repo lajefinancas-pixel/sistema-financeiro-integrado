@@ -229,10 +229,16 @@ test("o 22P02 aponta o arquivo da operação que falhou, e nenhum quando não se
   // A transferência e o estorno caem na mensagem geral, que explica o 22P02 sem
   // citar arquivo: é o que o pedido manda fazer quando não se pode determinar.
   const gerais = await read("src/lib/erros.js");
-  const generica = gerais.slice(gerais.indexOf('"22P02":'), gerais.indexOf('"22P02":') + 400);
+  const generica = gerais.slice(gerais.indexOf('"22P02":'), gerais.indexOf('"22P02":') + 800);
   assert.doesNotMatch(generica, /supabase\/migrations/);
   assert.match(generica, /incompatibilidade de tipo/);
   assert.match(generica, /console do navegador/);
+  // ⚠️ A mensagem geral passou a DIZER O QUE FAZER, não só citar o console: a
+  // instrução "o erro completo está no console (F12)" não serve para quem opera
+  // o sistema. O console continua citado, mas como recado de quem vai corrigir.
+  assert.match(generica, /O QUE FAZER/);
+  assert.match(generica, /nada foi gravado ou alterado/);
+  assert.match(generica, /avise quem administra o sistema/);
 
   // E cada ponto de chamada declara o que estava tentando fazer.
   assert.match(pagina, /mensagemFalhaFase2\(falha, "Não foi possível definir a conta destes pagamentos\.", "definir_conta"\)/);
