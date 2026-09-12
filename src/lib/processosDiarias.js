@@ -24,6 +24,7 @@ import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
 import { CAMPOS_SIGNATARIOS, camposDoSignatario } from "./processosServidores.js";
 import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
+import { CAMPOS_ENCAMINHAMENTO } from "./processosEncaminhamento.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -159,6 +160,11 @@ export const LEI_DAS_DIARIAS = "Lei Municipal nº 003/2005 de 23 de fevereiro de
  * na Prestação de Contas no mesmo instante porque é o mesmo dado.
  */
 export const CAMPOS_COMPARTILHADOS = [
+  // ⚠️ `data_processo` É A DATA DE ABERTURA do processo, e só isso: ela serve à
+  // listagem e à ordenação. ELA NÃO MANDA NA DATA DOS DOCUMENTOS -- cada uma
+  // das três páginas tem a data DELA (`requisicao_data`, `liquidacao_data` e
+  // `prestacao_data`), porque a diária é requisitada num dia, liquidada depois
+  // da viagem e a prestação de contas, depois ainda.
   "data_processo",
   // ⚠️ A SECRETARIA SOLICITANTE é o cadastro PRÓPRIO do módulo Processos, e não
   // o cadastro de secretarias do módulo financeiro: quem REQUISITA a diária
@@ -186,10 +192,18 @@ export const CAMPOS_COMPARTILHADOS = [
   "conta",
   "pix",
   "titular",
+  // A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- a que recebe o processo para
+  // as providências de pagamento. ⚠️ Ela não é a solicitante: vem do cadastro de
+  // secretarias do MÓDULO FINANCEIRO, que este módulo só LÊ.
+  ...CAMPOS_ENCAMINHAMENTO,
 ];
 
 /** Campos PRÓPRIOS da página 1 (a Requisição de Diárias). */
 export const CAMPOS_REQUISICAO = [
+  // A DATA DESTA PÁGINA: a data da Requisição de Diárias. É ela que sai no
+  // "São José da Laje/AL, ___ de ___ de ___" desta folha -- e não a data da
+  // liquidação nem a da prestação de contas.
+  "requisicao_data",
   // ⚠️ `beneficiario_matricula` NÃO está aqui. A matrícula saiu do formulário,
   // do cadastro de servidores e do documento impresso. A coluna continua no
   // banco com o que já foi gravado; o sistema parou de lê-la e de escrevê-la.
@@ -222,6 +236,7 @@ export const CAMPOS_REQUISICAO = [
 
 /** Campos PRÓPRIOS da página 2 (a Liquidação/Solicitação de Pagamento). */
 export const CAMPOS_LIQUIDACAO = [
+  // A DATA DESTA PÁGINA: a data da Liquidação/Solicitação de Pagamento.
   "liquidacao_data",
   "liquidacao_data_saida",
   "liquidacao_data_retorno",
@@ -241,6 +256,7 @@ export const CAMPOS_LIQUIDACAO = [
  */
 export const CAMPOS_PRESTACAO = [
   "prestacao_relatorio",
+  // A DATA DESTA PÁGINA: a data da Prestação de Contas.
   "prestacao_data",
 ];
 
@@ -431,10 +447,15 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   const branco = {
     ano,
     numero: null,
-    // ⚠️ A data de hoje é SUGESTÃO INICIAL, não é trava. O campo é editável no
-    // formulário e o documento imprime a data escolhida -- o processo pode ser
-    // emitido com data anterior ou posterior.
+    // ⚠️ A data de hoje é SUGESTÃO INICIAL, não é trava. Os campos são editáveis
+    // no formulário, inclusive para trás, e cada documento imprime a data
+    // escolhida NELE.
     data_processo: hoje,
+    // A data da página 1 nasce sugerida porque a requisição é o documento que
+    // se faz no ato. As das páginas 2 e 3 nascem em branco: elas são
+    // preenchidas depois da viagem, e datá-las hoje seria datar o que não
+    // aconteceu.
+    requisicao_data: hoje,
     solicitante_id: "",
     secretaria_id: "",
     fornecedor_id: null,
@@ -487,6 +508,15 @@ export function processoParaFormulario(processo) {
     formulario[campo] = valor;
   });
 
+  // ⚠️ A DATA DA REQUISIÇÃO DO PROCESSO JÁ GRAVADO É A DELE, ou nenhuma.
+  // `processoVazio` sugere a data de hoje, e essa sugestão é só do processo
+  // NOVO: processo antigo, gravado antes desta coluna existir, tem a coluna
+  // vazia e precisa continuar imprimindo pela data de abertura -- e não ganhar
+  // a data de hoje só por ter sido reaberto e salvo.
+  if (processo?.id !== null && processo?.id !== undefined) {
+    formulario.requisicao_data = processo?.requisicao_data ?? "";
+  }
+
   formulario.id = processo?.id ?? null;
   formulario.numero = processo?.numero ?? null;
   formulario.ano = processo?.ano ?? base.ano;
@@ -504,7 +534,7 @@ export function processoParaFormulario(processo) {
 }
 
 const CAMPOS_DATA = new Set([
-  "data_processo", "data_saida", "data_retorno",
+  "data_processo", "requisicao_data", "data_saida", "data_retorno",
   "liquidacao_data", "liquidacao_data_saida", "liquidacao_data_retorno",
   "prestacao_data",
 ]);
@@ -540,6 +570,9 @@ export function formularioParaBanco(formulario) {
     .concat(
       CAMPOS_REQUISICAO, CAMPOS_LIQUIDACAO, CAMPOS_PRESTACAO,
       ["destino", "finalidade", "banco_codigo", "banco", "agencia", "conta", "pix", "titular"],
+      // O encaminhamento da prefeita: o id só para a tela remarcar a opção, e o
+      // NOME congelado, que é o que o documento imprime.
+      CAMPOS_ENCAMINHAMENTO,
       // Os dados da secretaria solicitante vão GRAVADOS no processo. É o
       // congelamento: trocar o secretário no cadastro amanhã não reescreve o
       // documento emitido hoje.
@@ -633,6 +666,38 @@ export function preenchimentoDoProcesso(processo) {
     prestacao,
     texto: `Requisição ${marca(requisicao)} | Liquidação ${marca(liquidacao)} | Prestação de contas ${marca(prestacao)}`,
   };
+}
+
+/* -------------------------------------------------------------------------
+ * A data de cada documento
+ * ---------------------------------------------------------------------- */
+
+/**
+ * A DATA DA REQUISIÇÃO -- a data da página 1.
+ *
+ * Cada uma das três páginas tem a data DELA: a diária é requisitada num dia,
+ * liquidada depois da viagem e a prestação de contas, depois ainda. Sem data
+ * própria gravada -- o caso do processo criado antes de o campo existir -- vale
+ * a data de abertura, que é exatamente o que essa folha já imprimia.
+ */
+export function dataDaRequisicao(processo) {
+  return texto(processo?.requisicao_data) || texto(processo?.data_processo);
+}
+
+/** A DATA DA LIQUIDAÇÃO -- a data da página 2, com a mesma regra. */
+export function dataDaLiquidacao(processo) {
+  return texto(processo?.liquidacao_data) || texto(processo?.data_processo);
+}
+
+/**
+ * A DATA DA PRESTAÇÃO DE CONTAS -- a data da página 3.
+ *
+ * Esta NÃO cai para a data de abertura: a prestação de contas acontece depois da
+ * viagem, e enquanto não tem data a folha sai com as linhas em branco, para
+ * completar à mão -- como o formulário oficial é.
+ */
+export function dataDaPrestacao(processo) {
+  return texto(processo?.prestacao_data);
 }
 
 /* -------------------------------------------------------------------------
@@ -851,6 +916,10 @@ export function duplicarProcesso(processo, { ano = new Date().getFullYear(), hoj
     ano,
     situacao: "rascunho",
     data_processo: hoje,
+    // A data da requisição volta ao ponto de partida: a cópia é um processo
+    // NOVO, e a data da requisição do mês passado não é a dele. As datas da
+    // liquidação e da prestação já foram zeradas junto com as páginas 2 e 3.
+    requisicao_data: hoje,
     duplicado_de: processo?.id ?? null,
     duplicado_de_numero: numeroDoProcesso(processo),
   };
@@ -925,7 +994,7 @@ const CAMPOS_AUDITADOS = [
   "data_processo", "solicitante_id", "secretaria_id", "fornecedor_id", "beneficiario_nome", "beneficiario_cpf",
   "beneficiario_endereco", "objeto", "valor_total", "valor_total_manual",
   "valor_extenso", "valor_extenso_manual", "valor_unitario_manual", "destino", "finalidade",
-  "banco_codigo", "banco", "agencia", "conta", "pix", "titular",
+  "banco_codigo", "banco", "agencia", "conta", "pix", "titular", ...CAMPOS_ENCAMINHAMENTO,
   ...CAMPOS_REQUISICAO, ...CAMPOS_LIQUIDACAO, ...CAMPOS_PRESTACAO,
 ];
 

@@ -102,9 +102,13 @@ const COLUNAS = [
   "solicitante_id", "solicitante_nome", "solicitante_secretario",
   "solicitante_secretario_cpf", "solicitante_secretario_cargo",
   "objeto", "observacoes",
+  // O ENCAMINHAMENTO DA PREFEITA: a secretaria a quem ela manda o processo, com
+  // o nome CONGELADO. ⚠️ Ela vem do cadastro de secretarias do módulo
+  // FINANCEIRO, que este módulo só LÊ, e não é a secretaria solicitante.
+  "encaminhar_secretaria_id", "encaminhar_secretaria_nome",
   // Página 1 -- Requisição de Material/Serviço. ⚠️ `itens` NÃO tem coluna de
   // valor: a requisição não tem valores, e eles só aparecem na página 2.
-  "tipo", "itens", "despacho_secretaria",
+  "requisicao_data", "tipo", "itens", "despacho_secretaria",
   "requisitante_servidor_id", "requisitante_nome", "requisitante_cpf", "requisitante_cargo",
   // Página 2 -- Liquidação/Solicitação de Pagamento.
   "atestado", "referencia", "fundamentacao",

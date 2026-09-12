@@ -89,6 +89,10 @@ export default function PaginaServicos({
   // nome e filtrar -- inclusive no processo antigo.
   solicitantes = [],
   secretarias = [],
+  // As secretarias ATIVAS do cadastro do MÓDULO FINANCEIRO, apenas para LER:
+  // são as oferecidas em "Encaminhar à Secretaria de", o destino do despacho da
+  // prefeita. Nada é criado, alterado ou excluído nesse cadastro daqui.
+  secretariasFinanceiras = [],
   bancos = [],
   servidores = [],
   carregandoApoio = false,
@@ -596,6 +600,7 @@ export default function PaginaServicos({
           fornecedores={fornecedores}
           solicitantes={solicitantes}
           secretarias={secretarias}
+          secretariasFinanceiras={secretariasFinanceiras}
           bancos={bancos}
           servidores={podeVerServidores(permissoesServidores) ? servidores : []}
           permissoes={permissoes}

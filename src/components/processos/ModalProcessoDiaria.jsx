@@ -37,6 +37,14 @@ import {
 } from "../../lib/nomesFornecedor.js";
 import { dadosDoBancoParaDocumento } from "../../lib/processosBancos.js";
 import {
+  chaveDaSecretaria,
+  dadosDoEncaminhamentoParaDocumento,
+  encaminhamentoPeloNome,
+  nucleoDaSecretaria,
+  secretariasParaEncaminhamento,
+  sugerirEncaminhamento,
+} from "../../lib/processosEncaminhamento.js";
+import {
   CAMPOS_SOLICITANTE_NO_PROCESSO,
   dadosDoSolicitanteParaDocumento,
   rotuloDoSolicitante,
@@ -112,6 +120,11 @@ export default function ModalProcessoDiaria({
   // por leitura, para o processo antigo continuar mostrando o que gravou.
   solicitantes = [],
   secretarias = [],
+  // ⚠️ O CADASTRO DE SECRETARIAS DO MÓDULO FINANCEIRO, POR LEITURA. Dele saem as
+  // secretarias oferecidas em "Encaminhar à Secretaria de" -- as que têm
+  // financeiro, as mesmas de Saldos das Contas e dos Pagamentos Diários. Este
+  // módulo NÃO cria, NÃO altera e NÃO apaga nada nesse cadastro.
+  secretariasFinanceiras = [],
   // O cadastro de BANCOS, para o dado bancário sair "001 — Banco do Brasil".
   // Vazio (banco sem a migration): o campo volta a ser texto livre.
   bancos = [],
@@ -177,6 +190,32 @@ export default function ModalProcessoDiaria({
     }, ESPERA_AUTOSSALVAMENTO);
     return () => clearTimeout(relogio);
   }, [sujo, criado, podeGravar, salvando, formulario, onSalvar]);
+
+  /**
+   * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
+   *
+   * O despacho da prefeita não sai em branco no papel: o processo já nasce com
+   * um destino sugerido -- a própria solicitante, se ela tem financeiro, ou
+   * Finanças. ⚠️ Só no processo AINDA NÃO CRIADO e só uma vez: processo já
+   * gravado abre exatamente como estava.
+   */
+  const encaminhamentoSugerido = React.useRef(false);
+  React.useEffect(() => {
+    if (criado || encaminhamentoSugerido.current) return;
+    if (String(formulario.encaminhar_secretaria_nome ?? "").trim() !== "") return;
+    const sugestao = sugerirEncaminhamento({
+      secretariasFinanceiras,
+      nomeDaSolicitante: formulario.solicitante_nome ?? "",
+    });
+    if (String(sugestao.encaminhar_secretaria_nome ?? "").trim() === "") return;
+    encaminhamentoSugerido.current = true;
+    setFormulario((atual) => ({ ...atual, ...sugestao }));
+  }, [
+    criado,
+    secretariasFinanceiras,
+    formulario.encaminhar_secretaria_nome,
+    formulario.solicitante_nome,
+  ]);
 
   function definir(chave, valor) {
     setAviso(null);
@@ -373,8 +412,53 @@ export default function ModalProcessoDiaria({
           }
         });
       }
+      // O ENCAMINHAMENTO DA PREFEITA é SUGERIDO aqui, e só com o campo em
+      // branco: solicitante que TEM financeiro recebe o próprio processo;
+      // solicitante sem financeiro manda para Finanças. Escolha feita à mão
+      // nunca é sobrescrita.
+      if (String(atual.encaminhar_secretaria_nome ?? "").trim() === "") {
+        Object.assign(
+          proximo,
+          sugerirEncaminhamento({
+            secretariasFinanceiras,
+            nomeDaSolicitante: dados.solicitante_nome ?? "",
+          }),
+        );
+      }
       return proximo;
     });
+  }
+
+  /**
+   * Escolhe A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- o "À Secretaria
+   * Municipal de ______" do despacho da Liquidação.
+   *
+   * ⚠️ NÃO É A SECRETARIA SOLICITANTE. Quem requisita a diária pode ser
+   * qualquer secretaria do município e vem do cadastro próprio do módulo; quem
+   * recebe o processo para as providências de pagamento é uma das que TÊM
+   * FINANCEIRO, e essas são LIDAS do cadastro do módulo financeiro -- que este
+   * módulo não cria, não altera e não exclui.
+   *
+   * O nome é gravado no processo e é ele que o documento imprime: renomear ou
+   * inativar a secretaria no cadastro financeiro amanhã não reescreve o
+   * documento de hoje.
+   */
+  function escolherEncaminhamento(nome) {
+    setAviso(null);
+    setSujo(true);
+    encaminhamentoSugerido.current = true;
+    const escolhida = encaminhamentoPeloNome(
+      secretariasParaEncaminhamento(secretariasFinanceiras),
+      nome,
+    );
+    setFormulario((atual) => ({
+      ...atual,
+      ...(escolhida
+        ? dadosDoEncaminhamentoParaDocumento(escolhida)
+        : // Em branco de novo: o documento volta a imprimir Finanças, como
+          // sempre imprimiu.
+          { encaminhar_secretaria_id: null, encaminhar_secretaria_nome: String(nome ?? "").trim() }),
+    }));
   }
 
   /**
@@ -572,9 +656,11 @@ export default function ModalProcessoDiaria({
             <SecaoLiquidacao
               formulario={formulario}
               secretarias={secretarias}
+              secretariasFinanceiras={secretariasFinanceiras}
               bancos={bancos}
               somenteLeitura={somenteLeitura}
               definir={definir}
+              onEscolherEncaminhamento={escolherEncaminhamento}
             />
           )}
 
@@ -996,12 +1082,12 @@ function SecaoDadosGerais({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <CampoTexto
-          rotulo="Data do processo"
+          rotulo="Data do processo (abertura)"
           tipo="date"
           valor={formulario.data_processo}
           onChange={(v) => definir("data_processo", v)}
           desabilitado={somenteLeitura}
-          apoio="A data de hoje é só a sugestão inicial: troque livremente, e o documento sai com a data escolhida."
+          apoio="Só a referência de ABERTURA, usada na lista e na ordenação. Cada uma das três páginas tem a data DELA: a da requisição, a da liquidação e a da prestação de contas."
         />
         <Campo
           rotulo="Secretaria solicitante"
@@ -1269,6 +1355,23 @@ function SecaoRequisicao({
         prefeita.
       </p>
 
+      {/* ⚠️ A DATA É DESTA PÁGINA. A requisição é feita antes da viagem, a
+          liquidação depois dela e a prestação de contas depois ainda: cada
+          documento carrega a data DELE. */}
+      <Bloco
+        titulo="Data da requisição"
+        apoio="A data desta folha é editável e independente das páginas 2 e 3 — a de hoje é só a sugestão inicial, e datas anteriores são aceitas."
+      >
+        <CampoTexto
+          rotulo="Data da Requisição de Diárias"
+          tipo="date"
+          valor={formulario.requisicao_data}
+          onChange={(v) => definir("requisicao_data", v)}
+          desabilitado={somenteLeitura}
+          apoio="Sai no “São José da Laje/AL, ___ de ___ de ____” DESTA folha. Em branco, o documento usa a data de abertura."
+        />
+      </Bloco>
+
       <Bloco titulo="O que se requisita">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CampoTexto
@@ -1533,7 +1636,15 @@ function SecaoRequisicao({
  * Página 2: Liquidação/Solicitação de Pagamento
  * ---------------------------------------------------------------------- */
 
-function SecaoLiquidacao({ formulario, secretarias, bancos = [], somenteLeitura, definir }) {
+function SecaoLiquidacao({
+  formulario,
+  secretarias,
+  secretariasFinanceiras = [],
+  bancos = [],
+  somenteLeitura,
+  definir,
+  onEscolherEncaminhamento,
+}) {
   const secretaria = nomeDaSecretaria(formulario, secretarias) || "--";
   const requisitante = secretaria === "--"
     ? "--"
@@ -1547,6 +1658,22 @@ function SecaoLiquidacao({ formulario, secretarias, bancos = [], somenteLeitura,
         endereço, objetivando, valor e dados bancários vêm da página 1, sem digitação repetida.{" "}
         <strong>É um documento</strong>: não é baixa de pagamento e não debita conta.
       </p>
+
+      {/* O DESPACHO DA PREFEITA nesta página: "À Secretaria Municipal de
+          ______, para as providências de pagamento". O modelo oficial traz
+          Finanças, que segue como sugestão. */}
+      <Bloco
+        titulo="Encaminhamento da prefeita"
+        apoio="A secretaria que RECEBE o processo para as providências de pagamento — uma das que têm financeiro."
+      >
+        <CampoEncaminhamento
+          formulario={formulario}
+          secretariasFinanceiras={secretariasFinanceiras}
+          somenteLeitura={somenteLeitura}
+          onEscolher={onEscolherEncaminhamento}
+          apoio="Sai impresso como “À Secretaria Municipal de ______, para as providências de pagamento”. Lida do cadastro de secretarias do módulo financeiro (o mesmo de Saldos e Pagamentos), que este módulo apenas LÊ. Não é a secretaria solicitante."
+        />
+      </Bloco>
 
       <Bloco titulo="Requisitante e favorecido (dados do processo)">
         <Campo rotulo="Requisitante" className="mb-3" apoio="Como sai impresso na página 2.">
@@ -1584,11 +1711,12 @@ function SecaoLiquidacao({ formulario, secretarias, bancos = [], somenteLeitura,
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <CampoTexto
-            rotulo="Data da liquidação"
+            rotulo="Data da Liquidação"
             tipo="date"
             valor={formulario.liquidacao_data}
             onChange={(v) => definir("liquidacao_data", v)}
             desabilitado={somenteLeitura}
+            apoio="A data DESTA folha, no “São José da Laje/AL, ___ de ___ de ____”. Em branco, usa a data de abertura."
           />
           <CampoTexto
             rotulo="Saída realizada"
@@ -1688,13 +1816,13 @@ function SecaoPrestacao({ formulario, somenteLeitura, definir }) {
           </p>
         )}
         <CampoTexto
-          rotulo="Data da prestação de contas"
+          rotulo="Data da Prestação de Contas"
           tipo="date"
           valor={formulario.prestacao_data}
           onChange={(v) => definir("prestacao_data", v)}
           desabilitado={somenteLeitura}
           className="mt-3"
-          apoio="Vai na linha “São José da Laje - AL, __ de __ de ____”. Em branco, a linha sai para completar à mão."
+          apoio="A data DESTA folha, independente das páginas 1 e 2: vai na linha “São José da Laje - AL, __ de __ de ____”. Em branco, a linha sai para completar à mão."
         />
       </Bloco>
 
@@ -1708,6 +1836,79 @@ function SecaoPrestacao({ formulario, somenteLeitura, definir }) {
         />
       </Bloco>
     </>
+  );
+}
+
+/**
+ * A SECRETARIA A QUEM A PREFEITA ENCAMINHA O PROCESSO.
+ *
+ * É o "À Secretaria Municipal de ______" do despacho da Liquidação, que antes
+ * saía com Finanças fixo. Agora é escolhido aqui e sai impresso já preenchido.
+ *
+ * ⚠️ NÃO CONFUNDIR COM A SECRETARIA SOLICITANTE: a solicitante REQUISITA a
+ * diária e vem do cadastro próprio do módulo; esta RECEBE o processo para as
+ * providências de pagamento, e por isso é sempre uma das que TÊM FINANCEIRO.
+ *
+ * ⚠️ A LISTA É LIDA DO CADASTRO DE SECRETARIAS DO MÓDULO FINANCEIRO -- o mesmo de
+ * Saldos das Contas e dos Pagamentos Diários -- e APENAS LIDA: o módulo Processos
+ * não cria, não altera e não exclui nada lá.
+ */
+function CampoEncaminhamento({
+  formulario,
+  secretariasFinanceiras = [],
+  somenteLeitura,
+  onEscolher,
+  rotulo = "Encaminhar à Secretaria de",
+  apoio = null,
+}) {
+  const oferecidas = React.useMemo(() => {
+    const lista = secretariasParaEncaminhamento(secretariasFinanceiras);
+    const gravado = String(formulario.encaminhar_secretaria_nome ?? "").trim();
+    if (gravado === "") return lista;
+    const chave = chaveDaSecretaria(gravado);
+    if (lista.some((s) => chaveDaSecretaria(s.nome) === chave)) return lista;
+    // O que ESTE processo gravou continua oferecido mesmo que a secretaria tenha
+    // sido inativada ou renomeada no cadastro financeiro.
+    return [
+      {
+        id: formulario.encaminhar_secretaria_id ?? null,
+        nome: gravado,
+        nucleo: nucleoDaSecretaria(gravado),
+      },
+      ...lista,
+    ];
+  }, [
+    secretariasFinanceiras,
+    formulario.encaminhar_secretaria_nome,
+    formulario.encaminhar_secretaria_id,
+  ]);
+
+  const gravado = String(formulario.encaminhar_secretaria_nome ?? "").trim();
+  const escolhida =
+    gravado === ""
+      ? null
+      : oferecidas.find((s) => chaveDaSecretaria(s.nome) === chaveDaSecretaria(gravado)) ?? null;
+
+  return (
+    <Campo rotulo={rotulo} apoio={apoio}>
+      <select
+        value={escolhida ? escolhida.nome : ""}
+        onChange={(e) => onEscolher?.(e.target.value)}
+        disabled={somenteLeitura}
+        className={CLASSE_CAMPO}
+      >
+        <option value="">
+          {oferecidas.length === 0
+            ? "Cadastro do financeiro ainda não lido — o documento sai com Finanças"
+            : "Escolha a secretaria de destino..."}
+        </option>
+        {oferecidas.map((secretaria) => (
+          <option key={secretaria.id ?? secretaria.nome} value={secretaria.nome}>
+            {secretaria.nucleo || secretaria.nome}
+          </option>
+        ))}
+      </select>
+    </Campo>
   );
 }
 

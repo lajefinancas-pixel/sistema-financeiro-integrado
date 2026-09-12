@@ -48,6 +48,9 @@ import {
   TITULO_PAGINA_2,
   TITULO_PAGINA_3,
   dataBR,
+  dataDaLiquidacao,
+  dataDaPrestacao,
+  dataDaRequisicao,
   dataDasDiarias,
   nomeDaSecretaria,
   numeroDoProcesso,
@@ -64,6 +67,7 @@ import {
 } from "./processosIdentidade.js";
 import { logoDoDocumento } from "./processosIdentidade.js";
 import { tipoDiariaComposto } from "./processosDiariasTabela.js";
+import { secretariaMunicipalDoEncaminhamento } from "./processosEncaminhamento.js";
 import { bancoDoDocumento } from "./processosBancos.js";
 
 /**
@@ -365,17 +369,26 @@ export function dadosDoDocumento(
     // ela sempre teve.
     liquidacao: {
       data: texto(p.liquidacao_data),
-      localEData: localEData(texto(p.liquidacao_data) || p.data_processo, p.ano),
+      localEData: localEData(dataDaLiquidacao(p), p.ano),
+      // A SECRETARIA DO ENCAMINHAMENTO desta folha -- a que a prefeita manda
+      // providenciar o pagamento. O modelo oficial traz Finanças, e Finanças
+      // continua sendo o padrão quando nada foi escolhido. ⚠️ Ela não é a
+      // secretaria solicitante: vem do cadastro do módulo FINANCEIRO, só lido.
+      destino: secretariaMunicipalDoEncaminhamento(p),
     },
 
     // PÁGINA 3 — a prestação de contas, que pode estar pendente.
     prestacao: {
       relatorio: relatorioDaPrestacao(p),
       data: texto(p.prestacao_data),
-      localEData: localEData(p.prestacao_data, p.ano),
+      // Esta folha NÃO cai para a data de abertura: a prestação de contas
+      // acontece depois da viagem, e sem data ela sai com as linhas em branco.
+      localEData: localEData(dataDaPrestacao(p), p.ano),
     },
 
-    localEData: localEData(p.data_processo, p.ano),
+    // PÁGINA 1 -- a data da REQUISIÇÃO, a data própria desta folha. Em branco, a
+    // folha sai com a data de abertura, que é o que ela sempre imprimiu.
+    localEData: localEData(dataDaRequisicao(p), p.ano),
   };
 }
 
@@ -692,7 +705,7 @@ function folhaLiquidacao(dados) {
     + `<div class="autorizacao">`
     + `<div class="rotulo-caixa">Autorização da Prefeita</div>`
     + `<p><b>Ciente / Autorizo.</b></p>`
-    + `<p>À ${escapar(SECRETARIA_DE_FINANCAS)}, para as providências de pagamento.</p>`
+    + `<p>À ${escapar(dados.liquidacao.destino)}, para as providências de pagamento.</p>`
     + `<p class="local-data">${escapar(dados.liquidacao.localEData)}</p>`
     + `<div class="assinatura-unica"><strong>&nbsp;</strong>Assinatura da Prefeita</div>`
     + `<div class="linhas-a-mao">`
@@ -1453,7 +1466,7 @@ function paginaLiquidacaoPdf(pincel, dados) {
 
   pincel.moldura("Autorização da Prefeita", () => {
     pincel.paragrafo("Ciente / Autorizo.", { negrito: true });
-    pincel.paragrafo(`À ${SECRETARIA_DE_FINANCAS}, para as providências de pagamento.`);
+    pincel.paragrafo(`À ${dados.liquidacao.destino}, para as providências de pagamento.`);
     pincel.localData(dados.liquidacao.localEData);
     pincel.assinaturas([{ nome: "", papel: "Assinatura da Prefeita" }], { aoPe: false });
     pincel.linhasAMao(["Nome:", "CPF:", "Cargo:"]);
