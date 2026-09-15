@@ -152,7 +152,7 @@ export default function PainelExecucaoProgramacao({
               O aviso diz isso em palavras, para ninguém ler os valores do
               seletor como se fossem os saldos de hoje. */}
           {saldoCongelado && (
-            <p className="mx-4 mt-3 rounded-lg border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[11px] leading-snug text-[#17352F]">
+            <p className="mx-4 mt-3 rounded-lg border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 text-[11px] leading-snug text-[var(--color-brand-navy)]">
               Os saldos mostrados nesta seção são os mesmos do restante desta programação
               {dataFormatada ? ` de ${dataFormatada}` : ""}: os que foram considerados quando ela foi montada, não os saldos
               de hoje. Conta sem esse valor gravado aparece como "{TEXTO_SEM_REGISTRO}". Definir a conta continua não
@@ -164,7 +164,7 @@ export default function PainelExecucaoProgramacao({
               todos. Depois disso a troca individual continua possível. */}
           <div className="px-4 py-3">
             <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-[220px] flex-1 text-[11px] font-medium text-[#17352F]/60">
+              <div className="min-w-[220px] flex-1 text-[11px] font-medium text-[var(--color-brand-navy)]/60">
                 Conta para atribuição
                 {/* Contas de trabalho já confirmadas, com busca e agrupadas por
                     Secretaria. Atribuir conta ao pagamento é registro de qual conta
@@ -186,7 +186,7 @@ export default function PainelExecucaoProgramacao({
                 disabled={motivoSelecionados !== ""}
                 title={motivoSelecionados || "Atribuir a conta escolhida aos fornecedores marcados. Não debita nada."}
                 aria-describedby="motivo-atribuir-selecionados"
-                className="rounded-lg bg-[#17352F] px-3 py-2 text-xs font-medium text-white hover:bg-[#17352F]/90 disabled:opacity-40"
+                className="rounded-lg bg-[var(--color-brand-navy)] px-3 py-2 text-xs font-medium text-white hover:bg-[var(--color-brand-navy)]/90 disabled:opacity-40"
               >
                 Atribuir conta aos selecionados ({marcados.size})
               </button>
@@ -196,7 +196,7 @@ export default function PainelExecucaoProgramacao({
                 disabled={motivoTodos !== ""}
                 title={motivoTodos || "Atribuir a conta escolhida a todos os fornecedores desta programação. Não debita nada."}
                 aria-describedby="motivo-aplicar-a-todos"
-                className="rounded-lg border border-[#17352F]/15 px-3 py-2 text-xs font-medium text-[#17352F] hover:bg-[#E5EFEA] disabled:opacity-40"
+                className="rounded-lg border border-[var(--color-brand-navy)]/15 px-3 py-2 text-xs font-medium text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white)] disabled:opacity-40"
               >
                 Aplicar conta a todos
               </button>
@@ -216,7 +216,7 @@ export default function PainelExecucaoProgramacao({
               />
             ) : (
               disponiveis.length > 0 && (
-                <p className="mt-2 rounded-lg border border-dashed border-[#B98C55]/50 bg-[#FBF3EA] px-3 py-2 text-[11px] text-[#17352F]/80">
+                <p className="mt-2 rounded-lg border border-dashed border-[var(--color-brand-gold)]/50 bg-[#FBF3EA] px-3 py-2 text-[11px] text-[var(--color-brand-navy)]/80">
                   Nenhuma conta escolhida ainda. Clique na conta na lista acima: sem essa escolha, os dois botões de
                   atribuição em lote ficam desabilitados.
                 </p>
@@ -238,7 +238,7 @@ export default function PainelExecucaoProgramacao({
               <p
                 role="status"
                 className={`mt-1.5 rounded-lg px-3 py-2 text-[11px] ${
-                  resposta.ok === false ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"
+                  resposta.ok === false ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"
                 }`}
               >
                 {resposta.mensagem}
@@ -248,7 +248,7 @@ export default function PainelExecucaoProgramacao({
 
           <div className="max-h-[420px] overflow-y-auto border-t border-black/5">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-[#F5F3EC] text-[11px] uppercase tracking-wide text-[#17352F]/60">
+              <thead className="sticky top-0 bg-[var(--color-brand-off-white)] text-[11px] uppercase tracking-wide text-[var(--color-brand-navy)]/60">
                 <tr>
                   <th className="w-10 px-3 py-2">
                     <input
@@ -275,9 +275,9 @@ export default function PainelExecucaoProgramacao({
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <span className="block truncate text-[#17352F]">{nomePagamento?.(pagamento)}</span>
+                      <span className="block truncate text-[var(--color-brand-navy)]">{nomePagamento?.(pagamento)}</span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-medium text-[#17352F]">
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-medium text-[var(--color-brand-navy)]">
                       {formatBRL(pagamento.valor_a_pagar)}
                     </td>
                     <td className="px-3 py-2">
@@ -291,7 +291,7 @@ export default function PainelExecucaoProgramacao({
                         title={motivoIndividual || "Definir a conta deste pagamento. Não debita nada."}
                         aria-label={`Conta do pagamento de ${nomePagamento?.(pagamento) ?? "fornecedor"}`}
                         className={`w-full rounded-lg border px-2.5 py-1.5 text-xs disabled:bg-black/[0.03] ${
-                          pagamento.conta_origem_id ? "border-black/10 bg-white" : "border-[#B98C55]/50 bg-[#F5F3EC]"
+                          pagamento.conta_origem_id ? "border-black/10 bg-white" : "border-[var(--color-brand-gold)]/50 bg-[var(--color-brand-off-white)]"
                         }`}
                       >
                         <option value="">Definir conta...</option>
@@ -306,7 +306,7 @@ export default function PainelExecucaoProgramacao({
                 ))}
                 {pagamentos.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-xs text-[#17352F]/50">
+                    <td colSpan={4} className="px-3 py-6 text-center text-xs text-[var(--color-brand-navy)]/50">
                       Nenhum fornecedor nesta programação.
                     </td>
                   </tr>
@@ -328,12 +328,12 @@ export default function PainelExecucaoProgramacao({
           </div>
 
           {resumo.distribuicao.length > 0 && (
-            <ul className="space-y-1 px-4 pb-3 text-xs text-[#17352F]/75">
+            <ul className="space-y-1 px-4 pb-3 text-xs text-[var(--color-brand-navy)]/75">
               {resumo.distribuicao.map((item) => (
                 <li
                   key={item.contaId}
                   className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 ${
-                    item.acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#F5F3EC]"
+                    item.acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[var(--color-brand-off-white)]"
                   }`}
                 >
                   <span className="truncate">
@@ -377,7 +377,7 @@ export default function PainelExecucaoProgramacao({
             type="button"
             onClick={onTransferir}
             disabled={permissoes.executar_transferencia === false}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#17352F]/15 px-3 py-2 text-xs font-medium text-[#17352F] hover:bg-[#E5EFEA] disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-brand-navy)]/15 px-3 py-2 text-xs font-medium text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white)] disabled:opacity-40"
             title={
               permissoes.executar_transferencia === false
                 ? "Você não tem permissão para transferir entre contas."
@@ -387,17 +387,17 @@ export default function PainelExecucaoProgramacao({
             <ArrowLeftRight size={14} /> Transferir entre contas
           </button>
 
-          <h3 className="mt-3 text-xs font-semibold uppercase tracking-wide text-[#17352F]/60">
+          <h3 className="mt-3 text-xs font-semibold uppercase tracking-wide text-[var(--color-brand-navy)]/60">
             Transferências da programação
           </h3>
           {transferencias.length === 0 ? (
-            <p className="mt-2 text-xs text-[#17352F]/50">Nenhuma transferência registrada nesta programação.</p>
+            <p className="mt-2 text-xs text-[var(--color-brand-navy)]/50">Nenhuma transferência registrada nesta programação.</p>
           ) : (
             <ul className="mt-2 space-y-1.5">
               {transferencias.map((item) => (
                 <li key={item.id} className="rounded-lg border border-black/5 px-3 py-2 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[#17352F]">
+                    <span className="text-[var(--color-brand-navy)]">
                       <strong>{formatBRL(item.valor)}</strong> · {nomeDaConta(item.conta_origem_id)} →{" "}
                       {nomeDaConta(item.conta_destino_id)}
                     </span>
@@ -414,7 +414,7 @@ export default function PainelExecucaoProgramacao({
                       )}
                     </span>
                   </div>
-                  <p className="mt-1 text-[11px] text-[#17352F]/55">
+                  <p className="mt-1 text-[11px] text-[var(--color-brand-navy)]/55">
                     {new Date(item.criado_em).toLocaleString("pt-BR")} · {item.usuario_nome} · id {item.id}
                     {item.saldo_origem_antes != null && (
                       <>
@@ -429,7 +429,7 @@ export default function PainelExecucaoProgramacao({
                       </>
                     )}
                   </p>
-                  {item.observacao && <p className="mt-0.5 text-[11px] text-[#17352F]/55">{item.observacao}</p>}
+                  {item.observacao && <p className="mt-0.5 text-[11px] text-[var(--color-brand-navy)]/55">{item.observacao}</p>}
                   {item.motivo_estorno && (
                     <p className="mt-0.5 text-[11px] text-[#8A321C]">Motivo do estorno: {item.motivo_estorno}</p>
                   )}
@@ -437,7 +437,7 @@ export default function PainelExecucaoProgramacao({
               ))}
             </ul>
           )}
-          <p className="mt-2 text-[11px] text-[#17352F]/45">
+          <p className="mt-2 text-[11px] text-[var(--color-brand-navy)]/45">
             Transferência entre contas próprias não é despesa e não aparece em relatório de pagamento. Uma transferência
             efetivada não é excluída: ela é estornada, e as duas operações ficam no histórico.
           </p>
@@ -465,25 +465,25 @@ function CabecalhoRecolhivel({ aberta, onAlternar, id, icone, titulo, descricao,
       onClick={onAlternar}
       aria-expanded={aberta}
       aria-controls={id}
-      className="flex w-full flex-wrap items-start justify-between gap-3 px-4 py-3 text-left hover:bg-[#F5F3EC]"
+      className="flex w-full flex-wrap items-start justify-between gap-3 px-4 py-3 text-left hover:bg-[var(--color-brand-off-white)]"
     >
       <span>
-        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#17352F]">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-brand-navy)]">
           {icone} {titulo}
           {contador != null && contador > 0 && (
-            <span className="rounded-full bg-[#E5EFEA] px-2 py-0.5 text-[10px] font-medium text-[#17352F]">
+            <span className="rounded-full bg-[var(--color-brand-off-white)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-brand-navy)]">
               {contador}
             </span>
           )}
         </span>
-        <span className="mt-1 block text-[11px] text-[#17352F]/55">{descricao}</span>
+        <span className="mt-1 block text-[11px] text-[var(--color-brand-navy)]/55">{descricao}</span>
         {nota && (
-          <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[#17352F]/70">
+          <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--color-brand-navy)]/70">
             <Check size={12} className="shrink-0" /> {nota}
           </span>
         )}
       </span>
-      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[#17352F]/60">
+      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--color-brand-navy)]/60">
         {aberta ? (
           <>
             Recolher <ChevronUp size={14} />
@@ -503,10 +503,10 @@ function Etiqueta({ status }) {
     return <span className="rounded-full bg-[#FBE9DF] px-2 py-0.5 text-[10px] font-medium text-[#8A321C]">ESTORNADA</span>;
   }
   if (status === "estorno") {
-    return <span className="rounded-full bg-[#F5F3EC] px-2 py-0.5 text-[10px] font-medium text-[#B06A3C]">ESTORNO</span>;
+    return <span className="rounded-full bg-[var(--color-brand-off-white)] px-2 py-0.5 text-[10px] font-medium text-[#B06A3C]">ESTORNO</span>;
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[#E5EFEA] px-2 py-0.5 text-[10px] font-medium text-[#17352F]">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand-off-white)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-brand-navy)]">
       <Check size={10} /> CONFIRMADA
     </span>
   );
@@ -514,7 +514,7 @@ function Etiqueta({ status }) {
 
 function Tile({ rotulo, valor, destaque = false }) {
   return (
-    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[#17352F] text-white" : "bg-[#F5F3EC] text-[#17352F]"}`}>
+    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[var(--color-brand-navy)] text-white" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"}`}>
       <span className="text-[11px] uppercase tracking-wide opacity-70">{rotulo}</span>
       <strong className="block text-base">{valor}</strong>
     </div>

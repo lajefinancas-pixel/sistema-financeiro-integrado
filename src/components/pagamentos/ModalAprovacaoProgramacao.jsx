@@ -16,10 +16,10 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-black/5 px-5 py-4">
           <div>
-            <h2 className="font-semibold text-[#17352F]">Aprovar programação</h2>
-            <p className="mt-1 text-xs text-[#17352F]/55">{programacao?.nome_programacao || "Programação diária"}</p>
+            <h2 className="font-semibold text-[var(--color-brand-navy)]">Aprovar programação</h2>
+            <p className="mt-1 text-xs text-[var(--color-brand-navy)]/55">{programacao?.nome_programacao || "Programação diária"}</p>
           </div>
-          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[#17352F]/50 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[var(--color-brand-navy)]/50 hover:bg-black/5">
             <X size={18} />
           </button>
         </div>
@@ -34,7 +34,7 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
 
           <div
             className={`rounded-xl px-4 py-3 ${
-              resumo.restante < 0 ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"
+              resumo.restante < 0 ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"
             }`}
           >
             <span className="text-[11px] uppercase tracking-wide opacity-70">Restante</span>
@@ -42,7 +42,7 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
           </div>
 
           {resumo.contas?.length > 0 && (
-            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-black/5 p-2 text-xs text-[#17352F]/75">
+            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-black/5 p-2 text-xs text-[var(--color-brand-navy)]/75">
               {resumo.contas.map((conta) => (
                 <li key={conta.id} className="flex items-center justify-between gap-3">
                   <span className="truncate">
@@ -62,7 +62,7 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
             </div>
           )}
 
-          <p className="rounded-lg bg-[#F5F3EC] px-3 py-2.5 text-[11px] leading-relaxed text-[#17352F]/70">
+          <p className="rounded-lg bg-[var(--color-brand-off-white)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--color-brand-navy)]/70">
             <strong>Aprovar não é pagar.</strong> A aprovação não debita conta, não dá baixa em nota fiscal, não altera
             saldo de fornecedor e não marca nota como paga. Nenhum saldo se move nesta etapa: a programação passa para
             <em> aprovada / aguardando execução</em>.
@@ -70,14 +70,14 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-black/5 px-5 py-4">
-          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[#17352F]/70 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[var(--color-brand-navy)]/70 hover:bg-black/5">
             Cancelar
           </button>
           <button
             type="button"
             onClick={onConfirmar}
             disabled={salvando}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#17352F] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#17352F]/90 disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--color-brand-navy)]/90 disabled:opacity-40"
           >
             <Check size={16} />
             {salvando ? "Aprovando..." : "Confirmar aprovação"}
@@ -90,7 +90,7 @@ export default function ModalAprovacaoProgramacao({ resumo, programacao, salvand
 
 function Tile({ rotulo, valor, destaque = false }) {
   return (
-    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[#17352F] text-white" : "bg-[#F5F3EC] text-[#17352F]"}`}>
+    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[var(--color-brand-navy)] text-white" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"}`}>
       <span className="text-[11px] uppercase tracking-wide opacity-70">{rotulo}</span>
       <strong className="block text-lg">{valor}</strong>
     </div>

@@ -47,23 +47,23 @@ export default function ModalReaberturaProgramacao({
       <form onSubmit={confirmar} className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-black/5 px-5 py-4">
           <div>
-            <h2 className="inline-flex items-center gap-2 font-semibold text-[#17352F]">
+            <h2 className="inline-flex items-center gap-2 font-semibold text-[var(--color-brand-navy)]">
               <Unlock size={17} /> Reabrir programação
             </h2>
-            <p className="mt-1 text-xs text-[#17352F]/55">{programacao?.nome_programacao || "Programação diária"}</p>
+            <p className="mt-1 text-xs text-[var(--color-brand-navy)]/55">{programacao?.nome_programacao || "Programação diária"}</p>
           </div>
-          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[#17352F]/50 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[var(--color-brand-navy)]/50 hover:bg-black/5">
             <X size={18} />
           </button>
         </div>
 
         <div className="space-y-3 px-5 py-4">
-          <p className="rounded-lg bg-[#E5EFEA] px-3 py-2.5 text-[12px] leading-relaxed text-[#17352F]">
+          <p className="rounded-lg bg-[var(--color-brand-off-white)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--color-brand-navy)]">
             A programação <strong>volta para “em elaboração” e fica editável outra vez</strong>: contas, fornecedores e
             valores podem ser alterados, e depois ela precisa ser aprovada de novo para voltar a aguardar execução.
           </p>
 
-          <label className="block text-xs font-medium text-[#17352F]/70">
+          <label className="block text-xs font-medium text-[var(--color-brand-navy)]/70">
             Justificativa da reabertura <span className="text-[#8A321C]">(obrigatória)</span>
             <textarea
               value={justificativa}
@@ -73,7 +73,7 @@ export default function ModalReaberturaProgramacao({
               className="mt-1 w-full rounded-lg border border-black/10 px-3 py-2.5 text-sm"
               placeholder="Ex.: o gestor pediu a retirada de um fornecedor e o ajuste do valor de outro"
             />
-            <span className="mt-1 block text-[11px] text-[#17352F]/55">
+            <span className="mt-1 block text-[11px] text-[var(--color-brand-navy)]/55">
               {restam > 0
                 ? `Faltam ${restam} caractere(s) para o mínimo de ${JUSTIFICATIVA_MINIMA_REABERTURA}.`
                 : "Fica registrada na Auditoria, em nível crítico, com o seu nome e a data."}
@@ -90,7 +90,7 @@ export default function ModalReaberturaProgramacao({
             </div>
           ))}
 
-          <p className="rounded-lg bg-[#F5F3EC] px-3 py-2.5 text-[11px] leading-relaxed text-[#17352F]/70">
+          <p className="rounded-lg bg-[var(--color-brand-off-white)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--color-brand-navy)]/70">
             <strong>Reabrir não desfaz nada.</strong> Nenhum dado é apagado ou recalculado: contas de trabalho,
             fornecedores, valores, conta de cada pagamento, saldos congelados da programação, baixas registradas,
             transferências e os saldos reais das contas continuam como estão. A aprovação anterior <strong>não é
@@ -107,7 +107,7 @@ export default function ModalReaberturaProgramacao({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-black/5 px-5 py-4">
-          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[#17352F]/70 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[var(--color-brand-navy)]/70 hover:bg-black/5">
             Cancelar
           </button>
           <button

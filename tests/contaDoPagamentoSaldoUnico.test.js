@@ -340,7 +340,7 @@ test("os botões da atribuição mostram o motivo do bloqueio e a resposta da gr
   assert.match(painel, /Nenhuma conta escolhida ainda/);
   // A resposta da gravação aparece DENTRO da seção, junto do botão clicado.
   assert.match(painel, /\{resposta\?\.mensagem &&/);
-  assert.match(painel, /resposta\.ok === false \? "bg-\[#FBE9DF\] text-\[#8A321C\]" : "bg-\[#E5EFEA\] text-\[#17352F\]"/);
+  assert.match(painel, /resposta\.ok === false \? "bg-\[#FBE9DF\] text-\[#8A321C\]" : "bg-\[var\(--color-brand-off-white\)\] text-\[var\(--color-brand-navy\)\]"/);
   // Retorno possivelmente não-promessa não pode quebrar o clique.
   assert.match(painel, /Promise\.resolve\(onAplicarATodos\?\.\(Number\(contaEmLote\)\)\)\.then\(aoConcluir\)/);
   assert.match(painel, /Promise\.resolve\(onDefinirConta\?\.\(pagamento, e\.target\.value \? Number\(e\.target\.value\) : null\)\)\.then\(aoConcluir\)/);

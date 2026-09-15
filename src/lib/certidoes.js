@@ -267,6 +267,23 @@ export async function listarCertidoes() {
   return data ?? [];
 }
 
+/** Leitura recortada usada pelo atalho documental dentro de Processos. */
+export async function listarCertidoesDoFornecedor(fornecedorId) {
+  if (!fornecedorId) return [];
+  const vigentes = await filtroVigentes("certidoes");
+  const { data, error } = await vigentes(
+    supabase
+      .from("certidoes")
+      .select(COLUNAS_CERTIDAO)
+      .eq("fornecedor_id", fornecedorId)
+      .is("substituida_por", null)
+      .order("data_vencimento", { ascending: false, nullsFirst: false })
+      .order("data_emissao", { ascending: false }),
+  );
+  if (error) throw error;
+  return data ?? [];
+}
+
 /**
  * Monta a linha da certidão a partir do formulário.
  * O tipo manda no vencimento: tipo sem vencimento grava data nula e situação

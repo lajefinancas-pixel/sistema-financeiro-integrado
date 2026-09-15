@@ -6,6 +6,7 @@ import PaginaDiarias from "../components/processos/PaginaDiarias.jsx";
 import PaginaServicos from "../components/processos/PaginaServicos.jsx";
 import PaginaServidores from "../components/processos/PaginaServidores.jsx";
 import { usePermissoesProcessos } from "../lib/permissoesProcessos.js";
+import { usePermissaoModulo } from "../lib/permissoes.js";
 import { podeVerDiarias } from "../lib/processosDiarias.js";
 import { podeVerServicos } from "../lib/processosServicos.js";
 import { podeVerServidores } from "../lib/processosServidores.js";
@@ -53,6 +54,7 @@ export default function ModuloProcessos() {
   const { area: rota } = useParams();
   const { carregando, usuario, permissoes, permissoesServicos, permissoesServidores, erro } =
     usePermissoesProcessos();
+  const { permissao: permissaoCertidoes } = usePermissaoModulo("certidoes");
   const area = rota === undefined ? "diarias" : AREAS.includes(rota) ? rota : null;
 
   const [apoio, setApoio] = React.useState({
@@ -181,6 +183,7 @@ export default function ModuloProcessos() {
           <PaginaServicos
             permissoes={permissoesServicos}
             permissoesServidores={permissoesServidores}
+            podeVisualizarCertidoes={permissaoCertidoes?.pode_visualizar === true}
             fornecedores={apoio.fornecedores}
             solicitantes={apoio.solicitantes}
             secretarias={secretariasParaConsulta}

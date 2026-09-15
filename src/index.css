@@ -1,6 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --color-brand-navy: #0f2a44;
+  --color-brand-navy-strong: #0b2035;
+  --color-brand-gold: #c9a227;
+  --color-brand-off-white: #f5f3ec;
+  --color-brand-off-white-hover: #f2f0e8;
+}
 /* LISTAS ROLÁVEIS -- a lista de bancos é a que motivou isto.
    A lista mostrava os primeiros itens, cortava o próximo pela metade e não dava
    sinal de que havia mais; no toque do iPad a rolagem escapava para a página de

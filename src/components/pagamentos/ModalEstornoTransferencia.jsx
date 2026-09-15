@@ -41,21 +41,21 @@ export default function ModalEstornoTransferencia({ transferencia, nomeConta, on
       <form onSubmit={confirmar} className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-black/5 px-5 py-4">
           <div>
-            <h2 className="inline-flex items-center gap-2 font-semibold text-[#17352F]">
+            <h2 className="inline-flex items-center gap-2 font-semibold text-[var(--color-brand-navy)]">
               <RotateCcw size={17} /> Estornar transferência
             </h2>
-            <p className="mt-1 text-xs text-[#17352F]/55">
+            <p className="mt-1 text-xs text-[var(--color-brand-navy)]/55">
               {formatBRL(transferencia?.valor ?? 0)} · {nomeConta?.(transferencia?.conta_origem_id) || "origem"} →{" "}
               {nomeConta?.(transferencia?.conta_destino_id) || "destino"}
             </p>
           </div>
-          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[#17352F]/50 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[var(--color-brand-navy)]/50 hover:bg-black/5">
             <X size={18} />
           </button>
         </div>
 
         <div className="space-y-3 px-5 py-4">
-          <label className="block text-xs font-medium text-[#17352F]/70">
+          <label className="block text-xs font-medium text-[var(--color-brand-navy)]/70">
             Motivo do estorno
             <textarea
               value={motivo}
@@ -66,7 +66,7 @@ export default function ModalEstornoTransferencia({ transferencia, nomeConta, on
             />
           </label>
 
-          <p className="rounded-lg bg-[#F5F3EC] px-3 py-2.5 text-[11px] leading-relaxed text-[#17352F]/70">
+          <p className="rounded-lg bg-[var(--color-brand-off-white)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--color-brand-navy)]/70">
             O estorno lança o movimento contrário: a conta que recebeu devolve o valor e a conta de origem volta ao saldo
             anterior. A transferência original <strong>não é apagada</strong> — ela continua na razão, no Histórico e na
             Auditoria, agora marcada como estornada.
@@ -81,7 +81,7 @@ export default function ModalEstornoTransferencia({ transferencia, nomeConta, on
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-black/5 px-5 py-4">
-          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[#17352F]/70 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[var(--color-brand-navy)]/70 hover:bg-black/5">
             Cancelar
           </button>
           <button

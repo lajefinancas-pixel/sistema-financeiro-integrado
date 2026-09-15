@@ -1245,7 +1245,7 @@ export default function PagamentosRedesenhado() {
         <>
         {/* Imprimir com a edição aberta não pode sair sem nome: o papel leva o
             nome que está gravado. */}
-        <strong className="hidden text-[#17352F] print:block">{nomePagamento(pagamento)}</strong>
+        <strong className="hidden text-[var(--color-brand-navy)] print:block">{nomePagamento(pagamento)}</strong>
         <div className="flex flex-wrap items-center gap-1.5 print:hidden">
           <input
             autoFocus
@@ -1257,8 +1257,8 @@ export default function PagamentosRedesenhado() {
             aria-label={`Nome mostrado de ${nomePagamento(pagamento)} nesta programação`}
             className="min-w-[12rem] flex-1 rounded-lg border border-black/10 px-2 py-1 text-[13px]"
           />
-          <button onClick={() => salvarNomeExibicao(pagamento, indice)} disabled={salvando} className="rounded-lg bg-[#17352F] px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50">Salvar nome</button>
-          <button onClick={() => setNomeExibicaoEditando(null)} className="rounded-lg border border-black/15 px-2 py-1 text-[11px] font-semibold text-[#17352F]">Cancelar</button>
+          <button onClick={() => salvarNomeExibicao(pagamento, indice)} disabled={salvando} className="rounded-lg bg-[var(--color-brand-navy)] px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50">Salvar nome</button>
+          <button onClick={() => setNomeExibicaoEditando(null)} className="rounded-lg border border-black/15 px-2 py-1 text-[11px] font-semibold text-[var(--color-brand-navy)]">Cancelar</button>
         </div>
         </>
       );
@@ -1266,15 +1266,15 @@ export default function PagamentosRedesenhado() {
 
     return (
       <div className="flex items-start gap-1">
-        <strong className="min-w-0 flex-1 text-[#17352F]">
-          <NomeFornecedor pagamento={pagamento} classeSecundaria="text-[#17352F]/60" />
+        <strong className="min-w-0 flex-1 text-[var(--color-brand-navy)]">
+          <NomeFornecedor pagamento={pagamento} classeSecundaria="text-[var(--color-brand-navy)]/60" />
         </strong>
         {podeRenomearExibicao && (
           <button
             onClick={() => abrirNomeExibicao(pagamento, indice)}
             title="Editar o nome mostrado nesta programação"
             aria-label={`Editar o nome mostrado de ${nomePagamento(pagamento)} nesta programação`}
-            className="mt-0.5 shrink-0 rounded p-0.5 text-[#17352F]/35 hover:text-[#17352F] print:hidden"
+            className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--color-brand-navy)]/35 hover:text-[var(--color-brand-navy)] print:hidden"
           >
             <Pencil size={13} />
           </button>
@@ -1293,7 +1293,7 @@ export default function PagamentosRedesenhado() {
   function etiquetaDeOrigem(pagamento) {
     if (!itemTemOrigem(pagamento)) return null;
     return (
-      <small className="ml-1 text-[10px] text-[#17352F]/45" title="Origem do item. O pagamento continua vinculado ao fornecedor, e a baixa continua sendo por NF/processo.">
+      <small className="ml-1 text-[10px] text-[var(--color-brand-navy)]/45" title="Origem do item. O pagamento continua vinculado ao fornecedor, e a baixa continua sendo por NF/processo.">
         via {rotuloDaOrigem(pagamento.origem_tipo)}
       </small>
     );
@@ -1305,26 +1305,26 @@ export default function PagamentosRedesenhado() {
         {/* Faixa fina e sempre visível: os três totais de um lado, a impressão do
             outro. É desta tela que sai o papel levado ao gestor, então o botão de
             impressão não pode depender de rolagem. */}
-        <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[#17352F]/10 bg-[#F5F3EC]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[var(--color-brand-navy)]/10 bg-[var(--color-brand-off-white)]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
             <div className="grid min-w-[20rem] flex-1 gap-1.5 sm:grid-cols-3">
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[#17352F]">{textoSaldoDaProgramacao}</strong></div>
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/55">Total programado</span><strong className="text-[15px] font-bold tabular-nums text-[#17352F]">{formatBRL(totalProgramado)}</strong></div>
-              <div className={`flex items-baseline justify-between gap-2 rounded-lg px-2.5 py-1 ${acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[#E5EFEA] text-[#17352F]"}`}><span className="text-[9px] font-semibold uppercase tracking-[0.1em] opacity-70">Restante</span><strong className="text-[15px] font-bold tabular-nums">{textoRestante}</strong></div>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></div>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Total programado</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{formatBRL(totalProgramado)}</strong></div>
+              <div className={`flex items-baseline justify-between gap-2 rounded-lg px-2.5 py-1 ${acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"}`}><span className="text-[9px] font-semibold uppercase tracking-[0.1em] opacity-70">Restante</span><strong className="text-[15px] font-bold tabular-nums">{textoRestante}</strong></div>
             </div>
             {programacao && <div className="flex gap-1.5 print:hidden">
-              <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[#0F2823]"><Printer size={14}/> Imprimir programação para análise</button>
-              <button onClick={gerarPdf} className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F] hover:bg-[#F2F0E8]"><FileDown size={14}/> PDF</button>
-              <button onClick={exportarExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F] hover:bg-[#F2F0E8]"><FileSpreadsheet size={14}/> Excel</button>
+              <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[var(--color-brand-navy-strong)]"><Printer size={14}/> Imprimir programação para análise</button>
+              <button onClick={gerarPdf} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]"><FileDown size={14}/> PDF</button>
+              <button onClick={exportarExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]"><FileSpreadsheet size={14}/> Excel</button>
             </div>}
           </div>
           {acimaDoSaldo && <p className="mx-auto mt-1.5 max-w-[1500px] rounded-md bg-[#8A321C] px-2.5 py-1 text-center text-[11px] font-semibold text-white"><AlertTriangle size={12} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
         </div>
 
-        <div className="mb-3 grid gap-2 rounded-xl border border-[#17352F]/10 bg-white p-2.5 shadow-sm print:hidden lg:grid-cols-[1fr_12rem_auto] lg:items-end">
-          <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/60">Secretaria<select value={secretariaId} onChange={(evento) => setSecretariaId(evento.target.value)} className="mt-0.5 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal">{secretarias.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
-          <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#17352F]/60">Data<input type="date" value={data} onChange={(evento) => setData(evento.target.value)} className="mt-0.5 block w-full rounded-lg border border-black/10 px-2 py-1.5 text-[13px] font-normal"/></label>
-          <button onClick={criarProgramacao} disabled={!podeEditar || salvando} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"><Plus size={15}/> Nova programação</button>
+        <div className="mb-3 grid gap-2 rounded-xl border border-[var(--color-brand-navy)]/10 bg-white p-2.5 shadow-sm print:hidden lg:grid-cols-[1fr_12rem_auto] lg:items-end">
+          <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/60">Secretaria<select value={secretariaId} onChange={(evento) => setSecretariaId(evento.target.value)} className="mt-0.5 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal">{secretarias.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
+          <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/60">Data<input type="date" value={data} onChange={(evento) => setData(evento.target.value)} className="mt-0.5 block w-full rounded-lg border border-black/10 px-2 py-1.5 text-[13px] font-normal"/></label>
+          <button onClick={criarProgramacao} disabled={!podeEditar || salvando} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"><Plus size={15}/> Nova programação</button>
         </div>
 
         {estrutura && !estrutura.ok && <div className="mb-3 rounded-xl border border-[#8A321C]/25 bg-[#FBE9DF] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
@@ -1337,7 +1337,7 @@ export default function PagamentosRedesenhado() {
         {/* A tela funciona antes de a migration da Fase 2 rodar: o aviso diz o
             que falta e só a aprovação, a execução e a transferência ficam
             indisponíveis. Nada do planejamento é afetado. */}
-        {estruturaFase2 && !estruturaFase2.ok && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
+        {estruturaFase2 && !estruturaFase2.ok && <div className="mb-3 rounded-xl border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
           <p className="font-semibold"><AlertTriangle size={14} className="mr-1 inline"/> Estrutura da execução financeira (Fase 2) incompleta no banco conectado a esta tela</p>
           <p className="mt-1">Não existe no banco: <strong>{listaLegivel(estruturaFase2.faltando)}</strong>.</p>
           <p className="mt-1">Execute {MIGRATION_FASE_2} no SQL Editor do mesmo projeto Supabase usado pela aplicação e recarregue a página. A revisão, a impressão e o restante do planejamento continuam funcionando; apenas aprovar, executar e transferir ficam indisponíveis.</p>
@@ -1347,7 +1347,7 @@ export default function PagamentosRedesenhado() {
         {/* Registro de área esperando: a programação da data não existe, está
             aprovada ou está fechada. Nenhuma regra nova é inventada aqui -- o
             caminho continua sendo criar programação, trocar de data ou reabrir. */}
-        {avisoPendente && <div className="mb-3 flex flex-wrap items-start justify-between gap-2 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
+        {avisoPendente && <div className="mb-3 flex flex-wrap items-start justify-between gap-2 rounded-xl border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">
           <p className="min-w-[16rem] flex-1">{avisoPendente}</p>
           <button onClick={cancelarEnvioPendente} className="rounded-lg border border-[#8A321C]/30 px-2 py-1 text-[11px] font-semibold hover:bg-[#8A321C]/5">Cancelar envio</button>
         </div>}
@@ -1355,45 +1355,45 @@ export default function PagamentosRedesenhado() {
         {/* Só quem veio de uma área vê este aviso: sem as colunas de origem o
             item entra na programação do mesmo jeito, apenas sem guardar de qual
             registro ele nasceu. */}
-        {semColunasDeOrigem && (envioAnotado || envioPendente) && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">{AVISO_MIGRATION_ORIGEM}</div>}
+        {semColunasDeOrigem && (envioAnotado || envioPendente) && <div className="mb-3 rounded-xl border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">{AVISO_MIGRATION_ORIGEM}</div>}
 
         {(erro || mensagem) && <div className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={15}/></button></div>}
 
-        {carregando ? <p className="py-12 text-center text-[13px] text-[#17352F]/55">Carregando...</p> : <>
-          {programacoes.length > 0 && <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${String(programacaoId) === String(item.id) ? "border-[#17352F] bg-[#17352F] text-white" : "border-black/10 bg-white text-[#17352F]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
+        {carregando ? <p className="py-12 text-center text-[13px] text-[var(--color-brand-navy)]/55">Carregando...</p> : <>
+          {programacoes.length > 0 && <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${String(programacaoId) === String(item.id) ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white" : "border-black/10 bg-white text-[var(--color-brand-navy)]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
 
-          {!programacao ? <div className="rounded-xl border border-dashed border-[#17352F]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[#17352F]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[#17352F]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#17352F] px-3 py-2 text-white">
+          {!programacao ? <div className="rounded-xl border border-dashed border-[var(--color-brand-navy)]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[var(--color-brand-navy)]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[var(--color-brand-navy)]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--color-brand-navy)] px-3 py-2 text-white">
               <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
-              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#17352F] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B98C55] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Desfaz a aprovação e devolve a programação para edição. Não desfaz baixas, transferências nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
+              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-navy)] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-gold)] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Desfaz a aprovação e devolve a programação para edição. Não desfaz baixas, transferências nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
             </div>
 
             {/* Volta da reunião com o gestor: a MESMA programação é reaberta
                 para ajuste. Retirar da programação não é excluir fornecedor --
                 sai só desta programação, e cadastro, notas, processos,
                 histórico, dados de banco e certidões ficam intactos. */}
-            {emRevisao && <div className="mb-3 rounded-xl border border-[#B98C55]/40 bg-[#FBF3EA] px-3 py-2 print:hidden">
+            {emRevisao && <div className="mb-3 rounded-xl border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 print:hidden">
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A321C]">Revisão após a análise</p>
-              <p className="mt-1 text-[12px] text-[#17352F]">Acrescentar fornecedor, retirar fornecedor, alterar valor, acrescentar conta e retirar conta nesta mesma programação. Cada mudança recalcula na hora o saldo da programação, o total programado e o restante.</p>
-              <p className="mt-1 text-[11px] text-[#17352F]/70">Retirar da programação não é excluir fornecedor: sai apenas desta programação. O cadastro, as notas, os processos, o histórico, os dados de banco e PIX e as certidões continuam intactos.</p>
+              <p className="mt-1 text-[12px] text-[var(--color-brand-navy)]">Acrescentar fornecedor, retirar fornecedor, alterar valor, acrescentar conta e retirar conta nesta mesma programação. Cada mudança recalcula na hora o saldo da programação, o total programado e o restante.</p>
+              <p className="mt-1 text-[11px] text-[var(--color-brand-navy)]/70">Retirar da programação não é excluir fornecedor: sai apenas desta programação. O cadastro, as notas, os processos, o histórico, os dados de banco e PIX e as certidões continuam intactos.</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button onClick={alterarContas} disabled={!podeEditarProgramacao} className="rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8] disabled:opacity-50">REVISAR CONTAS</button>
-                <button onClick={alterarFornecedores} disabled={!podeEditarProgramacao} className="rounded-lg border border-[#17352F]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8] disabled:opacity-50">REVISAR FORNECEDORES</button>
+                <button onClick={alterarContas} disabled={!podeEditarProgramacao} className="rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)] disabled:opacity-50">REVISAR CONTAS</button>
+                <button onClick={alterarFornecedores} disabled={!podeEditarProgramacao} className="rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)] disabled:opacity-50">REVISAR FORNECEDORES</button>
               </div>
             </div>}
 
             <div className="grid gap-3 xl:grid-cols-[1.05fr_.95fr]">
-              <section className="overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm">
+              <section className="overflow-hidden rounded-xl border border-[var(--color-brand-navy)]/10 bg-white shadow-sm">
                 <div className="border-b border-black/5 px-3 py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">1.</span> Contas de trabalho</h2>
-                    <span className="text-[10px] text-[#17352F]/45 print:hidden">{contasConfirmadas ? "Confirmadas — seleção não movimenta saldo" : "Selecionar não movimenta saldo"}</span>
+                    <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)]"><span className="text-[#B06A3C]">1.</span> Contas de trabalho</h2>
+                    <span className="text-[10px] text-[var(--color-brand-navy)]/45 print:hidden">{contasConfirmadas ? "Confirmadas — seleção não movimenta saldo" : "Selecionar não movimenta saldo"}</span>
                   </div>
                   {/* A programação é documento: reaberta em outro dia, ela mostra
                       o saldo que estava na mesa quando foi montada. Este aviso
                       diz isso em palavras, para ninguém ler os valores como se
                       fossem os saldos de hoje. */}
-                  {avisoCongelado && <p className="mt-2 rounded-lg border border-[#B98C55]/40 bg-[#FBF3EA] px-2.5 py-1.5 text-[11px] leading-snug text-[#17352F]">{avisoCongelado}</p>}
+                  {avisoCongelado && <p className="mt-2 rounded-lg border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--color-brand-navy)]">{avisoCongelado}</p>}
                 </div>
 
                 {/* Lista completa: só enquanto a seleção não foi confirmada, e nunca no papel.
@@ -1415,22 +1415,22 @@ export default function PagamentosRedesenhado() {
                     className="rounded-none border-0"
                     vazio="Nenhuma conta cadastrada nesta secretaria."
                     acoes={
-                      <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.06em] text-[#17352F]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-3.5 w-3.5 accent-[#17352F]"/> Selecionar todas</label>
+                      <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)]"><input type="checkbox" checked={todasVisiveisMarcadas} onChange={selecionarTodas} className="h-3.5 w-3.5 accent-[var(--color-brand-navy)]"/> Selecionar todas</label>
                     }
                   />
                 </div>}
 
                 {/* Resumo do que foi escolhido: na tela quando confirmado, na impressão sempre. */}
                 <div className={contasConfirmadas ? "" : "hidden print:block"}>
-                  <div className="hidden grid-cols-[1.1fr_1fr_1fr_1.2fr] gap-2 border-b border-black/5 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[#17352F]/45 md:grid print:grid"><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>
-                  {contasSelecionadasComSaldo.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid items-center gap-0.5 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-2 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{saldoDaLinha(conta)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></div>)}
+                  <div className="hidden grid-cols-[1.1fr_1fr_1fr_1.2fr] gap-2 border-b border-black/5 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)]/45 md:grid print:grid"><span>Banco</span><span>Nº da conta</span><span>Saldo</span><span>Nome da conta</span></div>
+                  {contasSelecionadasComSaldo.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[var(--color-brand-navy)]/45">Nenhuma conta selecionada.</p> : contasSelecionadasComSaldo.map((conta) => <div key={conta.id} className="grid items-center gap-0.5 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 md:grid-cols-[1.1fr_1fr_1fr_1.2fr] md:gap-2 print:grid-cols-[1.1fr_1fr_1fr_1.2fr]"><span className="truncate">{conta.banco}</span><span className="truncate">{conta.numero_conta || "--"}</span><strong className="tabular-nums">{saldoDaLinha(conta)}</strong><span className="truncate">{conta.nome_conta || "--"}</span></div>)}
                 </div>
 
                 {/* Resumo sempre visível, FORA da área com rolagem: a contagem e o
                     SALDO DA PROGRAMAÇÃO, que continua sendo a soma exclusiva das
                     contas selecionadas. Marcar inclui, desmarcar retira; recolher
                     grupo e filtrar pela busca não mexem em nada disto. */}
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">
                   <span>{rotuloContasSelecionadas(contasSelecionadas.size)} — SALDO DA PROGRAMAÇÃO: {textoSaldoDaProgramacao}</span>
                   <button type="button" onClick={() => setVerSelecionadas((valor) => !valor)} aria-expanded={verSelecionadas} className="inline-flex items-center gap-1 rounded-lg border border-white/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-white hover:bg-white/10 print:hidden">
                     {verSelecionadas ? <ChevronUp size={12}/> : <ChevronDown size={12}/>} Ver contas selecionadas
@@ -1440,44 +1440,44 @@ export default function PagamentosRedesenhado() {
                 {/* Conferência do que está marcado, sem procurar na lista: as contas
                     vêm da seleção inteira, mesmo as de grupo recolhido ou fora do
                     filtro da busca. É leitura — não desmarca e não altera saldo. */}
-                {verSelecionadas && <div className="border-b border-black/5 bg-[#F5F3EC]/60 px-3 py-2 print:hidden">
-                  {contasSelecionadasComSaldo.length === 0 ? <p className="py-2 text-center text-[12px] text-[#17352F]/55">Nenhuma conta selecionada até agora.</p> : <ul className="max-h-[180px] space-y-1 overflow-y-auto overscroll-contain">
-                    {contasSelecionadasComSaldo.map((conta) => <li key={conta.id} className="grid gap-x-2 gap-y-0.5 rounded-lg bg-white px-2.5 py-1.5 text-[12px] leading-tight text-[#17352F] sm:grid-cols-[1fr_.8fr_1.2fr_1fr_auto] sm:items-center">
+                {verSelecionadas && <div className="border-b border-black/5 bg-[var(--color-brand-off-white)]/60 px-3 py-2 print:hidden">
+                  {contasSelecionadasComSaldo.length === 0 ? <p className="py-2 text-center text-[12px] text-[var(--color-brand-navy)]/55">Nenhuma conta selecionada até agora.</p> : <ul className="max-h-[180px] space-y-1 overflow-y-auto overscroll-contain">
+                    {contasSelecionadasComSaldo.map((conta) => <li key={conta.id} className="grid gap-x-2 gap-y-0.5 rounded-lg bg-white px-2.5 py-1.5 text-[12px] leading-tight text-[var(--color-brand-navy)] sm:grid-cols-[1fr_.8fr_1.2fr_1fr_auto] sm:items-center">
                       <span className="truncate">{conta.banco || "--"}</span>
                       <span className="truncate tabular-nums">{conta.numero_conta || "--"}</span>
                       <span className="truncate font-semibold">{conta.nome_conta || "--"}</span>
-                      <span className="truncate text-[11px] text-[#17352F]/55">{conta.secretaria || "--"}</span>
+                      <span className="truncate text-[11px] text-[var(--color-brand-navy)]/55">{conta.secretaria || "--"}</span>
                       <strong className="tabular-nums sm:justify-self-end">{saldoDaLinha(conta)}</strong>
                     </li>)}
                   </ul>}
                 </div>}
 
-                <div className="flex justify-end border-t border-black/5 px-3 py-2 print:hidden">{contasConfirmadas ? <button onClick={alterarContas} className="rounded-lg border border-[#17352F]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8]">ALTERAR CONTAS</button> : <button onClick={confirmarContas} disabled={contasSelecionadas.size === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white disabled:opacity-40"><Check size={13}/> CONFIRMAR CONTAS</button>}</div>
+                <div className="flex justify-end border-t border-black/5 px-3 py-2 print:hidden">{contasConfirmadas ? <button onClick={alterarContas} className="rounded-lg border border-[var(--color-brand-navy)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]">ALTERAR CONTAS</button> : <button onClick={confirmarContas} disabled={contasSelecionadas.size === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white disabled:opacity-40"><Check size={13}/> CONFIRMAR CONTAS</button>}</div>
               </section>
 
-              <section className="overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm">
+              <section className="overflow-hidden rounded-xl border border-[var(--color-brand-navy)]/10 bg-white shadow-sm">
                 <div className="border-b border-black/5 px-3 py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">2.</span> Proposta</h2>
-                    <span className="text-[10px] text-[#17352F]/45 print:hidden">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Ordem alfabética"}</span>
+                    <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)]"><span className="text-[#B06A3C]">2.</span> Proposta</h2>
+                    <span className="text-[10px] text-[var(--color-brand-navy)]/45 print:hidden">{fornecedoresConfirmados ? "Fornecedores confirmados" : "Ordem alfabética"}</span>
                   </div>
-                  {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#17352F]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar por nome, apelido, razão social ou CNPJ/CPF" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
+                  {!fornecedoresConfirmados && <div className="relative mt-3 print:hidden"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-brand-navy)]/40"/><input value={buscaFornecedor} onChange={(evento) => setBuscaFornecedor(evento.target.value)} placeholder="Buscar por nome, apelido, razão social ou CNPJ/CPF" className="w-full rounded-lg border border-black/10 py-1.5 pl-8 pr-2 text-[13px]"/></div>}
                 </div>
 
                 {/* Lista completa, em ordem alfabética pelo nome exibido -- o
                     mesmo nome que aparece na linha. O valor em aberto continua
                     ao lado de cada fornecedor, só não manda mais na posição. */}
-                {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[1.6rem_1fr_auto] items-center gap-2 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 ${marcado ? "bg-[#E8F0EC]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-3.5 w-3.5 accent-[#17352F]"/><span className="min-w-0 font-medium text-[#17352F]"><NomeFornecedor fornecedor={fornecedor} classeSecundaria="text-[#17352F]/60"/></span><span className={fornecedor.valor_em_aberto > 0 ? "font-bold tabular-nums text-[#B05D31]" : "text-[#17352F]/40"}>{formatBRL(fornecedor.valor_em_aberto)}</span></label>; })}</div>}
+                {!fornecedoresConfirmados && <div className="max-h-[330px] overflow-y-auto print:hidden">{fornecedoresFiltrados.map((fornecedor) => { const marcado = idsSelecionados.has(String(fornecedor.id)); return <label key={fornecedor.id} className={`grid cursor-pointer grid-cols-[1.6rem_1fr_auto] items-center gap-2 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 ${marcado ? "bg-[var(--color-brand-off-white)]" : "hover:bg-[#FAF9F5]"}`}><input type="checkbox" checked={marcado} onChange={() => alternarFornecedor(fornecedor)} className="h-3.5 w-3.5 accent-[var(--color-brand-navy)]"/><span className="min-w-0 font-medium text-[var(--color-brand-navy)]"><NomeFornecedor fornecedor={fornecedor} classeSecundaria="text-[var(--color-brand-navy)]/60"/></span><span className={fornecedor.valor_em_aberto > 0 ? "font-bold tabular-nums text-[#B05D31]" : "text-[var(--color-brand-navy)]/40"}>{formatBRL(fornecedor.valor_em_aberto)}</span></label>; })}</div>}
 
                 {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
                 <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
-                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[#17352F]/45">Nenhum fornecedor escolhido.</p> : pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
-                  <div className="bg-[#17352F] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
+                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[var(--color-brand-navy)]/45">Nenhum fornecedor escolhido.</p> : pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[var(--color-brand-navy)] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
+                  <div className="bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
                 </div>
 
                 <div className="border-t border-black/5 p-2.5 print:hidden">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><button onClick={() => setMostrarAvulso((valor) => !valor)} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#A5542F]"><Plus size={14}/> Adicionar fornecedor avulso</button>{fornecedoresConfirmados ? <button onClick={alterarFornecedores} className="rounded-lg border border-[#17352F]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17352F] hover:bg-[#F2F0E8]">ALTERAR FORNECEDORES</button> : <button onClick={confirmarFornecedores} disabled={pagamentos.length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[#17352F] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white disabled:opacity-40"><Check size={13}/> CONFIRMAR FORNECEDORES</button>}</div>
-                  {mostrarAvulso && <div className="mt-2 grid gap-2 rounded-lg bg-[#FBF3EA] p-2 sm:grid-cols-[1fr_9rem_auto]"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome" className="rounded-lg border border-black/10 px-2 py-1.5 text-[13px]"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="rounded-lg border border-black/10 px-2 py-1.5 text-right text-[13px]"/><button onClick={adicionarAvulso} className="rounded-lg bg-[#A5542F] px-3 py-1.5 text-[13px] font-semibold text-white">Adicionar</button><label className="flex items-center gap-2 text-[11px] text-[#17352F]/65 sm:col-span-3"><input type="checkbox" checked={avulso.cadastrarDepois} onChange={(evento) => setAvulso({ ...avulso, cadastrarDepois: evento.target.checked })} className="h-3.5 w-3.5"/> Cadastrar posteriormente como fornecedor</label></div>}
+                  <div className="flex flex-wrap items-center justify-between gap-2"><button onClick={() => setMostrarAvulso((valor) => !valor)} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#A5542F]"><Plus size={14}/> Adicionar fornecedor avulso</button>{fornecedoresConfirmados ? <button onClick={alterarFornecedores} className="rounded-lg border border-[var(--color-brand-navy)]/25 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]">ALTERAR FORNECEDORES</button> : <button onClick={confirmarFornecedores} disabled={pagamentos.length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white disabled:opacity-40"><Check size={13}/> CONFIRMAR FORNECEDORES</button>}</div>
+                  {mostrarAvulso && <div className="mt-2 grid gap-2 rounded-lg bg-[#FBF3EA] p-2 sm:grid-cols-[1fr_9rem_auto]"><input value={avulso.nome} onChange={(evento) => setAvulso({ ...avulso, nome: evento.target.value })} placeholder="Nome" className="rounded-lg border border-black/10 px-2 py-1.5 text-[13px]"/><CampoMoeda valor={avulso.valor} onValorChange={(valor) => setAvulso({ ...avulso, valor })} className="rounded-lg border border-black/10 px-2 py-1.5 text-right text-[13px]"/><button onClick={adicionarAvulso} className="rounded-lg bg-[#A5542F] px-3 py-1.5 text-[13px] font-semibold text-white">Adicionar</button><label className="flex items-center gap-2 text-[11px] text-[var(--color-brand-navy)]/65 sm:col-span-3"><input type="checkbox" checked={avulso.cadastrarDepois} onChange={(evento) => setAvulso({ ...avulso, cadastrarDepois: evento.target.checked })} className="h-3.5 w-3.5"/> Cadastrar posteriormente como fornecedor</label></div>}
                 </div>
               </section>
             </div>
@@ -1485,9 +1485,9 @@ export default function PagamentosRedesenhado() {
             {/* Bloco 3 é o detalhamento de quem já está escolhido enquanto a lista
                 está aberta. Depois de confirmar, o valor editável passa a ficar no
                 próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
-            {!fornecedoresConfirmados && <section className="mt-3 overflow-hidden rounded-xl border border-[#17352F]/10 bg-white shadow-sm print:hidden">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[#17352F]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[#17352F]/45">Valor editável, pode ser menor que o aberto</span></div>
-              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[#17352F]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[#17352F]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
+            {!fornecedoresConfirmados && <section className="mt-3 overflow-hidden rounded-xl border border-[var(--color-brand-navy)]/10 bg-white shadow-sm print:hidden">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 px-3 py-2"><h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)]"><span className="text-[#B06A3C]">3.</span> Valores</h2><span className="text-[10px] text-[var(--color-brand-navy)]/45">Valor editável, pode ser menor que o aberto</span></div>
+              {pagamentos.length === 0 ? <p className="px-3 py-6 text-center text-[13px] text-[var(--color-brand-navy)]/45">Selecione fornecedores ou adicione um avulso.</p> : <div>{pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a programar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[var(--color-brand-navy)]"/><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}</div>}
             </section>}
 
             {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma
