@@ -89,6 +89,7 @@ import { prefeitaVigente } from "../../lib/processosPrefeita.js";
 export default function PaginaServicos({
   permissoes = {},
   permissoesServidores = {},
+  podeVisualizarCertidoes = false,
   fornecedores = [],
   // ⚠️ O cadastro PRÓPRIO do módulo: quem REQUISITA. `secretarias` é a lista de
   // CONSULTA (solicitantes + as do financeiro, só leitura), usada para resolver
@@ -651,6 +652,7 @@ export default function PaginaServicos({
           bancos={bancos}
           servidores={podeVerServidores(permissoesServidores) ? servidores : []}
           permissoes={permissoes}
+          podeVisualizarCertidoes={podeVisualizarCertidoes}
           salvando={salvando}
           erro={erroForm}
           ultimoSalvamento={ultimoSalvamento}

@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowDown, ArrowUp, Check, Eye, FileCheck2, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, Download, ExternalLink, Eye, FileCheck2, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda.jsx";
 import {
   ATESTADOS,
@@ -43,6 +43,8 @@ import {
 } from "../../lib/processosServicosDados.js";
 import { listarFormasPagamento } from "../../lib/dadosPagamentoFornecedor.js";
 import { formatBRL } from "../../lib/moeda.js";
+import { formatarData, listarCertidoesDoFornecedor, situacaoEfetiva, urlDeDownload } from "../../lib/certidoes.js";
+import { somenteVigentes } from "../../lib/certidoesRegras.js";
 import {
   complementoDoFornecedor,
   nomeExibicaoDoFornecedor,
@@ -163,6 +165,7 @@ export default function ModalProcessoServico({
   // segue funcionando com o preenchimento à mão.
   servidores = [],
   permissoes = {},
+  podeVisualizarCertidoes = false,
   salvando = false,
   erro = null,
   ultimoSalvamento = null,
@@ -190,6 +193,9 @@ export default function ModalProcessoServico({
   const [formasPagamento, setFormasPagamento] = React.useState([]);
   const [notas, setNotas] = React.useState([]);
   const [carregandoNotas, setCarregandoNotas] = React.useState(false);
+  const [certidoes, setCertidoes] = React.useState([]);
+  const [carregandoCertidoes, setCarregandoCertidoes] = React.useState(false);
+  const [erroCertidoes, setErroCertidoes] = React.useState("");
 
   const criado = Boolean(processo?.id);
   const rascunho = (formulario.situacao ?? "rascunho") === "rascunho";
@@ -271,6 +277,32 @@ export default function ModalProcessoServico({
       vivo = false;
     };
   }, [fornecedorId]);
+
+  React.useEffect(() => {
+    if (!podeVisualizarCertidoes || !fornecedorId) {
+      setCertidoes([]);
+      setErroCertidoes("");
+      return undefined;
+    }
+    let vivo = true;
+    setCarregandoCertidoes(true);
+    setErroCertidoes("");
+    listarCertidoesDoFornecedor(fornecedorId)
+      .then((lista) => { if (vivo) setCertidoes(lista); })
+      .catch(() => { if (vivo) { setCertidoes([]); setErroCertidoes("Não foi possível consultar as certidões agora."); } })
+      .finally(() => { if (vivo) setCarregandoCertidoes(false); });
+    return () => { vivo = false; };
+  }, [fornecedorId, podeVisualizarCertidoes]);
+
+  const certidoesVigentes = React.useMemo(() => somenteVigentes(certidoes), [certidoes]);
+  const certidoesVencidas = React.useMemo(
+    () => certidoesVigentes.filter((item) => situacaoEfetiva(item) === "vencida"),
+    [certidoesVigentes],
+  );
+  const certidoesValidas = React.useMemo(
+    () => certidoesVigentes.filter((item) => ["valida", "a_vencer", "sem_vencimento"].includes(situacaoEfetiva(item))),
+    [certidoesVigentes],
+  );
 
   /**
    * SALVAMENTO AUTOMÁTICO. Grava sozinho pouco depois de a pessoa parar de
@@ -632,6 +664,11 @@ export default function ModalProcessoServico({
       setAviso("Salve o rascunho primeiro: é nele que o número do processo é emitido.");
       return;
     }
+    if (podeVisualizarCertidoes && certidoesVencidas.length > 0) {
+      const nomes = certidoesVencidas.map((item) => item.tipos_certidao?.nome || "Certidão").join(", ");
+      const continuar = window.confirm(`Atenção: o fornecedor tem certidão vencida (${nomes}). Deseja finalizar o processo mesmo assim?`);
+      if (!continuar) return;
+    }
     const ok = comImpressao
       ? await onFinalizarEImprimir?.(formulario)
       : await onFinalizar?.(formulario);
@@ -785,6 +822,12 @@ export default function ModalProcessoServico({
               onBuscaFornecedor={setBuscaFornecedor}
               onPuxarFornecedor={puxarFornecedor}
               onSoltarFornecedor={soltarFornecedor}
+              podeVisualizarCertidoes={podeVisualizarCertidoes}
+              certidoesValidas={certidoesValidas}
+              certidoesVencidas={certidoesVencidas}
+              totalCertidoes={certidoes.length}
+              carregandoCertidoes={carregandoCertidoes}
+              erroCertidoes={erroCertidoes}
               opcoesDePagamento={opcoesDePagamento}
               escolhaDePagamentoNecessaria={escolhaDePagamentoNecessaria}
               onEscolherFormaDePagamento={escolherFormaDePagamento}
@@ -1546,6 +1589,12 @@ function SecaoLiquidacao({
   onBuscaFornecedor,
   onPuxarFornecedor,
   onSoltarFornecedor,
+  podeVisualizarCertidoes = false,
+  certidoesValidas = [],
+  certidoesVencidas = [],
+  totalCertidoes = 0,
+  carregandoCertidoes = false,
+  erroCertidoes = "",
   opcoesDePagamento = [],
   escolhaDePagamentoNecessaria = false,
   onEscolherFormaDePagamento,
@@ -1715,6 +1764,17 @@ function SecaoLiquidacao({
           />
         </div>
       </Bloco>
+
+      {podeVisualizarCertidoes && formulario.fornecedor_id && (
+        <CertidoesDoFornecedor
+          fornecedorId={formulario.fornecedor_id}
+          validas={certidoesValidas}
+          vencidas={certidoesVencidas}
+          total={totalCertidoes}
+          carregando={carregandoCertidoes}
+          erro={erroCertidoes}
+        />
+      )}
 
       {/* Mais de uma conta ou mais de um PIX: a escolha é de quem monta o
           documento, e não do cadastro. Escolher o fornecedor já preencheu a
@@ -1916,5 +1976,65 @@ function SecaoLiquidacao({
         />
       </Bloco>
     </>
+  );
+}
+
+function CertidoesDoFornecedor({ fornecedorId, validas, vencidas, total, carregando, erro }) {
+  function baixarTodas() {
+    validas.filter((item) => item.arquivo_url).forEach((item, indice) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = urlDeDownload(item.arquivo_url);
+        link.download = "";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, indice * 180);
+    });
+  }
+
+  const comArquivo = validas.filter((item) => item.arquivo_url);
+  return (
+    <Bloco
+      titulo="Certidões do fornecedor"
+      apoio="Consulta ao cadastro de Certidões. Os documentos são baixados separadamente e não entram no PDF do processo."
+    >
+      {vencidas.length > 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span><strong>Há certidão vencida:</strong> {vencidas.map((item) => `${item.tipos_certidao?.nome || "Certidão"} (${formatarData(item.data_vencimento)})`).join(", ")}.</span>
+        </div>
+      )}
+      {carregando ? (
+        <p className="text-xs text-[#0F2A44]/55">Consultando certidões...</p>
+      ) : erro ? (
+        <p className="text-xs text-red-700">{erro}</p>
+      ) : total === 0 ? (
+        <p className="rounded-lg bg-[#F8FAFC] px-3 py-2.5 text-xs text-[#0F2A44]/65">Nenhuma certidão cadastrada para este fornecedor.</p>
+      ) : validas.length === 0 ? (
+        <p className="rounded-lg bg-[#F8FAFC] px-3 py-2.5 text-xs text-[#0F2A44]/65">Nenhuma certidão válida disponível. Consulte o aviso de vencimento acima.</p>
+      ) : (
+        <ul className="divide-y divide-black/5 rounded-lg border border-black/10">
+          {validas.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[#0F2A44]">{item.tipos_certidao?.nome || "Certidão"}</p>
+                <p className="text-[11px] text-[#0F2A44]/50">{item.data_vencimento ? `Vence em ${formatarData(item.data_vencimento)}` : "Sem vencimento"}</p>
+              </div>
+              {item.arquivo_url ? (
+                <div className="flex shrink-0 gap-1">
+                  <a href={item.arquivo_url} target="_blank" rel="noreferrer" title="Abrir certidão" className="rounded-lg border border-black/10 p-2 text-[#0F2A44]/70 hover:bg-black/5"><Eye size={15} /></a>
+                  <a href={urlDeDownload(item.arquivo_url)} title="Baixar certidão" className="rounded-lg border border-black/10 p-2 text-[#0F2A44]/70 hover:bg-black/5"><Download size={15} /></a>
+                </div>
+              ) : <span className="text-[11px] text-[#0F2A44]/45">Sem arquivo</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={baixarTodas} disabled={comArquivo.length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0F2A44] px-3 py-2 text-xs font-medium text-white disabled:opacity-40"><Download size={14} /> Baixar certidões</button>
+        <a href={`/certidoes?fornecedor=${encodeURIComponent(fornecedorId)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-[#0F2A44]/20 px-3 py-2 text-xs font-medium text-[#0F2A44] hover:bg-black/5"><ExternalLink size={14} /> Ver histórico no módulo Certidões</a>
+      </div>
+    </Bloco>
   );
 }

@@ -93,15 +93,15 @@ export default function ModalTransferenciaEntreContas({
       >
         <div className="flex shrink-0 items-start justify-between border-b border-black/5 bg-white px-5 py-4">
           <div>
-            <h2 className="inline-flex items-center gap-2 font-semibold text-[#17352F]">
+            <h2 className="inline-flex items-center gap-2 font-semibold text-[var(--color-brand-navy)]">
               <ArrowLeftRight size={17} /> Transferir entre contas
             </h2>
-            <p className="mt-1 text-xs text-[#17352F]/55">
+            <p className="mt-1 text-xs text-[var(--color-brand-navy)]/55">
               Transferência entre contas próprias não é despesa: a origem debita, o destino credita e o patrimônio total
               permanece igual.
             </p>
           </div>
-          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[#17352F]/50 hover:bg-black/5">
+          <button type="button" onClick={onFechar} className="rounded-lg p-2 text-[var(--color-brand-navy)]/50 hover:bg-black/5">
             <X size={18} />
           </button>
         </div>
@@ -113,7 +113,7 @@ export default function ModalTransferenciaEntreContas({
           {avisoSaldo ? <p className="rounded-lg border border-[#B8860B]/25 bg-[#FFF8E1] px-3 py-2 text-xs text-[#7A5B00]">
             {avisoSaldo}
           </p> : null}
-          <div className="block text-xs font-medium text-[#17352F]/70">
+          <div className="block text-xs font-medium text-[var(--color-brand-navy)]/70">
             Conta de destino
             {/* Contas já cadastradas, agrupadas por Secretaria e com busca por
                 número, nome, banco, agência ou secretaria. Aqui não se cadastra
@@ -139,20 +139,20 @@ export default function ModalTransferenciaEntreContas({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-[#17352F]/70">Contas de origem</span>
+              <span className="text-xs font-medium text-[var(--color-brand-navy)]/70">Contas de origem</span>
               <button
                 type="button"
                 onClick={() => setLinhas((atual) => [...atual, { contaId: "", valor: "" }])}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#17352F]/15 px-2.5 py-1.5 text-[11px] font-medium text-[#17352F] hover:bg-[#E5EFEA]"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)]/15 px-2.5 py-1.5 text-[11px] font-medium text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white)]"
               >
                 <Plus size={13} /> Acrescentar origem
               </button>
             </div>
 
             {conferencia.linhas.map((linha, indice) => (
-              <div key={indice} className="rounded-xl border border-black/5 bg-[#F5F3EC]/60 p-3">
+              <div key={indice} className="rounded-xl border border-black/5 bg-[var(--color-brand-off-white)]/60 p-3">
                 <div className="grid gap-2 sm:grid-cols-[1fr_170px_auto] sm:items-end">
-                  <div className="text-[11px] font-medium text-[#17352F]/60">
+                  <div className="text-[11px] font-medium text-[var(--color-brand-navy)]/60">
                     Conta de origem
                     <SeletorContas
                       className="mt-1"
@@ -164,7 +164,7 @@ export default function ModalTransferenciaEntreContas({
                       vazio="Nenhuma outra conta disponível como origem."
                     />
                   </div>
-                  <label className="text-[11px] font-medium text-[#17352F]/60">
+                  <label className="text-[11px] font-medium text-[var(--color-brand-navy)]/60">
                     Valor
                     <CampoMoeda
                       valor={linhas[indice].valor}
@@ -195,7 +195,7 @@ export default function ModalTransferenciaEntreContas({
             ))}
           </div>
 
-          <label className="block text-xs font-medium text-[#17352F]/70">
+          <label className="block text-xs font-medium text-[var(--color-brand-navy)]/70">
             Observação (opcional)
             <input
               value={observacao}
@@ -211,7 +211,7 @@ export default function ModalTransferenciaEntreContas({
             <Tile rotulo="Saldo do destino depois" valor={formatBRL(conferencia.saldoDestinoDepois)} />
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-[#E5EFEA] px-4 py-2.5 text-[11px] text-[#17352F]/75">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--color-brand-off-white)] px-4 py-2.5 text-[11px] text-[var(--color-brand-navy)]/75">
             <span>Soma das contas envolvidas antes: {formatBRL(conferencia.patrimonioAntes)}</span>
             <span>Depois: {formatBRL(conferencia.patrimonioDepois)}</span>
           </div>
@@ -225,17 +225,17 @@ export default function ModalTransferenciaEntreContas({
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-black/5 bg-white px-5 py-4">
-          <span className="text-[11px] text-[#17352F]/45">
+          <span className="text-[11px] text-[var(--color-brand-navy)]/45">
             Esta transferência tem identificador único: confirmar duas vezes não a executa duas vezes.
           </span>
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[#17352F]/70 hover:bg-black/5">
+            <button type="button" onClick={onFechar} className="rounded-lg px-4 py-2.5 text-sm text-[var(--color-brand-navy)]/70 hover:bg-black/5">
               Cancelar
             </button>
             <button
               type="submit"
               disabled={salvando || !conferencia.podeConfirmar}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#17352F] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#17352F]/90 disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--color-brand-navy)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--color-brand-navy)]/90 disabled:opacity-40"
             >
               <ArrowLeftRight size={16} />
               {salvando ? "Confirmando..." : "Confirmar transferência"}
@@ -249,7 +249,7 @@ export default function ModalTransferenciaEntreContas({
 
 function Tile({ rotulo, valor, destaque = false }) {
   return (
-    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[#17352F] text-white" : "bg-[#F5F3EC] text-[#17352F]"}`}>
+    <div className={`rounded-xl px-4 py-3 ${destaque ? "bg-[var(--color-brand-navy)] text-white" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"}`}>
       <span className="text-[11px] uppercase tracking-wide opacity-70">{rotulo}</span>
       <strong className="block text-base">{valor}</strong>
     </div>

@@ -122,9 +122,16 @@ export default function Certidoes() {
   }));
   const [ordenacao, setOrdenacao] = React.useState(ORDENACAO_PADRAO);
   // Visão da listagem: linha a linha ou com as certidões reunidas por fornecedor.
-  const [agrupado, setAgrupado] = React.useState(false);
+  const fornecedorPedido = parametros.get("fornecedor");
+  const [agrupado, setAgrupado] = React.useState(Boolean(fornecedorPedido));
   // Fornecedor escolhido na listagem: mostra só as certidões dele, agrupadas.
-  const [fornecedorFoco, setFornecedorFoco] = React.useState(null);
+  const [fornecedorFoco, setFornecedorFoco] = React.useState(fornecedorPedido);
+
+  React.useEffect(() => {
+    if (!fornecedorPedido) return;
+    setAgrupado(true);
+    setFornecedorFoco(fornecedorPedido);
+  }, [fornecedorPedido]);
 
   // Chegar de novo com outro atalho na URL (sem sair da tela) reaplica o
   // recorte pedido. Filtro pedido pela pessoa na tela não é sobrescrito: o
