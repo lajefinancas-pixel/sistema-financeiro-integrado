@@ -13,6 +13,7 @@ import {
 } from "./relacaoValoresDocumento";
 import { imprimirDocumentoHtml } from "./impressaoNavegador";
 import { colunasPorCabecalho, formatBRL, formatBRLSimples, marcarColunasDeMoeda, paraNumeroMoeda } from "./moeda";
+import { COR_IMPRESSAO as COR, TINTA_IMPRESSAO as TINTA } from "./paletaImpressao.js";
 
 // Impressão, PDF e planilha da Central de Relatórios.
 //
@@ -39,8 +40,8 @@ import { colunasPorCabecalho, formatBRL, formatBRLSimples, marcarColunasDeMoeda,
 // relatório, período, filtros, data e hora da geração, emissor) e a numeração de
 // páginas.
 
-const COR_NAVY = [15, 42, 68];
-const COR_CINZA = [90, 107, 124];
+const COR_NAVY = TINTA.navy;
+const COR_CINZA = TINTA.apoio;
 
 function esc(v) {
   return String(v ?? "")
@@ -277,12 +278,12 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, m
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; color: #0F2A44; font-size: ${faixa.fonte}px; line-height: 1.3;
+    margin: 0; color: ${COR.navy}; font-size: ${faixa.fonte}px; line-height: 1.3;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .cabecalho {
-    border-bottom: 1.5px solid #0F2A44; padding-bottom: 3px; margin-bottom: ${faixa.gap}px;
+    border-bottom: 1.5px solid ${COR.navy}; padding-bottom: 3px; margin-bottom: ${faixa.gap}px;
   }
   .cabecalho .topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .cabecalho .instituicao {
@@ -315,14 +316,14 @@ export function montarHtmlRelatorio({ titulo, subtitulo, resultado, cabecalho, m
   .right { text-align: right; }
   td.valor { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .linha-titulo th {
-    background: #EEF1F5; color: #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
+    background: ${COR.faixa}; color: ${COR.navy}; font-weight: 700; font-size: ${faixa.fonte + 1}px;
     text-transform: uppercase; border-bottom: 0; padding: ${faixa.pad}px 5px;
   }
-  .linha-titulo th:first-child { border-left: 3px solid #0F2A44; }
-  tfoot td { border-top: 1.2px solid #0F2A44; border-bottom: 0; font-weight: 700; }
+  .linha-titulo th:first-child { border-left: 3px solid ${COR.navy}; }
+  tfoot td { border-top: 1.2px solid ${COR.navy}; border-bottom: 0; font-weight: 700; }
   .rodape {
     margin-top: ${faixa.gap}px; padding-top: 3px; display: flex; justify-content: space-between;
-    border-top: 1.5px solid #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
+    border-top: 1.5px solid ${COR.navy}; font-weight: 700; font-size: ${faixa.fonte + 1}px;
   }
 </style>
 </head>
@@ -544,7 +545,7 @@ export function gerarPdfRelatorio({
         // Na impressão detalhada o texto quebra em várias linhas em vez de ser cortado.
         overflow: formato.quebrarTexto ? "linebreak" : "ellipsize",
       },
-      headStyles: { fillColor: [238, 241, 245], textColor: COR_NAVY, fontStyle: "bold" },
+      headStyles: { fillColor: TINTA.faixa, textColor: COR_NAVY, fontStyle: "bold" },
       footStyles: { fillColor: [255, 255, 255], textColor: COR_NAVY, fontStyle: "bold" },
       columnStyles: estilosDeColuna,
       // O cabeçalho repete no topo de cada página, então nunca fica órfão da tabela.
