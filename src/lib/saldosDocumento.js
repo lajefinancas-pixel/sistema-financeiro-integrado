@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatBRL } from "./moeda";
+import { COR_IMPRESSAO as COR, TINTA_IMPRESSAO as TINTA } from "./paletaImpressao.js";
 
 // Documento compartilhado de impressão e PDF da página de Saldos das Contas.
 // A ordem das colunas é fixa e definitiva: Banco | Número da Conta | Saldo | Nome da Conta
@@ -104,13 +105,13 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   @page { size: A4 portrait; margin: 8mm 9mm; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; color: #0F2A44; font-size: ${faixa.fonte}px; line-height: 1.3;
+    margin: 0; color: ${COR.navy}; font-size: ${faixa.fonte}px; line-height: 1.3;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .cabecalho {
     display: flex; align-items: flex-end; justify-content: space-between;
-    border-bottom: 1.5px solid #0F2A44; padding-bottom: 3px; margin-bottom: ${faixa.gap}px;
+    border-bottom: 1.5px solid ${COR.navy}; padding-bottom: 3px; margin-bottom: ${faixa.gap}px;
   }
   .cabecalho h1 { margin: 0; font-size: ${faixa.fonte + 3}px; font-weight: 600; }
   .cabecalho .quando { font-size: ${faixa.fonte}px; color: #44586C; }
@@ -136,13 +137,13 @@ function documentoHtml({ titulo, subtitulo, secoes, faixa, mostrarTotalGeral }) 
   td.saldo { font-weight: 700; font-variant-numeric: tabular-nums; }
   /* Faixa com o nome da secretaria: mesmo visual da versão anterior, agora dentro da tabela. */
   .linha-titulo th {
-    background: #EEF1F5; color: #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
+    background: ${COR.faixa}; color: ${COR.navy}; font-weight: 700; font-size: ${faixa.fonte + 1}px;
     text-transform: uppercase; border-bottom: 0; padding: ${faixa.pad}px 5px;
   }
-  .linha-titulo th:first-child { border-left: 3px solid #0F2A44; }
+  .linha-titulo th:first-child { border-left: 3px solid ${COR.navy}; }
   .total-geral {
     margin-top: ${faixa.gap}px; padding-top: 3px; text-align: right;
-    border-top: 1.5px solid #0F2A44; font-weight: 700; font-size: ${faixa.fonte + 1}px;
+    border-top: 1.5px solid ${COR.navy}; font-weight: 700; font-size: ${faixa.fonte + 1}px;
   }
 </style>
 </head>
@@ -265,10 +266,10 @@ export function gerarPdfSaldos({ titulo, subtitulo, secoes, arquivo, maxPaginas 
         cellPadding: faixa.pad,
         lineColor: [225, 229, 234],
         lineWidth: 0.4,
-        textColor: [15, 42, 68],
+        textColor: TINTA.navy,
         overflow: "ellipsize",
       },
-      headStyles: { fillColor: [238, 241, 245], textColor: [15, 42, 68], fontStyle: "bold" },
+      headStyles: { fillColor: TINTA.faixa, textColor: TINTA.navy, fontStyle: "bold" },
       columnStyles: {
         0: { cellWidth: larguraUtil * 0.28 },
         1: { cellWidth: larguraUtil * 0.2 },

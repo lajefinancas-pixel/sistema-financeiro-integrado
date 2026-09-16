@@ -439,14 +439,14 @@ test("documento sai com a identidade visual do sistema: brasão, órgão, lema e
   assert.match(documento, /aria-label="Brasão da Secretaria de Finanças"/);
   assert.match(documento, /GESTÃO QUE TRANSFORMA/);
   // Cabeçalho de tabela na cor institucional, com texto claro, e faixas alternadas.
-  assert.match(documento, /th \{[^}]*background: #17352F; color: #fff;/);
-  assert.match(documento, /tbody tr:nth-child\(even\) td \{ background: #E5EFEA; \}/);
+  assert.match(documento, /th \{[^}]*background: #0F2A44; color: #FFFFFF;/);
+  assert.match(documento, /tbody tr:nth-child\(even\) td \{ background: #F5F3EC; \}/);
   // Quadro do saldo restante na cor institucional.
-  assert.match(documento, /\.destaque td \{ border: 0; background: #17352F; color: #fff; \}/);
+  assert.match(documento, /\.destaque td \{ border: 0; background: #0F2A44; color: #FFFFFF; \}/);
   // As cores são as que o sistema já usa: nada de paleta nova.
   const cores = new Set((documento.match(/#[0-9A-Fa-f]{6}/g) ?? []).map((cor) => cor.toUpperCase()));
   for (const cor of cores) {
-    assert.ok(["#17352F", "#E5EFEA", "#D5DBDA", "#607671", "#0F2A44", "#C9A227", "#FBFAF7"].includes(cor), "cor fora da paleta do sistema: " + cor);
+    assert.ok(["#0F2A44", "#C9A227", "#F5F3EC", "#D8D5CC", "#5A6B7E", "#FFFFFF", "#FBFAF7"].includes(cor), "cor fora da paleta do sistema: " + cor);
   }
 });
 

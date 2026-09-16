@@ -34,28 +34,14 @@
 
 import { BRASAO_ARQUIVO, BRASAO_SVG, normalizarIdentidade } from "./processosIdentidade.js";
 import { cpfFormatado } from "./processosServidores.js";
+import { COR_IMPRESSAO, TINTA_IMPRESSAO } from "./paletaImpressao.js";
 
 /* -------------------------------------------------------------------------
  * 1. Paleta, medidas e município
  * ---------------------------------------------------------------------- */
 
-export const COR = {
-  navy: "#0F2A44",
-  ouro: "#C9A227",
-  faixa: "#EEF2F7",
-  linha: "#C8D2DE",
-  apoio: "#5A6B7E",
-};
-
-export const TINTA = {
-  navy: [15, 42, 68],
-  ouro: [201, 162, 39],
-  faixa: [238, 242, 247],
-  linha: [200, 210, 222],
-  apoio: [90, 107, 126],
-  branco: [255, 255, 255],
-  papel: [251, 250, 247],
-};
+export const COR = COR_IMPRESSAO;
+export const TINTA = TINTA_IMPRESSAO;
 
 // A4 retrato. A margem de baixo é maior porque o rodapé institucional tem três
 // linhas: endereço com CEP, contato e CNPJ.

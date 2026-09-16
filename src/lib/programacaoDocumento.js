@@ -3,6 +3,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { formatBRL, formatBRLSimples, marcarCelulasDeMoeda } from "./moeda.js";
 import { ALTURA, PAGINA, alturaDoSaldoRestante, montarPaginas } from "./programacaoPaginacao.js";
+import { COR_IMPRESSAO as COR, TINTA_IMPRESSAO as TINTA } from "./paletaImpressao.js";
 
 // Documento da Programação Diária de Pagamentos -- o papel que vai à mesa do
 // gestor. Não é a tela impressa: é um documento com layout próprio, A4 retrato,
@@ -33,27 +34,6 @@ export const COLUNAS_PAGAMENTOS = ["FORNECEDOR", "VALOR"];
 export const IDENTIDADE = {
   orgao: "SECRETARIA DE FINANÇAS",
   lema: "GESTÃO QUE TRANSFORMA",
-};
-
-// Cores institucionais já em uso no sistema: o verde-escuro da tela de
-// Pagamentos Diários, o ouro do brasão e a faixa clara do mesmo verde.
-const COR = {
-  verde: "#17352F",
-  ouro: "#C9A227",
-  faixa: "#E5EFEA",
-  linha: "#D5DBDA",
-  apoio: "#607671",
-};
-
-const TINTA = {
-  verde: [23, 53, 47],
-  ouro: [201, 162, 39],
-  navy: [15, 42, 68],
-  branco: [255, 255, 255],
-  faixa: [229, 239, 234],
-  linha: [213, 219, 218],
-  apoio: [96, 118, 113],
-  papel: [251, 250, 247],
 };
 
 // Proporção das duas colunas dos pagamentos propostos. O somatório e o quadro do
@@ -177,12 +157,12 @@ function estilos() {
     @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
-    body { color: ${COR.verde}; font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; line-height: 1.25;
+    body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; line-height: 1.25;
       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .folha { position: relative; width: ${PAGINA.largura}mm; height: ${PAGINA.altura}mm; overflow: hidden;
       padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase}mm; page-break-after: always; break-after: page; }
     .folha:last-child { page-break-after: auto; break-after: auto; }
-    .cabecalho { height: ${ALTURA.cabecalhoInicial}mm; overflow: hidden; border-bottom: 1.6pt solid ${COR.verde}; }
+    .cabecalho { height: ${ALTURA.cabecalhoInicial}mm; overflow: hidden; border-bottom: 1.6pt solid ${COR.navy}; }
     .cabecalho.seguinte { height: ${ALTURA.cabecalhoContinuacao}mm; border-bottom-width: .8pt; }
     .marca { display: flex; align-items: center; gap: 4mm; }
     .marca svg { display: block; flex: 0 0 auto; }
@@ -194,16 +174,16 @@ function estilos() {
     .cabecalho.seguinte h1 { margin: .4mm 0 0; font-size: 9pt; }
     .identificacao { display: flex; justify-content: space-between; gap: 6mm; margin-top: 1.8mm; font-size: 7.5pt; color: ${COR.apoio}; }
     .identificacao span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .identificacao strong { color: ${COR.verde}; }
+    .identificacao strong { color: ${COR.navy}; }
     .continuacao { margin-left: auto; text-align: right; font-size: 7pt; color: ${COR.apoio}; }
-    h2 { margin: 0; height: ${ALTURA.tituloBloco}mm; padding-top: 3mm; color: ${COR.verde}; font-size: 8pt;
+    h2 { margin: 0; height: ${ALTURA.tituloBloco}mm; padding-top: 3mm; color: ${COR.navy}; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead { display: table-header-group; }
     th, td { border: .5pt solid ${COR.linha}; padding: 0 2mm; text-align: left; vertical-align: middle;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    th { height: ${ALTURA.linhaCabecalho}mm; background: ${COR.verde}; color: #fff; font-size: 6.8pt;
-      font-weight: bold; letter-spacing: .06em; text-transform: uppercase; border-color: ${COR.verde}; }
+    th { height: ${ALTURA.linhaCabecalho}mm; background: ${COR.navy}; color: ${COR.branco}; font-size: 6.8pt;
+      font-weight: bold; letter-spacing: .06em; text-transform: uppercase; border-color: ${COR.navy}; }
     /* Faixas alternadas suaves: o olho não perde a linha ao atravessar a folha. */
     tbody tr:nth-child(even) td { background: ${COR.faixa}; }
     .valor { text-align: right; font-variant-numeric: tabular-nums; }
@@ -218,12 +198,12 @@ function estilos() {
       border: .5pt solid ${COR.linha}; border-top: 0; background: ${COR.faixa}; padding: 0 2mm; font-size: 8pt; font-weight: bold; }
     /* Somatório da coluna VALOR: linha de fechamento logo abaixo do último
        fornecedor, na mesma coluna dos valores. */
-    .somatorio td { height: ${ALTURA.totalProgramado}mm; border: 0; border-top: 1pt solid ${COR.verde}; background: #fff; }
+    .somatorio td { height: ${ALTURA.totalProgramado}mm; border: 0; border-top: 1pt solid ${COR.navy}; background: #fff; }
     .somatorio .rotulo { text-align: right; font-size: 8pt; font-weight: bold; letter-spacing: .06em; text-transform: uppercase; }
     .somatorio .valor { font-size: 10.5pt; font-weight: bold; }
     /* Saldo restante: é o número que o gestor mais olha, então ganha o quadro na
        cor institucional e o corpo maior do documento. */
-    .destaque td { border: 0; background: ${COR.verde}; color: #fff; }
+    .destaque td { border: 0; background: ${COR.navy}; color: ${COR.branco}; }
     .destaque .rotulo { height: ${ALTURA.saldoRestante}mm; text-align: right; font-size: 8.5pt; font-weight: bold;
       letter-spacing: .1em; text-transform: uppercase; }
     .destaque .valor { height: ${ALTURA.saldoRestante}mm; font-size: 15pt; font-weight: bold; }
@@ -362,7 +342,7 @@ export function gerarPdfProgramacao(entrada) {
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(primeira ? 8.5 : 7);
-    pdf.setTextColor(...TINTA.verde);
+    pdf.setTextColor(...TINTA.navy);
     pdf.text(IDENTIDADE.orgao, textoX, topo + (primeira ? 4.6 : 3.6));
 
     if (primeira) {
@@ -373,7 +353,7 @@ export function gerarPdfProgramacao(entrada) {
 
     pdf.setFont("times", "bold");
     pdf.setFontSize(primeira ? 13 : 9);
-    pdf.setTextColor(...TINTA.verde);
+    pdf.setTextColor(...TINTA.navy);
     pdf.text(dados.titulo, textoX, topo + (primeira ? 12.6 : 7.6));
 
     pdf.setFont("helvetica", "normal");
@@ -389,7 +369,7 @@ export function gerarPdfProgramacao(entrada) {
       pdf.text(`Programação de ${texto(dados.data)}`, largura - margem, topo + 7.6, { align: "right" });
     }
 
-    pdf.setDrawColor(...TINTA.verde);
+    pdf.setDrawColor(...TINTA.navy);
     pdf.setLineWidth(primeira ? 0.6 : 0.3);
     const regua = (primeira ? inicioPrimeira : inicioSeguinte) - 1.5;
     pdf.line(margem, regua, largura - margem, regua);
@@ -398,7 +378,7 @@ export function gerarPdfProgramacao(entrada) {
   const tituloSecao = (rotulo, y) => {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(8);
-    pdf.setTextColor(...TINTA.verde);
+    pdf.setTextColor(...TINTA.navy);
     pdf.text(rotulo, margem, y + 5);
     return y + ALTURA.tituloBloco;
   };
@@ -414,9 +394,9 @@ export function gerarPdfProgramacao(entrada) {
 
   const estiloTabela = {
     theme: "grid",
-    styles: { font: "helvetica", fontSize: 7.5, cellPadding: { top: 1, right: 1.6, bottom: 1, left: 1.6 }, textColor: TINTA.verde, lineColor: TINTA.linha, lineWidth: 0.2, overflow: "ellipsize" },
+    styles: { font: "helvetica", fontSize: 7.5, cellPadding: { top: 1, right: 1.6, bottom: 1, left: 1.6 }, textColor: TINTA.navy, lineColor: TINTA.linha, lineWidth: 0.2, overflow: "ellipsize" },
     // Cabeçalho de tabela na cor institucional, com texto claro.
-    headStyles: { fillColor: TINTA.verde, textColor: TINTA.branco, fontStyle: "bold", fontSize: 6.8, lineColor: TINTA.verde },
+    headStyles: { fillColor: TINTA.navy, textColor: TINTA.branco, fontStyle: "bold", fontSize: 6.8, lineColor: TINTA.navy },
     // Faixas alternadas suaves nas linhas.
     alternateRowStyles: { fillColor: TINTA.faixa },
     showHead: "everyPage",
@@ -449,7 +429,7 @@ export function gerarPdfProgramacao(entrada) {
   pdf.rect(margem, y, util, ALTURA.totalContas, "FD");
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(8);
-  pdf.setTextColor(...TINTA.verde);
+  pdf.setTextColor(...TINTA.navy);
   pdf.text(`TOTAL DAS CONTAS: ${moedaSimples(dados.totalContas)}`, largura - margem - 2, y + 4.4, { align: "right" });
   y += ALTURA.totalContas;
 
@@ -475,18 +455,18 @@ export function gerarPdfProgramacao(entrada) {
   y = espacoOuPagina(pdf.lastAutoTable.finalY, ALTURA.totalProgramado + alturaSaldo);
   const inicioValor = largura - margem - util * LARGURA_VALOR;
 
-  pdf.setDrawColor(...TINTA.verde);
+  pdf.setDrawColor(...TINTA.navy);
   pdf.setLineWidth(0.4);
   pdf.line(margem, y, largura - margem, y);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(8);
-  pdf.setTextColor(...TINTA.verde);
+  pdf.setTextColor(...TINTA.navy);
   pdf.text("TOTAL PROGRAMADO:", inicioValor - 2, y + 5, { align: "right" });
   pdf.setFontSize(10.5);
   pdf.text(formatBRLSimples(dados.totalProgramado), largura - margem - 1.6, y + 5.2, { align: "right" });
   y += ALTURA.totalProgramado;
 
-  pdf.setFillColor(...TINTA.verde);
+  pdf.setFillColor(...TINTA.navy);
   pdf.rect(margem, y, util, alturaSaldo, "F");
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(8.5);

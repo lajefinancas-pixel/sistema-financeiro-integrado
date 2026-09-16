@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { agoraBR } from "./saldosDocumento";
 import { imprimirDocumentoHtml } from "./impressaoNavegador";
 import { formatBRL, formatBRLSimples, marcarCelulasDeMoeda } from "./moeda";
+import { COR_IMPRESSAO as COR, TINTA_IMPRESSAO as TINTA } from "./paletaImpressao.js";
 
 // Impressão, PDF e planilha da RELAÇÃO DE VALORES.
 //
@@ -22,8 +23,8 @@ import { formatBRL, formatBRLSimples, marcarCelulasDeMoeda } from "./moeda";
 //
 // Retrato sempre: com duas colunas não existe motivo para deitar a folha.
 
-const COR_NAVY = [15, 42, 68];
-const COR_CINZA = [90, 107, 124];
+const COR_NAVY = TINTA.navy;
+const COR_CINZA = TINTA.apoio;
 
 function esc(v) {
   return String(v ?? "")
@@ -89,11 +90,11 @@ export function montarHtmlRelacaoDeValores({ relacao, geradoEm } = {}) {
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; color: #0F2A44; font-size: 11px; line-height: 1.3;
+    margin: 0; color: ${COR.navy}; font-size: 11px; line-height: 1.3;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  header { border-bottom: 1.5px solid #0F2A44; padding-bottom: 4px; margin-bottom: 8px; }
+  header { border-bottom: 1.5px solid ${COR.navy}; padding-bottom: 4px; margin-bottom: 8px; }
   header h1 { margin: 0; font-size: 15px; font-weight: 700; }
   header .emissao { margin-top: 2px; color: #5A6B7C; font-size: 9.5px; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -111,7 +112,7 @@ export function montarHtmlRelacaoDeValores({ relacao, geradoEm } = {}) {
   }
   td.valor { font-weight: 700; font-variant-numeric: tabular-nums; }
   tfoot td {
-    border-top: 1.5px solid #0F2A44; border-bottom: 0; font-weight: 700;
+    border-top: 1.5px solid ${COR.navy}; border-bottom: 0; font-weight: 700;
     font-size: 13px; padding-top: 5px; text-transform: uppercase;
   }
 </style>
@@ -213,7 +214,7 @@ export function gerarPdfRelacaoDeValores({ relacao, arquivo, geradoEm } = {}) {
       textColor: COR_NAVY,
       overflow: "ellipsize",
     },
-    headStyles: { fillColor: [238, 241, 245], textColor: COR_NAVY, fontStyle: "bold" },
+    headStyles: { fillColor: TINTA.faixa, textColor: COR_NAVY, fontStyle: "bold" },
     footStyles: { fillColor: [255, 255, 255], textColor: COR_NAVY, fontStyle: "bold", fontSize: fonte + 2 },
     columnStyles: {
       0: { cellWidth: larguraUtil * 0.7, halign: "left" },
