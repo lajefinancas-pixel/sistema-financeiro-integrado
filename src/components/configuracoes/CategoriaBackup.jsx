@@ -43,7 +43,7 @@ import { registrarEvento } from "../../lib/auditoria";
  * backups_log, ou é uma estimativa declarada como tal.
  */
 const TEXTO_INFRAESTRUTURA =
-  "A geração do arquivo de backup propriamente dito depende de uma função de backend (Edge Function do Supabase), a ser configurada em uma etapa técnica separada — só ela tem a credencial de serviço necessária, que nunca pode ficar no navegador. Nesta etapa, \"Gerar Backup Agora\" registra a execução no sistema e apura um tamanho aproximado, medindo o volume real de registros do banco.";
+  "Os backups são gerados no servidor, com a credencial de serviço protegida. O arquivo compactado fica em armazenamento privado e o download manual usa um link temporário.";
 
 /** Etiqueta colorida de tipo/situação. */
 function Etiqueta({ info, comSimbolo }) {
@@ -551,6 +551,14 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
     try {
       const resultado = await gerarBackupManual({ usuarioId });
 
+      const link = document.createElement("a");
+      link.href = resultado.downloadUrl;
+      link.download = resultado.arquivoNome;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
       // Backup é ação administrativa relevante: fica na trilha, como as demais.
       const falhaAuditoria = await registrarEvento({
         modulo: "administracao",
@@ -567,7 +575,7 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
       if (falhaAuditoria) setAviso(falhaAuditoria);
 
       setSucesso(
-        `Backup manual registrado como concluído. Tamanho aproximado: ${formatarTamanho(resultado.tamanhoBytes)}. ${resultado.detalhe}`
+        `Backup concluído e download iniciado. Tamanho real: ${formatarTamanho(resultado.tamanhoBytes)}. ${resultado.detalhe}`
       );
       if (resultado.parcial) {
         setAviso(
@@ -722,10 +730,8 @@ export default function CategoriaBackup({ podeEditar, usuarioId }) {
             </div>
 
             <p className="text-xs text-[#0F2A44]/55 leading-relaxed">
-              O agendamento acima é informativo: a execução da rotina é responsabilidade da
-              infraestrutura do banco de dados e será ligada na etapa técnica que criar a função de
-              backup no backend. Enquanto ela não rodar, "Último backup automático" continua vazio —
-              a tela não preenche esse campo com uma data que não aconteceu.
+              A rotina chama a mesma função segura usada no backup manual. Cada execução às 02:00
+              registra no histórico o resultado real, inclusive quando ocorrer uma falha.
             </p>
 
             {!podeAdministrar && (

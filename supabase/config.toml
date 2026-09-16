@@ -1,0 +1,3 @@
+[functions.gerar-backup]
+verify_jwt = false
+

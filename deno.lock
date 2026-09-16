@@ -12,6 +12,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@dnd-kit/core@^6.3.1",
+        "npm:@electric-sql/pglite@~0.2.17",
         "npm:@netlify/database@2",
         "npm:@netlify/functions@6",
         "npm:@supabase/supabase-js@^2.45.0",
