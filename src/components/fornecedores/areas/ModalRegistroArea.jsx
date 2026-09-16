@@ -3,6 +3,8 @@ import { Search, X } from "lucide-react";
 import CampoMoeda from "../../CampoMoeda.jsx";
 import {
   SITUACOES_AREA,
+  avisoDeRegistroExistente,
+  registrosDoFornecedor,
   registroParaFormulario,
   registroVazio,
   validarRegistro,
@@ -31,14 +33,19 @@ export default function ModalRegistroArea({
   registro = null,
   fornecedores = [],
   secretarias = [],
+  registros = [],
+  fornecedorInicial = "",
   salvando = false,
   erro = null,
   onFechar,
   onSalvar,
+  onVerRegistrosDoFornecedor,
 }) {
   const editando = Boolean(registro?.id);
   const [formulario, setFormulario] = React.useState(() =>
-    editando ? registroParaFormulario(area, registro) : registroVazio(area),
+    editando
+      ? registroParaFormulario(area, registro)
+      : { ...registroVazio(area), fornecedor_id: String(fornecedorInicial ?? "") },
   );
   const [buscaFornecedor, setBuscaFornecedor] = React.useState("");
   const [aviso, setAviso] = React.useState(null);
@@ -52,6 +59,12 @@ export default function ModalRegistroArea({
     if (buscaFornecedor.trim() === "") return [];
     return filtrarFornecedoresPorTermo(fornecedores, buscaFornecedor).slice(0, 30);
   }, [fornecedores, buscaFornecedor]);
+
+  const existentes = React.useMemo(
+    () => (editando ? [] : registrosDoFornecedor(registros, formulario.fornecedor_id)),
+    [editando, registros, formulario.fornecedor_id],
+  );
+  const avisoExistente = avisoDeRegistroExistente(area, existentes.length);
 
   function definir(chave, valor) {
     setAviso(null);
@@ -177,7 +190,20 @@ export default function ModalRegistroArea({
             )}
           </div>
 
-          {/* Passo 2: os campos próprios da área. */}
+          {avisoExistente && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+              <span>{avisoExistente} Você ainda pode cadastrar outro.</span>
+              <button
+                type="button"
+                onClick={() => onVerRegistrosDoFornecedor?.(formulario.fornecedor_id)}
+                className="font-medium underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-700"
+              >
+                {existentes.length === 1 ? "Ver registro" : "Ver registros"}
+              </button>
+            </div>
+          )}
+
+          {/* Campos próprios da área, no mesmo formulário da escolha do fornecedor. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {area.campos.map((campo) => (
               <CampoDaArea

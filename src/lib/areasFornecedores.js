@@ -549,6 +549,27 @@ export function ordenarRegistros(area, registros = []) {
   });
 }
 
+/**
+ * Registros ativos de um fornecedor na área atual. Esta função existe para a
+ * experiência de cadastro: Patrocínios e Aluguéis avisam sobre vínculos já
+ * existentes, mas a lista nunca é usada para bloquear uma nova inclusão.
+ */
+export function registrosDoFornecedor(registros = [], fornecedorId = "") {
+  const id = textoLimpo(fornecedorId);
+  if (id === "") return [];
+  return (registros ?? []).filter(
+    (registro) => registro?.ativo !== false && String(registro?.fornecedor_id ?? "") === id,
+  );
+}
+
+/** Bandas mantêm a experiência de múltiplas contratações sem aviso. */
+export function avisoDeRegistroExistente(area, quantidade = 0) {
+  const total = Number(quantidade) || 0;
+  if (area?.id === "bandas" || total < 1) return "";
+  const unidade = total === 1 ? area.singular : area.rotulo.toLowerCase();
+  return `Este fornecedor já tem ${total} ${unidade} ${total === 1 ? "cadastrado" : "cadastrados"}.`;
+}
+
 /* -------------------------------------------------------------------------
  * O formulário
  * ---------------------------------------------------------------------- */

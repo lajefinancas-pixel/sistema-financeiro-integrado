@@ -15,6 +15,8 @@ import {
   filtrosVazios,
   registroParaBanco,
   registroParaFormulario,
+  registrosDoFornecedor,
+  avisoDeRegistroExistente,
   registroVazio,
   resolverPermissoesAreas,
   resumoFinanceiroDoRegistro,
@@ -259,6 +261,26 @@ test("o mesmo fornecedor tem dois patrocínios, um aluguel e três bandas sem du
       assert.ok(!(chave in linha), `o registro não pode gravar ${chave}`);
     }
   }
+});
+
+test("aluguéis e patrocínios avisam sem bloquear um segundo registro; bandas não mudam", () => {
+  const [patrocinios, alugueis, bandas] = AREAS;
+  const lista = [
+    registro(patrocinios),
+    registro(patrocinios, { id: "inativo", ativo: false }),
+    registro(patrocinios, { id: "outro", fornecedor_id: 99 }),
+  ];
+
+  assert.equal(registrosDoFornecedor(lista, FORNECEDOR.id).length, 1);
+  assert.equal(avisoDeRegistroExistente(alugueis, 1), "Este fornecedor já tem 1 aluguel cadastrado.");
+  assert.equal(avisoDeRegistroExistente(patrocinios, 2), "Este fornecedor já tem 2 patrocínios cadastrados.");
+  assert.equal(avisoDeRegistroExistente(bandas, 3), "");
+
+  // O aviso é apenas informativo: a validação e a montagem de um novo registro
+  // continuam aceitando o mesmo fornecedor.
+  const segundo = { ...registroVazio(alugueis), fornecedor_id: String(FORNECEDOR.id), descricao: "Segundo imóvel" };
+  assert.equal(validarRegistro(alugueis, segundo).ok, true);
+  assert.equal(registroParaBanco(alugueis, segundo).fornecedor_id, FORNECEDOR.id);
 });
 
 test("o nome artístico da banda não precisa ser igual à razão social", () => {
