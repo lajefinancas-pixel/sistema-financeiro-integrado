@@ -463,6 +463,8 @@ export default function PaginaAreaFornecedores({
           registro={emEdicao}
           fornecedores={fornecedores}
           secretarias={secretarias}
+          registros={registros}
+          fornecedorInicial={emEdicao ? "" : fornecedorRecorte}
           salvando={salvando}
           erro={erroForm}
           onFechar={() => {
@@ -470,6 +472,11 @@ export default function PaginaAreaFornecedores({
             setEmEdicao(null);
           }}
           onSalvar={salvar}
+          onVerRegistrosDoFornecedor={(fornecedorId) => {
+            setFornecedorRecorte(String(fornecedorId ?? ""));
+            setFormAberto(false);
+            setEmEdicao(null);
+          }}
         />
       )}
 
