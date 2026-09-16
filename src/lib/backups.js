@@ -14,24 +14,9 @@ import { erroAmigavel, mensagemAmigavel } from "./erros";
  *                    justificativa. Restaurar um banco não é coisa que uma
  *                    aplicação web faça: o registro documenta o pedido.
  *
- * ---------------------------------------------------------------------------
- * ATENÇÃO — o que "gerar backup" faz HOJE e o que ainda falta
- * ---------------------------------------------------------------------------
- * Nesta etapa, "Gerar Backup Agora" registra a execução e calcula um tamanho
- * APROXIMADO (contagem de linhas das tabelas principais × tamanho médio por
- * linha). Ele NÃO produz um arquivo de dump: um dump de verdade precisa de
- * credencial de serviço do banco, o que jamais pode viver no navegador.
- *
- * A geração real do arquivo depende de uma Edge Function do Supabase (rodando
- * com a service role key, gravando o arquivo em Storage e devolvendo o tamanho
- * verdadeiro), a ser configurada numa etapa técnica separada. Quando ela
- * existir, o único ponto a trocar é `executarBackup()` mais abaixo: o resto do
- * fluxo — abrir a linha 'em_andamento', fechar como 'concluido'/'falhou',
- * histórico, permissões — já está pronto para receber o número real.
- *
- * O mesmo vale para o backup automático: a rotina agendada é infraestrutura,
- * fora deste código. Enquanto ela não gravar nada, a tela diz honestamente
- * "nenhum registro" em vez de exibir uma data inventada.
+ * A geração acontece exclusivamente na Edge Function `gerar-backup`. Ela usa a
+ * credencial de serviço no servidor, cria o arquivo compactado em Storage e
+ * registra tamanho real, tabelas incluídas e eventual falha no histórico.
  */
 
 export const TABELA = "backups_log";
@@ -453,28 +438,24 @@ export async function estimarTamanhoBackup() {
 }
 
 /**
- * PONTO DE TROCA para a etapa técnica seguinte.
- *
- * Hoje: mede o banco e devolve um tamanho estimado, sem produzir arquivo algum.
- * Amanhã: uma chamada à Edge Function de backup do Supabase, que roda com a
- * service role key, gera o dump, grava no Storage e devolve o tamanho real —
- * algo como:
- *
- *   const { data, error } = await supabase.functions.invoke("gerar-backup");
- *   if (error) throw error;
- *   return { bytes: data.tamanho_bytes, ... };
- *
- * Nada mais do fluxo precisa mudar quando isso acontecer: quem abre e fecha a
- * linha em backups_log é `gerarBackupManual`, logo abaixo.
+ * Solicita o arquivo ao backend. A URL assinada dura dez minutos e dá acesso
+ * somente ao arquivo recém-gerado no bucket privado.
  */
 async function executarBackup() {
-  const estimativa = await estimarTamanhoBackup();
+  const { data, error } = await supabase.functions.invoke("gerar-backup", {
+    body: { tipo: "manual" },
+  });
+  if (error) throw erroAmigavel(mensagemAmigavel(error, "A função de backup não respondeu."));
+  if (!data?.download_url || !Number.isFinite(Number(data?.tamanho_bytes))) {
+    throw erroAmigavel(data?.erro || "A função de backup não devolveu um arquivo válido.");
+  }
   return {
-    bytes: estimativa.bytes,
-    detalhe:
-      `Tamanho estimado a partir de ${estimativa.linhas.toLocaleString("pt-BR")} registros ` +
-      `em ${estimativa.tabelas} tabelas do sistema.`,
-    parcial: estimativa.indisponiveis > 0,
+    bytes: Number(data.tamanho_bytes),
+    detalhe: `Arquivo real com ${data.tabelas_incluidas?.length ?? 0} tabelas.`,
+    parcial: false,
+    downloadUrl: data.download_url,
+    arquivoNome: data.arquivo_nome || "backup-sistema.json.gz",
+    tabelasIncluidas: data.tabelas_incluidas ?? [],
   };
 }
 
@@ -551,20 +532,16 @@ export async function falharBackupManual({ id, detalhesErro }) {
  * @returns { tamanhoBytes, detalhe, parcial }
  */
 export async function gerarBackupManual({ usuarioId }) {
-  const id = await iniciarBackupManual({ usuarioId });
-
-  try {
-    const resultado = await executarBackup();
-    await concluirBackupManual({
-      id,
-      tamanhoBytes: resultado.bytes,
-      descricao: `Backup manual — ${resultado.detalhe}`,
-    });
-    return { tamanhoBytes: resultado.bytes, detalhe: resultado.detalhe, parcial: resultado.parcial };
-  } catch (e) {
-    await falharBackupManual({ id, detalhesErro: e?.message });
-    throw e;
-  }
+  if (!usuarioId) throw erroAmigavel("Não foi possível identificar o usuário para gerar o backup.");
+  const resultado = await executarBackup();
+  return {
+    tamanhoBytes: resultado.bytes,
+    detalhe: resultado.detalhe,
+    parcial: false,
+    downloadUrl: resultado.downloadUrl,
+    arquivoNome: resultado.arquivoNome,
+    tabelasIncluidas: resultado.tabelasIncluidas,
+  };
 }
 
 /* -------------------------------------------------------------------------
