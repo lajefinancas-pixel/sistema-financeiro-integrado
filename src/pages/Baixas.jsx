@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Search,
   Users,
+  ArrowLeftRight,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AcessoNegado from "../components/AcessoNegado";
@@ -36,16 +37,14 @@ import { nomeExibicaoDoFornecedor } from "../lib/nomesFornecedor";
 import { formatarData, hojeISO, situacaoDaNota } from "../lib/notasFornecedor";
 import { formatBRL } from "../lib/moeda";
 import { mensagemAmigavel } from "../lib/erros";
+import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
 
 /**
  * Aba "Baixas de Pagamentos".
  *
  * A baixa é a confirmação de que o pagamento saiu de fato no banco. Ela é
  * INDEPENDENTE da Programação Diária -- uma nota pode ser baixada sem nunca ter
- * sido programada -- e NÃO DEBITA O SALDO DA CONTA: registra o pagamento e abate
- * o valor em aberto da nota do fornecedor. O saldo continua sendo movimentado
- * exclusivamente pelos fluxos que já existiam (lançamento do saldo do dia e
- * transferência entre contas).
+ * sido programada -- e é o único ponto que debita o saldo da conta.
  *
  * O caminho da tela é o do balcão:
  *   1. escolher o fornecedor (nome, apelido, razão social, nome fantasia ou
@@ -100,6 +99,7 @@ export default function Baixas() {
   const [exportando, setExportando] = React.useState(null);
   const [erro, setErro] = React.useState(null);
   const [aviso, setAviso] = React.useState(null);
+  const [mostrarTransferencia, setMostrarTransferencia] = React.useState(false);
 
   const podeVisualizar = permissoes.visualizar;
 
@@ -263,8 +263,8 @@ export default function Baixas() {
     const emAberto = Number(retorno?.valor_em_aberto ?? 0);
     setAviso(
       retorno?.quitada
-        ? `Baixa registrada. A nota foi quitada e saiu da lista de notas em aberto. O saldo da conta não foi alterado.`
-        : `Baixa registrada. A nota continua com ${formatBRL(emAberto)} em aberto. O saldo da conta não foi alterado.`,
+        ? `Baixa registrada. A nota foi quitada e o valor foi debitado da conta.`
+        : `Baixa registrada e debitada da conta. A nota continua com ${formatBRL(emAberto)} em aberto.`,
     );
   }
 
@@ -320,6 +320,8 @@ export default function Baixas() {
                 : "Escolha o fornecedor para ver as notas que ainda têm valor em aberto"}
             </p>
           </div>
+
+          {permissoes.registrar && <button type="button" onClick={() => setMostrarTransferencia(true)} className="flex items-center gap-1.5 self-start rounded-lg bg-[#0F2A44] px-4 py-2.5 text-sm text-white"><ArrowLeftRight size={15}/> Transferir entre contas</button>}
 
           {fornecedor && (
             <div className="flex flex-wrap items-center gap-2 self-start">
@@ -694,9 +696,7 @@ export default function Baixas() {
             </div>
 
             <p className="mt-4 text-xs leading-relaxed text-[#0F2A44]/50">
-              A baixa confirma o pagamento e abate o valor em aberto da nota. Ela não altera o saldo da conta bancária:
-              o saldo continua sendo movimentado apenas pelo lançamento do saldo do dia e pela transferência entre
-              contas.
+              A baixa confirma o pagamento, abate o valor em aberto da nota e é o único ponto que debita a conta bancária.
             </p>
           </>
         )}
@@ -721,6 +721,7 @@ export default function Baixas() {
           onConcluido={aoEstornarBaixa}
         />
       )}
+      {mostrarTransferencia && <ModalTransferenciaEntreContas programacao={null} contas={base.contas} onFechar={() => setMostrarTransferencia(false)} onConcluida={() => setAviso("Transferência confirmada. O lote e o histórico foram preservados.")} />}
     </Layout>
   );
 }

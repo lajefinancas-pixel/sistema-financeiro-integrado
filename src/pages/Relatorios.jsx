@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import {
   Printer, FileText, FileSpreadsheet, Landmark, Users, BarChart2, ChevronRight, ChevronDown,
   RefreshCw, Receipt, UserCog, ShieldCheck, Plus, Sparkles, BarChart3, GitCompare, Star,
@@ -778,7 +779,7 @@ export default function Relatorios() {
                 : "Escolha um relatório para ver os dados, imprimir ou exportar."}
             </p>
           </div>
-          <button
+          <div className="flex gap-2"><Link to="/pagamentos/pendencias" className="self-start flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-black/10 text-[#0F2A44]/70 hover:bg-black/5">Relação de pendências</Link><button
             type="button"
             onClick={atualizar}
             disabled={carregando}
@@ -787,6 +788,7 @@ export default function Relatorios() {
             <RefreshCw size={14} className={carregando ? "animate-spin" : undefined} />
             Atualizar dados
           </button>
+          </div>
         </div>
 
         {modulo === MODULO_EQUIVALENTE && (

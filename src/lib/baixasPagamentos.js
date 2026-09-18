@@ -15,11 +15,9 @@ export {
  * Camada de dados da aba "Baixas de Pagamentos".
  *
  * A baixa é a confirmação de que o pagamento saiu de fato no banco. Ela é
- * independente da Programação Diária e NÃO DEBITA O SALDO DA CONTA: quem grava
- * é `public.registrar_baixa_nota`, que registra o pagamento e abate o valor em
- * aberto da nota -- e nada mais. Nenhuma consulta deste arquivo lê ou escreve
- * saldo; o saldo continua sendo movimentado exclusivamente pelos fluxos que já
- * existiam (lançamento do saldo do dia e transferência entre contas).
+ * independente da Programação Diária e é o ÚNICO fluxo de despesa que debita o
+ * saldo da conta. `public.registrar_baixa_nota` registra pagamento, abate a nota
+ * e movimenta o saldo atomicamente; o estorno desfaz os três efeitos.
  *
  * As funções antigas (`registrarBaixa`, `estornarBaixa`, `editarBaixa`,
  * `listarBaixas`) continuam aqui como estavam, porque outros pontos do sistema
