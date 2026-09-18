@@ -66,6 +66,7 @@ import {
 import { identidadeDoProcesso, logoDoDocumento } from "../../lib/processosIdentidade.js";
 import { carregarPrefeitas, registrosDoCadastro } from "../../lib/processosCadastrosDados.js";
 import { prefeitaVigente } from "../../lib/processosPrefeita.js";
+import { prepararImpressaoDocumentoHtml } from "../../lib/impressaoNavegador.js";
 
 /**
  * A área de DIÁRIAS: a lista dos processos de diária e tudo o que se faz com um.
@@ -119,6 +120,7 @@ export default function PaginaDiarias({
   const [previa, setPrevia] = React.useState(null);
   const [historico, setHistorico] = React.useState(null);
   const [confirmacao, setConfirmacao] = React.useState(null);
+  const destinoImpressaoPendente = React.useRef(null);
 
   // A Tabela de Diárias VIGENTE e a IDENTIDADE VISUAL vigente, lidas uma vez.
   // Elas alimentam o formulário (valor unitário) e a folha (brasão e rodapé).
@@ -289,6 +291,7 @@ export default function PaginaDiarias({
    * dos dois.
    */
   async function finalizar(formulario, { comImpressao = false } = {}) {
+    destinoImpressaoPendente.current = comImpressao ? prepararImpressaoDocumentoHtml() : null;
     setSalvando(true);
     setErroForm(null);
     try {
@@ -372,8 +375,10 @@ export default function PaginaDiarias({
     });
   }
 
-  async function imprimir(processo, escopo) {
-    imprimirProcesso(await dadosParaSaida(processo), { escopo });
+  async function imprimir(processo, escopo, destino = null) {
+    const alvo = destino ?? destinoImpressaoPendente.current ?? prepararImpressaoDocumentoHtml();
+    destinoImpressaoPendente.current = null;
+    imprimirProcesso(await dadosParaSaida(processo), { escopo, destino: alvo });
     // Imprimir não altera o processo; o registro é de quem levou o papel.
     registrarSaidaDoDocumento(processo, {
       acao: "imprimiu",

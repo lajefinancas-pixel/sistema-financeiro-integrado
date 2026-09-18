@@ -16,13 +16,23 @@
  * como rede de segurança para os navegadores que não disparam esse evento,
  * também por tempo.
  */
-export function imprimirDocumentoHtml(html) {
-  if (!html) return;
-
+export function prepararImpressaoDocumentoHtml() {
   const quadro = document.createElement("iframe");
   quadro.setAttribute("aria-hidden", "true");
   quadro.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
   document.body.appendChild(quadro);
+
+  return quadro;
+}
+
+export function imprimirDocumentoHtml(html, quadroPreparado = null) {
+  if (!html) return;
+
+  // Quando a montagem do documento depende de leituras assíncronas (logomarca,
+  // identidade etc.), o iframe é criado ainda no clique do usuário. Isso
+  // preserva a ativação exigida por navegadores que bloqueiam print() iniciado
+  // somente depois de um await.
+  const quadro = quadroPreparado ?? prepararImpressaoDocumentoHtml();
 
   const remover = () => {
     if (quadro.parentNode) quadro.parentNode.removeChild(quadro);

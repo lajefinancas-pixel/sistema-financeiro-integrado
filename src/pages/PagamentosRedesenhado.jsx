@@ -33,6 +33,8 @@ import SeletorContas from "../components/comuns/SeletorContas";
 import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
 import { estruturaDePixAusente } from "../lib/contasBancarias";
 import NomeFornecedor from "../components/comuns/NomeFornecedor";
+import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
+import { cancelarProgramacao, excluirProgramacao, verificarExclusaoProgramacao } from "../lib/programacoesExclusao";
 import {
   AVISO_MIGRATION_ORIGEM,
   aplicarEnvioNosPagamentos,
@@ -149,7 +151,7 @@ const COLUNAS_PROGRAMACAO = "id, nome_programacao, data_programacao, status, fec
  */
 async function cabecalhoDaProgramacao(programacaoId) {
   const consultar = (colunas) =>
-    supabase.from("programacoes_pagamento").select(colunas).eq("id", programacaoId).single();
+    supabase.from("programacoes_pagamento").select(colunas).eq("id", programacaoId).is("excluido_em", null).single();
 
   const comSaldo = await consultar(`${COLUNAS_PROGRAMACAO}, saldo_considerado`);
   if (!comSaldo.error) return comSaldo;
@@ -341,6 +343,7 @@ function statusLabel(status, fechado = false) {
 export default function PagamentosRedesenhado() {
   const { permissao, usuario } = usePermissaoModulo("pagamentos");
   const podeEditar = permissao?.pode_editar !== false;
+  const podeExcluir = permissao?.pode_excluir === true;
   const [carregando, setCarregando] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState("");
@@ -351,6 +354,7 @@ export default function PagamentosRedesenhado() {
   const [programacoes, setProgramacoes] = React.useState([]);
   const [programacaoId, setProgramacaoId] = React.useState("");
   const [programacao, setProgramacao] = React.useState(null);
+  const [exclusaoProgramacao, setExclusaoProgramacao] = React.useState(null);
   const [contas, setContas] = React.useState([]);
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [buscaConta, setBuscaConta] = React.useState("");
@@ -596,6 +600,7 @@ export default function PagamentosRedesenhado() {
         .select("id, nome_programacao, status, fechado")
         .eq("secretaria_id", idInteiro(secretariaId, "Secretaria"))
         .eq("data_programacao", data)
+        .is("excluido_em", null)
         .order("id", { ascending: false });
       if (error) throw error;
       setProgramacoes(itens ?? []);
@@ -693,6 +698,34 @@ export default function PagamentosRedesenhado() {
     } finally {
       setSalvando(false);
     }
+  }
+
+  async function abrirExclusao(item) {
+    setErro("");
+    try {
+      const verificacao = await verificarExclusaoProgramacao(item.id);
+      setExclusaoProgramacao({ programacao: item, temPagamentoPago: verificacao.tem_pagamento_pago === true });
+    } catch (falha) {
+      setErro(mensagemAmigavel(falha, "Não foi possível conferir esta programação."));
+    }
+  }
+
+  async function concluirExclusao(motivo) {
+    await excluirProgramacao(exclusaoProgramacao.programacao.id, motivo);
+    const idExcluido = exclusaoProgramacao.programacao.id;
+    setExclusaoProgramacao(null);
+    if (String(programacaoId) === String(idExcluido)) limparEdicao();
+    await carregarProgramacoes();
+    setMensagem("Programação excluída e enviada à Lixeira. A reserva foi liberada sem alterar o saldo real.");
+  }
+
+  async function concluirCancelamento(motivo) {
+    if (String(motivo ?? "").trim().length < 5) throw new Error("Informe o motivo do cancelamento (mínimo 5 caracteres).");
+    await cancelarProgramacao(exclusaoProgramacao.programacao.id, motivo);
+    setExclusaoProgramacao(null);
+    await carregarProgramacao(programacaoId, { manterRecolhimento: true });
+    await carregarProgramacoes(programacaoId);
+    setMensagem("Programação cancelada. O pagamento pago e o saldo real foram preservados; a reserva remanescente foi liberada.");
   }
 
   // Confirmar/reabrir um bloco é só apresentação: não grava, não movimenta
@@ -1159,8 +1192,8 @@ export default function PagamentosRedesenhado() {
   }
 
   async function imprimir() {
-    await registrarImpressao();
     imprimirProgramacao(dadosDocumento());
+    await registrarImpressao();
   }
 
   async function gerarPdf() {
@@ -1360,13 +1393,15 @@ export default function PagamentosRedesenhado() {
         {(erro || mensagem) && <div className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={15}/></button></div>}
 
         {carregando ? <p className="py-12 text-center text-[13px] text-[var(--color-brand-navy)]/55">Carregando...</p> : <>
-          {programacoes.length > 0 && <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <button key={item.id} onClick={() => setProgramacaoId(item.id)} className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${String(programacaoId) === String(item.id) ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white" : "border-black/10 bg-white text-[var(--color-brand-navy)]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>)}</div>}
+          {programacoes.length > 0 && <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <div key={item.id} className="flex shrink-0 overflow-hidden rounded-full border border-black/10"><button onClick={() => setProgramacaoId(item.id)} className={`px-3 py-1 text-[11px] font-semibold ${String(programacaoId) === String(item.id) ? "bg-[var(--color-brand-navy)] text-white" : "bg-white text-[var(--color-brand-navy)]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>{podeExcluir && <button type="button" onClick={() => abrirExclusao(item)} className="border-l border-black/10 bg-white px-2 text-red-600 hover:bg-red-50" aria-label={`Excluir ${item.nome_programacao}`} title="Excluir programação"><Trash2 size={13}/></button>}</div>)}</div>}
 
           {!programacao ? <div className="rounded-xl border border-dashed border-[var(--color-brand-navy)]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[var(--color-brand-navy)]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[var(--color-brand-navy)]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--color-brand-navy)] px-3 py-2 text-white">
               <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
               <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-navy)] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{programacao.status !== "em_analise" && !programacao.fechado && <button onClick={marcarEmAnalise} disabled={!podeEditarProgramacao} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-gold)] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> Marcar em análise</button>}{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para aprovar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para aprovar programação." : impedimentosDaAprovacao[0] || "Aprovar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> APROVAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Desfaz a aprovação e devolve a programação para edição. Não desfaz baixas, transferências nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
             </div>
+
+            {podeExcluir && <div className="mb-3 flex justify-end print:hidden"><button type="button" onClick={() => abrirExclusao(programacao)} disabled={salvando} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"><Trash2 size={13}/> Excluir programação</button></div>}
 
             {/* Volta da reunião com o gestor: a MESMA programação é reaberta
                 para ajuste. Retirar da programação não é excluir fornecedor --
@@ -1529,6 +1564,23 @@ export default function PagamentosRedesenhado() {
           salvando={salvando}
           onFechar={() => setMostrarAprovacao(false)}
           onConfirmar={confirmarAprovacao}
+        />}
+
+        {exclusaoProgramacao && <ModalConfirmarExclusao
+          titulo={exclusaoProgramacao.temPagamentoPago ? "Cancelar programação" : "Excluir programação"}
+          registro={exclusaoProgramacao.programacao.nome_programacao || `a programação ${exclusaoProgramacao.programacao.id}`}
+          detalhes={[
+            { rotulo: "Data", valor: exclusaoProgramacao.programacao.data_programacao ? dataBR(exclusaoProgramacao.programacao.data_programacao) : dataBR(data) },
+            { rotulo: "Situação", valor: statusLabel(exclusaoProgramacao.programacao.status, exclusaoProgramacao.programacao.fechado) },
+          ]}
+          aviso="A programação irá para a Lixeira e a reserva será liberada. O saldo real não será alterado."
+          exigirMotivo
+          bloqueio={exclusaoProgramacao.temPagamentoPago ? {
+            texto: "Esta programação tem pagamento marcado como pago e não pode ser excluída. O pagamento e o saldo real serão preservados.",
+            acao: { rotulo: "Cancelar programação", descricao: "Informe o motivo acima. O cancelamento libera somente a reserva remanescente.", onAcionar: concluirCancelamento },
+          } : null}
+          onCancelar={() => setExclusaoProgramacao(null)}
+          onConfirmar={concluirExclusao}
         />}
 
         {/* A transferência é a ÚNICA operação desta tela que move dinheiro, e

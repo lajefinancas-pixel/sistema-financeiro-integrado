@@ -534,6 +534,17 @@ export async function finalizarProcessoServico(
   }
   if (error) throw error;
 
+  const { data: confirmado, error: erroConfirmacao } = await supabase
+    .from(TABELA_SERVICOS)
+    .select(SELECAO)
+    .eq("id", id)
+    .single();
+  if (erroConfirmacao) throw erroConfirmacao;
+  if (String(confirmado?.situacao) !== "finalizada" || !confirmado?.finalizada_em || !confirmado?.finalizada_por) {
+    throw new Error("A finalização não foi confirmada pelo banco. Atualize a tela e tente novamente.");
+  }
+  data = confirmado;
+
   await registrarTrilha({
     processo: data,
     processoId: id,
