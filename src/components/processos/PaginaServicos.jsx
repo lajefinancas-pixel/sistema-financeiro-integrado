@@ -59,7 +59,10 @@ import {
   folhasDoEscopo,
   gerarPdfDoProcesso,
   imprimirProcesso,
+  montarPdfDoProcesso,
+  nomeDoArquivo,
 } from "../../lib/processosServicosDocumento.js";
+import { baixarPdf, gerarPdfUnificado, imprimirPdfSemBaixar } from "../../lib/processosCertidoesPdf.js";
 import {
   carregarIdentidadeProcessos,
   carregarLogomarcaDoSistema,
@@ -124,6 +127,7 @@ export default function PaginaServicos({
   const [ultimoSalvamento, setUltimoSalvamento] = React.useState(null);
 
   const [previa, setPrevia] = React.useState(null);
+  const [gerandoSaida, setGerandoSaida] = React.useState(false);
   const [historico, setHistorico] = React.useState(null);
   const [confirmacao, setConfirmacao] = React.useState(null);
   const destinoImpressaoPendente = React.useRef(null);
@@ -289,7 +293,7 @@ export default function PaginaServicos({
    * dos dois.
    */
   async function finalizar(formulario, { comImpressao = false } = {}) {
-    destinoImpressaoPendente.current = comImpressao ? prepararImpressaoDocumentoHtml() : null;
+    destinoImpressaoPendente.current = null;
     setSalvando(true);
     setErroForm(null);
     try {
@@ -304,11 +308,11 @@ export default function PaginaServicos({
       setAberto(null);
       marcarSalvamento();
       // A impressão sai do processo FINALIZADO, com os congelamentos dentro.
-      if (comImpressao) await imprimir(atualizado, "completo");
+      if (comImpressao) setPrevia(atualizado);
       setAviso(
-        `Processo nº ${numeroDoProcesso(atualizado)} finalizado${comImpressao ? " e enviado para impressão" : ""}. ` +
+        `Processo nº ${numeroDoProcesso(atualizado)} finalizado${comImpressao ? " e aberto para conferência" : ""}. ` +
           "Finalizar não é pagar: nenhum saldo, baixa, NF ou programação foi alterado" +
-          `${comImpressao ? ", e imprimir não altera o processo" : ""}.`,
+          `${comImpressao ? "; confira as certidões na pré-visualização aberta" : ""}.`,
       );
       await carregar();
       return true;
@@ -371,7 +375,22 @@ export default function PaginaServicos({
     });
   }
 
-  async function imprimir(processo, escopo, destino = null) {
+  async function imprimir(processo, escopo, certidoes = [], destino = null) {
+    if (processo?.fornecedor_id && podeVisualizarCertidoes) {
+      const janela = window.open("", "_blank");
+      setGerandoSaida(true);
+      try {
+        const dados = await dadosParaSaida(processo);
+        const blob = await gerarPdfUnificado({ pdf: montarPdfDoProcesso(dados, { escopo }), fornecedorId: processo.fornecedor_id, certidoes });
+        imprimirPdfSemBaixar(blob, janela);
+      } catch (falha) {
+        janela?.close();
+        setErro(falha.message || "Não foi possível preparar a impressão.");
+        return;
+      } finally { setGerandoSaida(false); }
+      registrarSaidaDoDocumento(processo, { acao: "imprimiu", detalhes: { descricao: descricaoDaSaida(escopo) } });
+      return;
+    }
     const alvo = destino ?? destinoImpressaoPendente.current ?? prepararImpressaoDocumentoHtml();
     destinoImpressaoPendente.current = null;
     imprimirProcesso(await dadosParaSaida(processo), { escopo, destino: alvo });
@@ -382,8 +401,20 @@ export default function PaginaServicos({
     });
   }
 
-  async function gerarPdf(processo, escopo) {
-    gerarPdfDoProcesso(await dadosParaSaida(processo), { escopo });
+  async function gerarPdf(processo, escopo, certidoes = []) {
+    const dados = await dadosParaSaida(processo);
+    if (processo?.fornecedor_id && podeVisualizarCertidoes) {
+      setGerandoSaida(true);
+      try {
+        const blob = await gerarPdfUnificado({ pdf: montarPdfDoProcesso(dados, { escopo }), fornecedorId: processo.fornecedor_id, certidoes });
+        baixarPdf(blob, nomeDoArquivo(dados, "pdf", escopo));
+      } catch (falha) {
+        setErro(falha.message || "Não foi possível gerar o PDF único.");
+        return;
+      } finally { setGerandoSaida(false); }
+    } else {
+      gerarPdfDoProcesso(dados, { escopo });
+    }
     registrarSaidaDoDocumento(processo, {
       acao: "gerou_pdf",
       detalhes: { descricao: descricaoDaSaida(escopo) },
@@ -624,8 +655,8 @@ export default function PaginaServicos({
                     setAberto({ processo, inicial: null, origem: null });
                   }}
                   onPrevia={() => abrirPrevia(processo)}
-                  onImprimir={() => imprimir(processo, "completo")}
-                  onPdf={() => gerarPdf(processo, "completo")}
+                  onImprimir={() => abrirPrevia(processo)}
+                  onPdf={() => abrirPrevia(processo)}
                   onDuplicar={() => duplicar(processo)}
                   onHistorico={() => abrirHistorico(processo)}
                   onReabrir={() => reabrir(processo)}
@@ -680,9 +711,11 @@ export default function PaginaServicos({
           identidade={identidade}
           logoSistema={logoSistema}
           prefeita={prefeita}
+          podeVisualizarCertidoes={podeVisualizarCertidoes}
+          ocupado={gerandoSaida}
           onFechar={() => setPrevia(null)}
-          onImprimir={(escopo) => imprimir(previa, escopo)}
-          onGerarPdf={(escopo) => gerarPdf(previa, escopo)}
+          onImprimir={(escopo, certidoes) => imprimir(previa, escopo, certidoes)}
+          onGerarPdf={(escopo, certidoes) => gerarPdf(previa, escopo, certidoes)}
         />
       )}
 

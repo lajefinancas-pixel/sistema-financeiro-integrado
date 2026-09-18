@@ -20,6 +20,7 @@ import {
   moverItem,
   nomeDaSecretaria,
   numeroDoItem,
+  quantidadeUnidadeValida,
   numeroDoProcesso,
   opcoesDePagamentoDoFornecedor,
   precisaEscolherPagamento,
@@ -1459,7 +1460,9 @@ function SecaoRequisicao({
                 disabled={somenteLeitura}
                 placeholder="Quant."
                 aria-label={`Quantidade do item ${numeroDoItem(indice)}`}
-                className={CLASSE_CAMPO}
+                aria-invalid={!quantidadeUnidadeValida(item.quantidade)}
+                title="Use número e unidade separados, por exemplo: 10 UN ou 2,5 KG"
+                className={`${CLASSE_CAMPO} ${!quantidadeUnidadeValida(item.quantidade) ? "border-red-400 bg-red-50" : ""}`}
               />
               <textarea
                 rows={2}
@@ -1503,6 +1506,11 @@ function SecaoRequisicao({
                     <Trash2 size={14} />
                   </button>
                 </div>
+              )}
+              {!quantidadeUnidadeValida(item.quantidade) && (
+                <p className="col-span-full text-xs text-red-700">
+                  Formato inválido. Separe a quantidade da unidade: “10 UN” ou “2,5 KG”.
+                </p>
               )}
             </div>
           ))}
