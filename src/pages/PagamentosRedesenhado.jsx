@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
 import { formatBRL } from "../lib/moeda";
+import { textoDoMotivo } from "../lib/rateioPagamentos";
 import { mensagemAmigavel } from "../lib/erros";
 import { carregarSaldosDasContas } from "../lib/saldosContasDados";
 import { usePermissaoModulo } from "../lib/permissoes";
@@ -29,6 +30,7 @@ import ModalReaberturaProgramacao from "../components/pagamentos/ModalReabertura
 import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
 import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
 import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
+import LinhasExecucaoProgramacao from "../components/pagamentos/LinhasExecucaoProgramacao";
 import SeletorContas from "../components/comuns/SeletorContas";
 import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
 import { estruturaDePixAusente } from "../lib/contasBancarias";
@@ -80,7 +82,7 @@ async function contasAtivasDaSecretaria(secretariaId) {
   return consultar(COLUNAS_CONTA_PROGRAMACAO);
 }
 const COLUNAS_FORNECEDOR_PROGRAMACAO = "id, razao_social, nome_fantasia, cpf_cnpj";
-const COLUNAS_PAGAMENTO_PROGRAMACAO = "id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente";
+const COLUNAS_PAGAMENTO_PROGRAMACAO = "id, fornecedor_id, valor_a_pagar, nome_avulso, cadastrar_fornecedor_posteriormente, situacao";
 
 /**
  * Fornecedores ativos da secretaria, com o APELIDO quando a coluna já existe.
@@ -1125,6 +1127,29 @@ export default function PagamentosRedesenhado() {
     }
   }
 
+  // A efetivação integral continua passando, sem qualquer variação, pela função
+  // transacional e idempotente já existente no banco.
+  async function efetivarPagamento(pagamento) {
+    setErro("");
+    try {
+      const { data: resultado, error } = await supabase.rpc("marcar_pagamento_pago", { p_pagamento_id: String(pagamento.id) });
+      if (error) throw error;
+      if (!resultado?.ok) return { ok: false, mensagem: textoDoMotivo(resultado, nomeDaConta(resultado?.conta_id)) };
+      await carregarProgramacao(programacao.id, { manterRecolhimento: true });
+      return { ok: true, mensagem: resultado.ja_pago ? "Pagamento já estava efetivado; nenhum débito foi repetido." : `Pagamento de ${formatBRL(pagamento.valor_a_pagar)} efetivado.` };
+    } catch (falha) {
+      const texto = mensagemAmigavel(falha, "Não foi possível efetivar o pagamento.");
+      setErro(texto);
+      return { ok: false, mensagem: texto };
+    }
+  }
+
+  async function definirAdiamento(pagamento, adiar) {
+    const { error } = await supabase.from("pagamentos").update({ situacao: adiar ? "suspenso" : "programado" }).eq("id", pagamento.id);
+    if (error) return setErro(mensagemAmigavel(error, "Não foi possível atualizar a decisão deste fornecedor."));
+    setPagamentos((itens) => itens.map((item) => item.id === pagamento.id ? { ...item, situacao: adiar ? "suspenso" : "programado" } : item));
+  }
+
   async function garantirContasDeTransferencia() {
     const carregadas = await carregarContasParaTransferencia({ secretariaId, secretarias });
     setContasTransferencia(carregadas);
@@ -1180,6 +1205,7 @@ export default function PagamentosRedesenhado() {
       contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo ?? null, nome: conta.nome_conta })),
       // A MESMA ordem da tela: o papel sai na sequência que a pessoa leu.
       pagamentos: pagamentosOrdenados.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
+      pagamentosExecutados: pagamentosOrdenados.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar), valorPago: item.situacao === "pago" ? numero(item.valor_a_pagar) : numero(item.valor_pago), situacao: item.situacao || "pendente" })),
       totalContas: saldoDaProgramacaoIndisponivel ? null : totalDisponivel,
       totalProgramado,
       restante: saldoDaProgramacaoIndisponivel ? null : restante,
@@ -1237,6 +1263,8 @@ export default function PagamentosRedesenhado() {
     })
     : "";
   const totalProgramado = somarPagamentos(pagamentos);
+  const totalPago = pagamentos.reduce((total, item) => total + (item.situacao === "pago" ? numero(item.valor_a_pagar) : numero(item.valor_pago)), 0);
+  const totalNaoPago = pagamentos.reduce((total, item) => total + (["cancelado", "suspenso"].includes(item.situacao) ? numero(item.valor_a_pagar) : 0), 0);
   const restante = calcularRestante(totalDisponivel, totalProgramado);
   // "--" onde o saldo daquele dia não foi gravado. A tela não põe o saldo de
   // hoje no lugar do valor que falta, e não estima nada.
@@ -1340,10 +1368,11 @@ export default function PagamentosRedesenhado() {
             impressão não pode depender de rolagem. */}
         <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[var(--color-brand-navy)]/10 bg-[var(--color-brand-off-white)]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
-            <div className="grid min-w-[20rem] flex-1 gap-1.5 sm:grid-cols-3">
+            <div className="grid min-w-[20rem] flex-1 gap-1.5 sm:grid-cols-4">
               <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></div>
               <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Total programado</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{formatBRL(totalProgramado)}</strong></div>
-              <div className={`flex items-baseline justify-between gap-2 rounded-lg px-2.5 py-1 ${acimaDoSaldo ? "bg-[#FBE9DF] text-[#8A321C]" : "bg-[var(--color-brand-off-white)] text-[var(--color-brand-navy)]"}`}><span className="text-[9px] font-semibold uppercase tracking-[0.1em] opacity-70">Restante</span><strong className="text-[15px] font-bold tabular-nums">{textoRestante}</strong></div>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-800/70">Pago</span><strong className="text-[15px] font-bold tabular-nums text-emerald-800">{formatBRL(totalPago)}</strong></div>
+              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-rose-50 px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-800/70">Não pago</span><strong className="text-[15px] font-bold tabular-nums text-rose-800">{formatBRL(totalNaoPago)}</strong></div>
             </div>
             {programacao && <div className="flex gap-1.5 print:hidden">
               <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[var(--color-brand-navy-strong)]"><Printer size={14}/> Imprimir programação para análise</button>
@@ -1418,7 +1447,7 @@ export default function PagamentosRedesenhado() {
             </div>}
 
             <div className="grid gap-3 xl:grid-cols-[1.05fr_.95fr]">
-              <section className="overflow-hidden rounded-xl border border-[var(--color-brand-navy)]/10 bg-white shadow-sm">
+              <section className={`${emEtapaDeExecucao ? "hidden" : ""} overflow-hidden rounded-xl border border-[var(--color-brand-navy)]/10 bg-white shadow-sm`}>
                 <div className="border-b border-black/5 px-3 py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--color-brand-navy)]"><span className="text-[#B06A3C]">1.</span> Contas de trabalho</h2>
@@ -1517,6 +1546,20 @@ export default function PagamentosRedesenhado() {
               </section>
             </div>
 
+            {emEtapaDeExecucao && <div className="mt-3 print:hidden"><LinhasExecucaoProgramacao
+              pagamentos={pagamentosOrdenados}
+              contas={contasDaProgramacao}
+              contasSelecionadas={contasSelecionadas}
+              secretariaId={secretariaId}
+              nomePagamento={nomePagamento}
+              permissoes={fase2Indisponivel ? { definir_conta_pagamento: false, executar_programacao: false } : (permissoesFase2 ?? {})}
+              estruturaAusente={fase2Indisponivel}
+              salvando={salvando}
+              onDefinirConta={(pagamento, contaId) => gravarContaDosPagamentos([pagamento.id], contaId)}
+              onPagar={efetivarPagamento}
+              onAdiar={definirAdiamento}
+            /></div>}
+
             {/* Bloco 3 é o detalhamento de quem já está escolhido enquanto a lista
                 está aberta. Depois de confirmar, o valor editável passa a ficar no
                 próprio bloco 2 e este sai da tela para não repetir a mesma lista. */}
@@ -1540,6 +1583,7 @@ export default function PagamentosRedesenhado() {
                 programacao={programacao}
                 pagamentos={pagamentosOrdenados}
                 contas={contasDaProgramacao}
+                ocultarExecucao
                 contasSelecionadas={contasSelecionadas}
                 secretariaId={secretariaId}
                 nomePagamento={nomePagamento}
