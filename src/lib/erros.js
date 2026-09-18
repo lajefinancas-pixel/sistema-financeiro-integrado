@@ -181,6 +181,14 @@ export function mensagemAmigavel(erro, mensagemPadrao = MENSAGEM_GENERICA) {
   return ehTecnico(erro, texto) ? padrao : texto;
 }
 
+/** Código e texto devolvidos pelo banco, sem esconder a causa da baixa. */
+export function mensagemErroBanco(erro, mensagemPadrao = MENSAGEM_GENERICA) {
+  const codigo = String(erro?.code ?? erro?.status ?? "SEM_CODIGO");
+  const texto = textoDoErro(erro) || String(mensagemPadrao || MENSAGEM_GENERICA);
+  registrarDetalhe(erro);
+  return `${codigo}: ${texto}`;
+}
+
 /**
  * A falha é uma recusa de permissão do banco (42501, 403, RLS)?
  *

@@ -101,7 +101,7 @@ test("nenhuma das chamadas da varredura manda a recusa direto para a tela", asyn
   assert.match(varredura, /notificar\(novas, \{\s*\n?\s*aoFalhar:/);
 });
 
-test("a triagem separa migration ausente, recusa de permissão e o resto", async () => {
+test("a triagem mostra migration ausente, recusa de permissão e o resto", async () => {
   const fonte = await read(ALERTAS);
   const inicio = fonte.indexOf("export function avisoDaVarredura(");
   assert.ok(inicio > 0, "avisoDaVarredura não encontrada");
@@ -109,12 +109,12 @@ test("a triagem separa migration ausente, recusa de permissão e o resto", async
 
   // Estrutura ausente ganha aviso de tela antes de qualquer outra coisa.
   assert.ok(triagem.indexOf("erroDeEstrutura") < triagem.indexOf("ehRecusaDePermissao"));
-  // Recusa de permissão vira registro no console, não aviso de tela.
+  // Recusa de permissão fica no console e também vira aviso de tela.
   assert.match(triagem, /console\.warn/);
-  assert.match(triagem, /ehRecusaDePermissao\(erro\)[\s\S]*return null;/);
+  assert.match(triagem, /Falha na \$\{chamada\} \(\$\{codigo\}\): \$\{texto\}/);
   // Qualquer outra falha continua sendo mostrada, como antes.
   assert.match(triagem, /return mensagemAmigavel\(erro, mensagemPadrao\);/);
-  // A recusa não é engolida em silêncio: o nome da chamada vai para o console.
+  // A recusa não é engolida: o nome da chamada vai para console e tela.
   assert.match(triagem, /chamada/);
 });
 

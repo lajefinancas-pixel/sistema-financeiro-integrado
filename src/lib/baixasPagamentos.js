@@ -19,9 +19,9 @@ export {
  * saldo da conta. `public.registrar_baixa_nota` registra pagamento, abate a nota
  * e movimenta o saldo atomicamente; o estorno desfaz os três efeitos.
  *
- * As funções antigas (`registrarBaixa`, `estornarBaixa`, `editarBaixa`,
- * `listarBaixas`) continuam aqui como estavam, porque outros pontos do sistema
- * ainda as usam.
+ * A API pública de gravação tem um único padrão: `registrar_baixa_nota` e
+ * `estornar_baixa_nota`. As variantes antigas foram retiradas para que o nome
+ * usado pelo navegador seja sempre o mesmo nome exposto pelo banco.
  */
 
 /**
@@ -120,9 +120,8 @@ const COLUNAS_CONTA_BAIXA = "id,nome_conta,numero_conta,banco_id,secretaria_id,b
  * de contas mostra e busca cada conta (banco, número, nome, agência e
  * secretaria). A agência entra quando a coluna já existe no banco.
  *
- * O saldo aqui é INFORMATIVO. A baixa não debita o saldo da conta: ela registra
- * o pagamento (valor, data e conta utilizada) e abate o valor em aberto da nota.
- * A conta é o registro de qual conta pagou, não movimentação de saldo.
+ * O saldo é exibido para conferência. Ao confirmar, a baixa debita esta conta
+ * na mesma transação em que registra o pagamento e abate a nota.
  */
 export async function carregarContasDaBaixa() {
   const consultar = (colunas) =>
@@ -239,59 +238,4 @@ export async function carregarNotasEBaixas(fornecedorId, { incluirQuitadas = fal
     listarBaixasDoFornecedor(fornecedorId),
   ]);
   return { notas, baixas };
-}
-
-/* -------------------------------------------------------------------------
- * Funções já existentes (mantidas como estavam)
- * ---------------------------------------------------------------------- */
-
-export async function registrarBaixa(campos) {
-  const { data, error } = await supabase.rpc("registrar_baixa_pagamento", {
-    p_chave_idempotencia: campos.chaveIdempotencia,
-    p_fornecedor_id: Number(campos.fornecedorId),
-    p_valor: paraNumeroMoeda(campos.valor),
-    p_data_pagamento: campos.dataPagamento,
-    p_conta_id: campos.contaId,
-    p_pagamento_id: campos.pagamentoId ? Number(campos.pagamentoId) : null,
-    p_documento: campos.documento || null,
-    p_observacao: campos.observacao || null,
-  });
-  if (error) throw error;
-  return data;
-}
-
-export async function estornarBaixa(baixaId, motivo, chaveIdempotencia = crypto.randomUUID()) {
-  const { data, error } = await supabase.rpc("estornar_baixa_pagamento", {
-    p_baixa_id: baixaId,
-    p_motivo: motivo,
-    p_chave_idempotencia: chaveIdempotencia,
-  });
-  if (error) throw error;
-  return data;
-}
-
-export async function editarBaixa(baixaId, documento, observacao) {
-  const { data, error } = await supabase.rpc("editar_baixa_pagamento", {
-    p_baixa_id: baixaId,
-    p_documento: documento || null,
-    p_observacao: observacao || null,
-  });
-  if (error) throw error;
-  return data;
-}
-
-export async function listarBaixas(filtros = {}) {
-  let consulta = supabase
-    .from("pagamentos_baixas")
-    .select("id,chave_idempotencia,fornecedor_id,pagamento_id,valor_total_referencia,valor_pago,data_pagamento,conta_id,documento,observacao,status,saldo_antes,saldo_depois,usuario_id,criado_em,estornada_em,estornada_por,motivo_estorno")
-    .order("data_pagamento", { ascending: false })
-    .order("criado_em", { ascending: false });
-  if (filtros.inicio) consulta = consulta.gte("data_pagamento", filtros.inicio);
-  if (filtros.fim) consulta = consulta.lte("data_pagamento", filtros.fim);
-  if (filtros.fornecedorId) consulta = consulta.eq("fornecedor_id", String(filtros.fornecedorId));
-  if (filtros.contaId) consulta = consulta.eq("conta_id", filtros.contaId);
-  if (filtros.pagamentoId) consulta = consulta.eq("pagamento_id", String(filtros.pagamentoId));
-  const { data, error } = await consulta;
-  if (error) throw error;
-  return data ?? [];
 }
