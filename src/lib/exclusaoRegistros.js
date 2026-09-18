@@ -18,7 +18,7 @@ import { erroAmigavel } from "./erros";
  */
 
 /** Tabelas em que excluir é gravar `excluido_em` em vez de apagar a linha. */
-export const TABELAS_EXCLUSAO_LOGICA = ["fornecedores", "certidoes", "pagamentos"];
+export const TABELAS_EXCLUSAO_LOGICA = ["fornecedores", "certidoes", "pagamentos", "programacoes_pagamento"];
 
 /** Tamanho mínimo do motivo — o campo é obrigatório, não pode ser um "x". */
 export const MOTIVO_MINIMO = 5;

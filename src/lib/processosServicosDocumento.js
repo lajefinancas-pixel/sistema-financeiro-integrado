@@ -613,8 +613,8 @@ export function htmlDoProcesso(dados, { escopo = "completo" } = {}) {
 }
 
 /** Imprime o processo em um quadro próprio, fora da árvore da página. */
-export function imprimirProcesso(dados, { escopo = "completo" } = {}) {
-  imprimirDocumentoHtml(htmlDoProcesso(dados, { escopo }));
+export function imprimirProcesso(dados, { escopo = "completo", destino = null } = {}) {
+  imprimirDocumentoHtml(htmlDoProcesso(dados, { escopo }), destino);
 }
 
 /* -------------------------------------------------------------------------

@@ -543,6 +543,20 @@ export async function finalizarProcesso(
   }
   if (error) throw error;
 
+  // Confirma a fonte persistida, em vez de confiar apenas na representação
+  // devolvida pelo UPDATE. A tela e a impressão recebem exatamente o estado
+  // que uma nova abertura do processo leria.
+  const { data: confirmado, error: erroConfirmacao } = await supabase
+    .from(TABELA_PROCESSOS)
+    .select(SELECAO)
+    .eq("id", id)
+    .single();
+  if (erroConfirmacao) throw erroConfirmacao;
+  if (String(confirmado?.situacao) !== "finalizada" || !confirmado?.finalizada_em || !confirmado?.finalizada_por) {
+    throw new Error("A finalização não foi confirmada pelo banco. Atualize a tela e tente novamente.");
+  }
+  data = confirmado;
+
   await registrarTrilha({
     processo: data,
     processoId: id,

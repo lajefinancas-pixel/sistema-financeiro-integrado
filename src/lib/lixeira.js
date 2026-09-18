@@ -32,6 +32,7 @@ export const TIPOS = {
   fornecedores: { valor: "fornecedores", label: "Fornecedor", plural: "Fornecedores", modulo: "fornecedores" },
   certidoes: { valor: "certidoes", label: "Certidão", plural: "Certidões", modulo: "certidoes" },
   pagamentos: { valor: "pagamentos", label: "Pagamento", plural: "Pagamentos", modulo: "pagamentos" },
+  programacoes_pagamento: { valor: "programacoes_pagamento", label: "Programação", plural: "Programações", modulo: "pagamentos" },
 };
 
 export const OPCOES_TIPO = Object.values(TIPOS).map((t) => ({ valor: t.valor, label: t.label }));
@@ -228,10 +229,36 @@ async function listarPagamentos() {
   });
 }
 
+async function listarProgramacoes() {
+  const { data, error } = await supabase
+    .from("programacoes_pagamento")
+    .select("id, nome_programacao, data_programacao, status, excluido_em, excluido_por, motivo_exclusao")
+    .not("excluido_em", "is", null)
+    .order("excluido_em", { ascending: false })
+    .limit(LIMITE_POR_TIPO);
+  if (error) throw error;
+  return (data ?? []).map((linha) => ({
+    chave: `programacoes_pagamento:${linha.id}`,
+    tipo: "programacoes_pagamento",
+    id: linha.id,
+    titulo: linha.nome_programacao || `Programação ${linha.id}`,
+    rotulo: linha.nome_programacao || `Programação ${linha.id}`,
+    detalhes: [
+      { rotulo: "Data", valor: formatarData(linha.data_programacao) },
+      { rotulo: "Situação anterior", valor: linha.status || "--" },
+    ],
+    excluidoEm: linha.excluido_em,
+    excluidoPor: linha.excluido_por,
+    motivo: linha.motivo_exclusao || null,
+    situacao: linha.status ?? null,
+  }));
+}
+
 const LISTAGENS = {
   fornecedores: listarFornecedores,
   certidoes: listarCertidoes,
   pagamentos: listarPagamentos,
+  programacoes_pagamento: listarProgramacoes,
 };
 
 /** Nome de quem excluiu, resolvido em uma consulta só para os três tipos. */
@@ -355,7 +382,7 @@ export async function listarLixeira() {
     itens: itens.map((item) => ({
       ...item,
       excluidoPorNome: item.excluidoPor ? nomes.get(String(item.excluidoPor)) ?? null : null,
-      motivo: motivos.get(item.chave) ?? null,
+      motivo: item.motivo ?? motivos.get(item.chave) ?? null,
     })),
     indisponiveis,
     semSuporte,
