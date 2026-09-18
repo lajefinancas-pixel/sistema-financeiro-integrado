@@ -2279,6 +2279,7 @@ export default function Fornecedores() {
                         onClick={() => abrirEdicaoApelido(f)}
                         className="shrink-0 text-[#0F2A44]/30 hover:text-[#0F2A44] print:hidden"
                         title={apelidoDoFornecedor(f) ? "Editar apelido" : "Dar um apelido a este fornecedor"}
+                        aria-label={apelidoDoFornecedor(f) ? "Editar apelido" : "Dar um apelido a este fornecedor"}
                       >
                         <Pencil size={14} />
                       </button>
@@ -2311,6 +2312,7 @@ export default function Fornecedores() {
                           onClick={() => excluirFornecedor(f.id, f.razao_social)}
                           className="text-[#0F2A44]/30 hover:text-red-500 print:hidden"
                           title="Excluir fornecedor"
+                          aria-label="Excluir fornecedor"
                         >
                           <Trash2 size={15} />
                         </button>

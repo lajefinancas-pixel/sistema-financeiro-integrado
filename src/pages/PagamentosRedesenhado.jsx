@@ -1332,7 +1332,7 @@ export default function PagamentosRedesenhado() {
           <button
             onClick={() => abrirNomeExibicao(pagamento, indice)}
             title="Editar o nome mostrado nesta programação"
-            aria-label={`Editar o nome mostrado de ${nomePagamento(pagamento)} nesta programação`}
+            aria-label="Editar o nome mostrado nesta programação"
             className="mt-0.5 shrink-0 rounded p-0.5 text-[var(--color-brand-navy)]/35 hover:text-[var(--color-brand-navy)] print:hidden"
           >
             <Pencil size={13} />

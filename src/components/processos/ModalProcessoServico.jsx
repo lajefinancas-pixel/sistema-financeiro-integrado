@@ -3,7 +3,9 @@ import { AlertTriangle, ArrowDown, ArrowUp, Check, Download, ExternalLink, Eye, 
 import CampoMoeda from "../CampoMoeda.jsx";
 import {
   ATESTADOS,
+  CAMPOS_ASSINANTE_LIQUIDACAO,
   CAMPOS_COMPARTILHADOS,
+  CAMPOS_REQUISITANTE,
   SIGNATARIO_LIQUIDACAO,
   SIGNATARIO_REQUISITANTE,
   TIPOS_REQUISICAO,
@@ -26,6 +28,7 @@ import {
   precisaEscolherPagamento,
   primeiroErro,
   processoParaFormulario,
+  sincronizarAssinanteDaLiquidacao,
   removerItem,
   rotuloDaNota,
   sincronizarLiquidacao,
@@ -187,6 +190,8 @@ export default function ModalProcessoServico({
   const [buscaSignatario, setBuscaSignatario] = React.useState("");
   const [aviso, setAviso] = React.useState(null);
   const [sujo, setSujo] = React.useState(false);
+  const [hidratado, setHidratado] = React.useState(() => !processo?.id);
+  const liquidacaoManualRef = React.useRef(false);
 
   // As formas de pagamento e as NFs do fornecedor escolhido. As duas são
   // LEITURA: a tela as oferece para escolher o que vai no papel, e não grava
@@ -213,9 +218,11 @@ export default function ModalProcessoServico({
   // cursor de volta.
   React.useEffect(() => {
     if (!processo?.id) return;
+    setHidratado(false);
     setFormulario((atual) =>
       atual.id === processo.id && sujoRef.current ? atual : processoParaFormulario(processo),
     );
+    setHidratado(true);
   }, [processo]);
 
   /**
@@ -312,14 +319,14 @@ export default function ModalProcessoServico({
    * emite o número do processo -- e número emitido nunca volta para a fila.
    */
   React.useEffect(() => {
-    if (!sujo || !criado || !podeGravar || salvando) return undefined;
+    if (!hidratado || formulario.id !== processo?.id || !sujo || !criado || !podeGravar || salvando) return undefined;
     const relogio = setTimeout(() => {
       Promise.resolve(onSalvar?.(formulario, { silencioso: true })).then((ok) => {
         if (ok !== false) setSujo(false);
       });
     }, ESPERA_AUTOSSALVAMENTO);
     return () => clearTimeout(relogio);
-  }, [sujo, criado, podeGravar, salvando, formulario, onSalvar]);
+  }, [hidratado, sujo, criado, podeGravar, salvando, formulario, processo?.id, onSalvar]);
 
   /**
    * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
@@ -360,13 +367,26 @@ export default function ModalProcessoServico({
     setAviso(null);
     setSujo(true);
     setFormulario((atual) => {
-      const alterado = aplicarCalculo({ ...atual, [chave]: valor });
+      if (CAMPOS_ASSINANTE_LIQUIDACAO.includes(chave)) liquidacaoManualRef.current = true;
+      let alterado = aplicarCalculo({ ...atual, [chave]: valor });
+      if (CAMPOS_REQUISITANTE.includes(chave)) {
+        alterado = sincronizarAssinanteDaLiquidacao(atual, alterado, {
+          preenchidoManualmente: liquidacaoManualRef.current,
+        });
+      }
       // Marcar o TIPO na página 1 sugere a atestação e a referência da página
       // 2; o que já foi escolhido à mão não é desfeito.
       return chave === "tipo" || CAMPOS_COMPARTILHADOS.includes(chave)
         ? sincronizarLiquidacao(atual, alterado)
         : alterado;
     });
+  }
+
+  function abrirSecao(id) {
+    if (id === "liquidacao" && !liquidacaoManualRef.current) {
+      setFormulario((atual) => sincronizarAssinanteDaLiquidacao({}, atual));
+    }
+    setSecao(id);
   }
 
   /** Assumir a redação do extenso à mão: o automático para de sobrescrever. */
@@ -623,14 +643,30 @@ export default function ModalProcessoServico({
     setAviso(null);
     setSujo(true);
     setBuscaSignatario("");
-    setFormulario((atual) => ({ ...atual, ...dadosDoSignatarioParaDocumento(servidor, { prefixo }) }));
+    if (prefixo === SIGNATARIO_LIQUIDACAO) liquidacaoManualRef.current = true;
+    setFormulario((atual) => {
+      const alterado = { ...atual, ...dadosDoSignatarioParaDocumento(servidor, { prefixo }) };
+      return prefixo === SIGNATARIO_REQUISITANTE
+        ? sincronizarAssinanteDaLiquidacao(atual, alterado, {
+            preenchidoManualmente: liquidacaoManualRef.current,
+          })
+        : alterado;
+    });
   }
 
   function soltarSignatario(prefixo) {
     setAviso(null);
     setSujo(true);
     setBuscaSignatario("");
-    setFormulario((atual) => soltarVinculoDoSignatario(atual, { prefixo }));
+    if (prefixo === SIGNATARIO_LIQUIDACAO) liquidacaoManualRef.current = true;
+    setFormulario((atual) => {
+      const alterado = soltarVinculoDoSignatario(atual, { prefixo });
+      return prefixo === SIGNATARIO_REQUISITANTE
+        ? sincronizarAssinanteDaLiquidacao(atual, alterado, {
+            preenchidoManualmente: liquidacaoManualRef.current,
+          })
+        : alterado;
+    });
   }
 
   async function salvar() {
@@ -714,7 +750,12 @@ export default function ModalProcessoServico({
   const numero = numeroDoProcesso(formulario);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:px-4 sm:py-8">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:px-4 sm:py-8"
+      onKeyDownCapture={(evento) => {
+        if (evento.key === " " && /^(INPUT|TEXTAREA)$/.test(evento.target?.tagName ?? "")) evento.stopPropagation();
+      }}
+    >
       <div className="w-full max-w-4xl rounded-2xl border border-black/5 bg-white shadow-lg">
         {/* Cabeçalho: o número do processo é o mesmo nas duas páginas. */}
         <div className="flex items-start justify-between gap-3 border-b border-black/5 px-5 py-4">
@@ -750,7 +791,7 @@ export default function ModalProcessoServico({
             <button
               key={item.id}
               type="button"
-              onClick={() => setSecao(item.id)}
+              onClick={() => abrirSecao(item.id)}
               aria-current={secao === item.id}
               className={`min-h-[2.25rem] rounded-lg px-3 py-2 text-[13px] transition-colors ${
                 secao === item.id

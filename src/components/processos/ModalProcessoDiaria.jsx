@@ -154,6 +154,7 @@ export default function ModalProcessoDiaria({
   const [buscaSignatario, setBuscaSignatario] = React.useState("");
   const [aviso, setAviso] = React.useState(null);
   const [sujo, setSujo] = React.useState(false);
+  const [hidratado, setHidratado] = React.useState(() => !processo?.id);
 
   const criado = Boolean(processo?.id);
   const rascunho = (formulario.situacao ?? "rascunho") === "rascunho";
@@ -170,9 +171,11 @@ export default function ModalProcessoDiaria({
   // cursor de volta.
   React.useEffect(() => {
     if (!processo?.id) return;
+    setHidratado(false);
     setFormulario((atual) =>
       atual.id === processo.id && sujoRef.current ? atual : processoParaFormulario(processo),
     );
+    setHidratado(true);
   }, [processo]);
 
   /**
@@ -182,14 +185,14 @@ export default function ModalProcessoDiaria({
    * emite o número do processo -- e número emitido nunca volta para a fila.
    */
   React.useEffect(() => {
-    if (!sujo || !criado || !podeGravar || salvando) return undefined;
+    if (!hidratado || formulario.id !== processo?.id || !sujo || !criado || !podeGravar || salvando) return undefined;
     const relogio = setTimeout(() => {
       Promise.resolve(onSalvar?.(formulario, { silencioso: true })).then((ok) => {
         if (ok !== false) setSujo(false);
       });
     }, ESPERA_AUTOSSALVAMENTO);
     return () => clearTimeout(relogio);
-  }, [sujo, criado, podeGravar, salvando, formulario, onSalvar]);
+  }, [hidratado, sujo, criado, podeGravar, salvando, formulario, processo?.id, onSalvar]);
 
   /**
    * A SUGESTÃO DO ENCAMINHAMENTO, uma única vez, no PROCESSO NOVO.
@@ -543,7 +546,12 @@ export default function ModalProcessoDiaria({
   const numero = numeroDoProcesso(formulario);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:px-4 sm:py-8">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-6 sm:px-4 sm:py-8"
+      onKeyDownCapture={(evento) => {
+        if (evento.key === " " && /^(INPUT|TEXTAREA)$/.test(evento.target?.tagName ?? "")) evento.stopPropagation();
+      }}
+    >
       <div className="w-full max-w-4xl rounded-2xl border border-black/5 bg-white shadow-lg">
         {/* Cabeçalho: o número do processo é o mesmo nas três páginas. */}
         <div className="flex items-start justify-between gap-3 border-b border-black/5 px-5 py-4">

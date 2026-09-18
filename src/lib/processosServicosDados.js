@@ -568,8 +568,16 @@ export async function finalizarProcessoServico(
  * trilha, como tudo o mais.
  */
 export async function reabrirProcessoServico(processo) {
+  if (!processo?.id) throw new Error("Processo sem identificador: não há o que reabrir.");
   const autor = await usuarioAtualId();
   const agora = new Date().toISOString();
+
+  // Snapshot recuperável de TODO o conteúdo conhecido antes da transição. A
+  // cópia é feita antes do update e não depende do estado do formulário.
+  const anterior = await carregarProcessoServico(processo.id);
+  if (String(anterior?.situacao) !== "finalizada") {
+    throw new Error("Somente um processo finalizado pode ser reaberto.");
+  }
 
   const { data, error } = await supabase
     .from(TABELA_SERVICOS)
@@ -581,17 +589,26 @@ export async function reabrirProcessoServico(processo) {
       atualizado_por: autor,
     })
     .eq("id", processo.id)
+    .eq("situacao", "finalizada")
     .select(SELECAO)
     .single();
   if (error) throw error;
+  if (data.id !== anterior.id || data.numero !== anterior.numero || data.ano !== anterior.ano) {
+    throw new Error("A reabertura não preservou a identidade do processo.");
+  }
 
   await registrarTrilha({
     processo: data,
     processoId: processo.id,
     acao: "reabriu",
     acaoAuditoria: "reabriu_processo",
-    anterior: { situacao: "finalizada" },
+    anterior,
     novo: { situacao: "rascunho" },
+    detalhes: {
+      descricao: "Processo reaberto para edição; o conteúdo anterior completo foi preservado neste snapshot.",
+      conteudo_anterior: anterior,
+      reaberto_em: agora,
+    },
     nivel: "atencao",
     usuarioId: autor,
   });

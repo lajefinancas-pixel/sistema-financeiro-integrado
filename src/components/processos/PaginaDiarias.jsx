@@ -328,7 +328,8 @@ export default function PaginaDiarias({
     setAviso(null);
     setErro(null);
     try {
-      await reabrirProcesso(processo);
+      const reaberto = await reabrirProcesso(processo);
+      setAberto({ processo: reaberto, inicial: null, origem: null });
       setAviso(`Processo nº ${numeroDoProcesso(processo)} reaberto para edição.`);
       await carregar();
     } catch (falha) {
@@ -772,34 +773,34 @@ function Linha({
         <div className="flex items-center gap-1.5">
           {acoes.abrir && (
             <BotaoAcao
-              titulo={acoes.editar ? "Abrir e editar" : "Abrir (somente leitura)"}
+              titulo={acoes.editar ? "Editar" : "Ver requisição"}
               onClick={onAbrir}
               icone={acoes.editar ? Pencil : Eye}
             />
           )}
           {acoes.imprimir && (
             <>
-              <BotaoAcao titulo="Pré-visualizar as três páginas" onClick={onPrevia} icone={Eye} />
-              <BotaoAcao titulo="Imprimir processo completo (3 páginas)" onClick={onImprimir} icone={Printer} />
-              <BotaoAcao titulo="Gerar PDF (arquivo único, as três páginas)" onClick={onPdf} icone={FileDown} />
+              <BotaoAcao titulo="Ver liquidação" onClick={onPrevia} icone={Eye} />
+              <BotaoAcao titulo="Imprimir" onClick={onImprimir} icone={Printer} />
+              <BotaoAcao titulo="Gerar PDF" onClick={onPdf} icone={FileDown} />
             </>
           )}
           {acoes.duplicar && (
             <BotaoAcao
-              titulo="Duplicar (novo processo, nova numeração — o original não muda)"
+              titulo="Duplicar"
               onClick={onDuplicar}
               icone={Copy}
             />
           )}
-          {acoes.historico && <BotaoAcao titulo="Histórico do processo" onClick={onHistorico} icone={History} />}
+          {acoes.historico && <BotaoAcao titulo="Histórico" onClick={onHistorico} icone={History} />}
           {acoes.reabrir && (
-            <BotaoAcao titulo="Reabrir para edição" onClick={onReabrir} icone={RotateCcw} />
+            <BotaoAcao titulo="Reabrir" onClick={onReabrir} icone={RotateCcw} />
           )}
           {acoes.excluir && (
-            <BotaoAcao titulo="Excluir rascunho (exclusão lógica)" onClick={onExcluir} icone={Trash2} />
+            <BotaoAcao titulo="Excluir" onClick={onExcluir} icone={Trash2} destrutivo />
           )}
           {acoes.cancelar && (
-            <BotaoAcao titulo="Cancelar processo (preserva registro e histórico)" onClick={onCancelar} icone={Ban} />
+            <BotaoAcao titulo="Cancelar" onClick={onCancelar} icone={Ban} destrutivo />
           )}
         </div>
       </td>
@@ -807,14 +808,14 @@ function Linha({
   );
 }
 
-function BotaoAcao({ titulo, onClick, icone: Icone }) {
+function BotaoAcao({ titulo, onClick, icone: Icone, destrutivo = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={titulo}
       aria-label={titulo}
-      className="rounded-lg border border-black/10 p-1.5 text-[#0F2A44]/60 hover:bg-black/5"
+      className={`rounded-lg border p-1.5 ${destrutivo ? "border-red-200 text-red-600 hover:bg-red-50" : "border-black/10 text-[#0F2A44]/60 hover:bg-black/5"}`}
     >
       <Icone size={14} />
     </button>
