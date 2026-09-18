@@ -155,7 +155,7 @@ const LINHAS_EM_BRANCO = 3;
 
 /** O valor em algarismo, como o modelo pede: "R$ 1.250,00" sai como "1.250,00". */
 function moedaSimples(valor) {
-  return formatBRLSimples(paraNumeroMoeda(valor));
+  return formatBRLSimples(paraNumeroMoeda(valor)).replace(/^R\$\s*/i, "");
 }
 
 /** "11/09/2026 15:42" -- data e hora da emissão. */
@@ -423,37 +423,44 @@ function estilos() {
   return `
     ${estilosComuns()}
 
-    .linha-doc { margin: 3.4mm 0 0; }
+    .folha { padding: 8mm 10mm 20mm; }
+    .rodape { left: 10mm; right: 10mm; bottom: 5mm; }
+    .linha-doc { margin: 2.4mm 0 0; }
     .linha-doc b { letter-spacing: .04em; }
-    .abertura { margin: 3.4mm 0 0; text-align: justify; }
+    .abertura { margin: 2.4mm 0 0; text-align: justify; }
 
     /* AS OPÇÕES DO FORMULÁRIO: as quatro da requisição e as duas da liquidação.
        Todas saem sempre; a escolhida leva a marca e as outras ficam em branco,
        como no papel. */
-    .opcoes { margin: 2.6mm 0 0; }
-    .opcoes .opcao { margin-top: 1.6mm; display: flex; gap: 2mm; align-items: flex-start; }
+    .opcoes { margin: 1.8mm 0 0; }
+    .opcoes .opcao { margin-top: 1mm; display: flex; gap: 2mm; align-items: flex-start; }
     .opcoes .caixa { flex: 0 0 auto; font-family: "Courier New", Courier, monospace; font-size: 10pt;
       font-weight: bold; letter-spacing: .04em; }
     .opcoes .texto-opcao { text-align: justify; }
     .opcoes .marcada .texto-opcao { font-weight: bold; }
 
-    h2 { margin: 4.6mm 0 0; padding: 1.2mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
+    h2 { margin: 3.2mm 0 0; padding: 1mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
 
     table.quadro { width: 100%; border-collapse: collapse; margin-top: 1.6mm; }
-    table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1.4mm 2mm;
+    table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1mm 1.6mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro th .ajuda { display: block; font-weight: normal; text-transform: none; letter-spacing: 0;
       font-size: 6.5pt; color: ${COR.apoio}; }
-    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt; vertical-align: top;
+    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.2mm 1.6mm; font-size: 9pt; line-height: 1.2; vertical-align: top;
       overflow-wrap: break-word; }
     /* As linhas do quadro descritivo não se partem no meio na quebra de folha:
        item cortado ao meio não é documento. */
     table.quadro tr { page-break-inside: avoid; break-inside: avoid; }
     table.quadro thead { display: table-header-group; }
+    table.quadro tbody { orphans: 2; widows: 2; }
     table.quadro td.numero { font-weight: bold; white-space: nowrap; text-align: center; }
     table.quadro td.quant { white-space: nowrap; text-align: center; }
-    table.quadro td.vazia { height: 8mm; }
+    table.quadro td.vazia { height: 6mm; }
+    table.quadro tbody tr:last-child { break-after: avoid; page-break-after: avoid; }
+    .faixa-assinaturas { margin-top: 4mm; gap: 4mm; page-break-inside: avoid; break-inside: avoid; }
+    .faixa-assinaturas .assinatura-unica { margin-top: 7mm; }
+    .faixa-assinaturas .autorizacao { padding: 2mm; }
     table.quadro td b { display: block; }
     table.quadro td span.rotulo { display: block; font-size: 6.5pt; letter-spacing: .08em;
       text-transform: uppercase; color: ${COR.apoio}; margin-top: 1.2mm; }
@@ -645,7 +652,7 @@ function criarPincel(pdf, dados) {
      * saem sempre, a escolhida com o "X" e as outras em branco.
      */
     opcoes(lista, { marca = "[", fecha = "]" } = {}) {
-      const entre = 4.6;
+      const entre = 4.1;
       pdf.setFont("courier", "bold");
       pdf.setFontSize(10);
       const largCaixa = pdf.getTextWidth(`${marca}  X  ${fecha} `);
@@ -679,8 +686,8 @@ function criarPincel(pdf, dados) {
      * Valor"), com as partes rotuladas empilhadas dentro de cada célula.
      */
     quadro(colunas) {
-      const alturaCabecalho = 8;
-      const entre = 3.9;
+      const alturaCabecalho = 7;
+      const entre = 3.6;
 
       const preparadas = colunas.map((coluna) => {
         const larguraColuna = largUtil() * (coluna.largura ?? 1 / colunas.length);
@@ -756,7 +763,7 @@ function criarPincel(pdf, dados) {
      * item (REFERÊNCIA, FUNDAMENTAÇÃO, ÓRGÃO REQUISITANTE).
      */
     quadroResumo(linhas) {
-      const entre = 3.9;
+      const entre = 3.6;
       const largRotulo = largUtil() * 0.32;
       const largValor = largUtil() - largRotulo;
 
@@ -799,8 +806,8 @@ function criarPincel(pdf, dados) {
      * qualquer que seja a quantidade de itens.
      */
     tabelaDeItens(itens) {
-      const entre = 4.2;
-      const alturaCabecalho = 6;
+      const entre = 3.8;
+      const alturaCabecalho = 5.5;
       const proporcoes = [0.12, 0.16, 0.72];
 
       const desenharCabecalho = () => {
@@ -824,18 +831,25 @@ function criarPincel(pdf, dados) {
 
       desenharCabecalho();
 
-      itens.forEach((item) => {
+      itens.forEach((item, indice) => {
         const largDiscriminacao = largUtil() * proporcoes[2] - 4;
         const escritas = pdf.splitTextToSize(texto(item.discriminacao), largDiscriminacao);
-        const altura = Math.max(8, escritas.length * entre + 3.2);
+        const altura = Math.max(6.8, escritas.length * entre + 2.8);
 
         // Item que não cabe na folha vai INTEIRO para a folha seguinte, com o
         // cabeçalho das colunas repetido -- nunca partido ao meio. A quebra é a
         // do arquivo comum (rodapé + folha de continuação); aqui só se repete o
         // cabeçalho quando ela aconteceu.
-        if (estado.y + altura > limite) {
+        const proximo = itens[indice + 1];
+        const alturaProxima = proximo
+          ? Math.max(6.8, pdf.splitTextToSize(texto(proximo.discriminacao), largDiscriminacao).length * entre + 2.8)
+          : 0;
+        const deixariaUltimaSozinha = indice < itens.length - 1
+          && estado.y + altura <= limite
+          && estado.y + altura + alturaProxima > limite;
+        if (estado.y + altura > limite || deixariaUltimaSozinha) {
           const folhasAntes = estado.folhasUsadas;
-          this.espaco(altura);
+          this.espaco(deixariaUltimaSozinha ? limite - estado.y + 1 : altura);
           if (estado.folhasUsadas !== folhasAntes) desenharCabecalho();
         }
 

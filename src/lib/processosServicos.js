@@ -287,6 +287,13 @@ export function itemPreenchido(item) {
   return !vazio(item?.discriminacao);
 }
 
+/** Número, opcionalmente decimal, seguido de uma unidade separada por espaço. */
+export function quantidadeUnidadeValida(valor) {
+  const limpo = texto(valor);
+  if (limpo === "") return true;
+  return /^\d+(?:[.,]\d+)?(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9./-]*)?$/.test(limpo);
+}
+
 /** Os itens que vão IMPRESSOS: os que têm discriminação, na ordem da lista. */
 export function itensParaDocumento(processo) {
   return itensDoProcesso(processo)
@@ -1147,6 +1154,9 @@ export function validarRascunho(formulario) {
   const erros = {};
   if (vazio(formulario?.solicitante_id)) {
     erros.solicitante_id = "Escolha a secretaria solicitante do processo.";
+  }
+  if (itensDoProcesso(formulario).some((item) => !quantidadeUnidadeValida(item.quantidade))) {
+    erros.itens = "Corrija quantidade/unidade: use, por exemplo, “10 UN” ou “2,5 KG”, sem caracteres soltos.";
   }
   return erros;
 }

@@ -1,5 +1,6 @@
 import React from "react";
 import { FileDown, Printer, X } from "lucide-react";
+import { formatarData, listarCertidoesDoFornecedor, situacaoEfetiva, situacaoInfo, urlDeDownload } from "../../lib/certidoes.js";
 import {
   ESCOPOS,
   dadosDoDocumento,
@@ -34,11 +35,39 @@ export default function PreVisualizacaoProcessoServico({
   logoSistema = null,
   prefeita = null,
   ocupado = false,
+  podeVisualizarCertidoes = false,
   onFechar,
   onImprimir,
   onGerarPdf,
 }) {
   const [escopo, setEscopo] = React.useState("completo");
+  const [certidoes, setCertidoes] = React.useState([]);
+  const [selecionadas, setSelecionadas] = React.useState(new Set());
+  const [carregandoCertidoes, setCarregandoCertidoes] = React.useState(false);
+  const [erroCertidoes, setErroCertidoes] = React.useState("");
+
+  React.useEffect(() => {
+    let ativo = true;
+    if (!podeVisualizarCertidoes || !processo?.fornecedor_id) return undefined;
+    setCarregandoCertidoes(true);
+    setErroCertidoes("");
+    listarCertidoesDoFornecedor(processo.fornecedor_id)
+      .then((lista) => {
+        if (!ativo) return;
+        const comArquivo = lista.filter((item) => item.arquivo_url);
+        setCertidoes(comArquivo);
+        setSelecionadas(new Set(comArquivo.filter((item) => ["valida", "sem_vencimento"].includes(situacaoEfetiva(item))).map((item) => String(item.id))));
+      })
+      .catch(() => ativo && setErroCertidoes("Não foi possível consultar as certidões agora."))
+      .finally(() => ativo && setCarregandoCertidoes(false));
+    return () => { ativo = false; };
+  }, [podeVisualizarCertidoes, processo?.fornecedor_id]);
+
+  const certidoesEscolhidas = certidoes.filter((item) => selecionadas.has(String(item.id))).map((item) => ({
+    id: item.id,
+    nome: item.tipos_certidao?.nome || "Certidão",
+    vencida: situacaoEfetiva(item) === "vencida",
+  }));
 
   // A emissão é fixada na abertura: a mesma data e hora na tela, na impressão e
   // no PDF daquela sessão de pré-visualização. A identidade visual entra aqui
@@ -95,6 +124,38 @@ export default function PreVisualizacaoProcessoServico({
 
         <div className="max-h-[62vh] overflow-y-auto bg-[#F5F3EF] px-3 py-4 sm:px-5">
           <Folhas html={html} paginas={folhas.length} />
+          {podeVisualizarCertidoes && processo?.fornecedor_id && (
+            <section className="mx-auto mt-4 max-w-[794px] rounded-xl border border-[#0F2A44]/10 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F2A44]">Certidões anexadas ao PDF</h3>
+                  <p className="mt-1 text-xs text-[#0F2A44]/55">Válidas vêm marcadas. “A vencer” e vencidas entram somente por escolha.</p>
+                </div>
+                {certidoes.length > 0 && (
+                  <details className="relative shrink-0 text-xs">
+                    <summary className="cursor-pointer rounded-lg border border-black/10 px-2.5 py-1.5 text-[#0F2A44]/70">Downloads individuais</summary>
+                    <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-black/10 bg-white p-2 shadow-lg">
+                      {certidoes.map((item) => <a key={item.id} className="block truncate rounded px-2 py-1.5 text-[#0F2A44] hover:bg-black/5" href={urlDeDownload(item.arquivo_url)}>{item.tipos_certidao?.nome || "Certidão"}</a>)}
+                    </div>
+                  </details>
+                )}
+              </div>
+              {carregandoCertidoes ? <p className="mt-3 text-xs text-[#0F2A44]/50">Consultando certidões...</p> : erroCertidoes ? <p className="mt-3 text-xs text-red-700">{erroCertidoes}</p> : certidoes.length === 0 ? <p className="mt-3 text-xs text-[#0F2A44]/50">Nenhuma certidão com arquivo disponível.</p> : (
+                <div className="mt-3 space-y-2">
+                  {certidoes.map((item) => {
+                    const situacao = situacaoEfetiva(item);
+                    const info = situacaoInfo(situacao);
+                    return <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 ${situacao === "vencida" ? "border-red-200 bg-red-50" : "border-black/10"}`}>
+                      <input type="checkbox" checked={selecionadas.has(String(item.id))} onChange={(evento) => setSelecionadas((atual) => { const proximo = new Set(atual); evento.target.checked ? proximo.add(String(item.id)) : proximo.delete(String(item.id)); return proximo; })} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-[#0F2A44]">{item.tipos_certidao?.nome || "Certidão"}</span>
+                      <span className="text-xs font-medium" style={{ color: info.cor }}>{info.label}</span>
+                      <span className="text-xs text-[#0F2A44]/45">{formatarData(item.data_vencimento)}</span>
+                    </label>;
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-black/5 px-5 py-4">
@@ -110,16 +171,16 @@ export default function PreVisualizacaoProcessoServico({
           </button>
           <button
             type="button"
-            onClick={() => onGerarPdf?.(escopo)}
-            disabled={ocupado}
+            onClick={() => onGerarPdf?.(escopo, certidoesEscolhidas)}
+            disabled={ocupado || carregandoCertidoes}
             className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg border border-[#0F2A44]/20 px-4 py-2 text-sm text-[#0F2A44] hover:bg-black/5 disabled:opacity-60"
           >
             <FileDown size={15} /> Gerar PDF
           </button>
           <button
             type="button"
-            onClick={() => onImprimir?.(escopo)}
-            disabled={ocupado}
+            onClick={() => onImprimir?.(escopo, certidoesEscolhidas)}
+            disabled={ocupado || carregandoCertidoes}
             className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg bg-[#0F2A44] px-4 py-2 text-sm text-white hover:bg-[#0F2A44]/90 disabled:opacity-60"
           >
             <Printer size={15} /> {escopo === "completo" ? "Imprimir processo completo" : "Imprimir"}

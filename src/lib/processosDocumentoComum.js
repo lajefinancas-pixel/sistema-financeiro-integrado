@@ -45,7 +45,7 @@ export const TINTA = TINTA_IMPRESSAO;
 
 // A4 retrato. A margem de baixo é maior porque o rodapé institucional tem três
 // linhas: endereço com CEP, contato e CNPJ.
-export const PAGINA = { largura: 210, altura: 297, margemTopo: 10, margemBase: 18, margemLado: 13 };
+export const PAGINA = { largura: 210, altura: 297, margemTopo: 8, margemBase: 16, margemLado: 11 };
 
 /** O município das cinco folhas, na linha de local e data. */
 export const MUNICIPIO = "São José da Laje/AL";
@@ -334,7 +334,7 @@ export function estilosComuns() {
        gastavam o dobro da altura e empurravam o documento para uma segunda
        folha. Vale em TODAS as folhas que têm autorização da prefeita; a exceção
        é a Requisição de Diárias, cujas três assinaturas seguem empilhadas. */
-    .faixa-assinaturas { display: flex; align-items: stretch; gap: 6mm; margin-top: 6mm;
+    .faixa-assinaturas { display: flex; align-items: stretch; gap: 5mm; margin-top: 5mm;
       page-break-inside: avoid; break-inside: avoid; }
     .faixa-assinaturas > * { min-width: 0; }
     /* O quadro da prefeita fica um pouco mais largo: é ele que tem texto dentro
@@ -342,7 +342,7 @@ export function estilosComuns() {
     .faixa-assinaturas .lado { flex: 42 1 0; display: flex; flex-direction: column; justify-content: flex-end; }
     .faixa-assinaturas .autorizacao { flex: 58 1 0; margin-top: 0; }
     .faixa-assinaturas .local-data { margin-top: 0; }
-    .faixa-assinaturas .assinatura-unica { margin: 10mm auto 0; width: 100%; max-width: 78mm; }
+    .faixa-assinaturas .assinatura-unica { margin: 8mm auto 0; width: 100%; max-width: 78mm; }
 
     .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
       border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
@@ -885,7 +885,7 @@ export function criarPincelBase(pdf, dados) {
       destino = "",
       em = "",
       proporcao = 0.42,
-      recuoDaCaneta = 30,
+      recuoDaCaneta = 24,
     } = {}) {
       this.faixaLadoALado({
         // A caixa da prefeita fica mais larga: é ela que tem texto dentro.
