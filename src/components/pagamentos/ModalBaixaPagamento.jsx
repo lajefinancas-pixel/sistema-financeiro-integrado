@@ -2,14 +2,13 @@ import React from "react";
 import { AlertTriangle, X } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
 import { formatBRL, paraNumeroMoeda } from "../../lib/moeda";
-import { registrarBaixa } from "../../lib/baixasPagamentos";
+import { registrarBaixaDeNota } from "../../lib/baixasPagamentos";
 import { resumoBaixas } from "../../lib/regrasBaixas";
 import { mensagemAmigavel } from "../../lib/erros";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
-
 export default function ModalBaixaPagamento({ pagamento = null, fornecedores = [], contas = [], contaSugeridaId = "", baixas = [], onFechar, onConcluida }) {
   const resumo = resumoBaixas(pagamento?.valor_a_pagar ?? 0, baixas);
   const chaveRascunho = `sfi.baixa.pendente.${pagamento?.id ?? "avulsa"}`;
@@ -46,10 +45,10 @@ export default function ModalBaixaPagamento({ pagamento = null, fornecedores = [
     setSalvando(true);
     setErro(null);
     try {
-      await registrarBaixa({
+      await registrarBaixaDeNota({
         ...form,
         valor,
-        pagamentoId: pagamento?.id ?? null,
+        valorEmAbertoId: pagamento?.valor_em_aberto_id ?? pagamento?.valor_id ?? pagamento?.id,
         chaveIdempotencia: chaveInicial.current,
       });
       await onConcluida?.();

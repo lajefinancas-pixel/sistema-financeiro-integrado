@@ -1,7 +1,7 @@
 import React from "react";
 import { AlertTriangle, RotateCcw, X } from "lucide-react";
 import { formatBRL } from "../../lib/moeda";
-import { mensagemAmigavel } from "../../lib/erros";
+import { mensagemErroBanco } from "../../lib/erros";
 import { estornarBaixaDeNota } from "../../lib/baixasPagamentos";
 import { validarEstorno } from "../../lib/regrasBaixas";
 import { formatarData } from "../../lib/notasFornecedor";
@@ -37,7 +37,7 @@ export default function ModalEstornarBaixa({ baixa, nota, nomeConta, onFechar, o
       onFechar?.();
     } catch (falha) {
       console.error("[Baixas] Não foi possível estornar a baixa.", falha);
-      setErro(mensagemAmigavel(falha, "Não foi possível estornar a baixa. Tente novamente."));
+      setErro(mensagemErroBanco(falha, "Não foi possível estornar a baixa."));
     } finally {
       setSalvando(false);
     }
@@ -85,8 +85,8 @@ export default function ModalEstornarBaixa({ baixa, nota, nomeConta, onFechar, o
           <p className="rounded-lg bg-[#F4F7F9] px-3 py-2.5 text-[11px] leading-relaxed text-[#0F2A44]/70">
             O valor de {formatBRL(baixa?.valor_pago ?? 0)} volta para o em aberto
             {nota ? ` da nota ${nota}` : " da nota"}. A baixa original <strong>não é apagada</strong> — ela continua no
-            histórico, agora marcada como estornada, com este motivo e o seu nome. O saldo da conta{" "}
-            <strong>não é alterado</strong>.
+            histórico, agora marcada como estornada, com este motivo e o seu nome. O valor também é
+            <strong> devolvido ao saldo da conta</strong> usada na baixa.
           </p>
 
           {erro && (

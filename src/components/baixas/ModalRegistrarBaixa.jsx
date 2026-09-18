@@ -4,7 +4,7 @@ import CampoMoeda from "../CampoMoeda";
 import { formatBRL, paraNumeroMoeda } from "../../lib/moeda";
 import SeletorContas from "../comuns/SeletorContas";
 import ContaSelecionada from "../comuns/ContaSelecionada";
-import { mensagemAmigavel } from "../../lib/erros";
+import { mensagemErroBanco } from "../../lib/erros";
 import { registrarBaixaDeNota } from "../../lib/baixasPagamentos";
 import {
   descricaoDaNota,
@@ -105,7 +105,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
       onFechar?.();
     } catch (falha) {
       console.error("[Baixas] Não foi possível registrar a baixa da nota.", falha);
-      setErro(mensagemAmigavel(falha, "Não foi possível registrar a baixa. Tente novamente."));
+      setErro(mensagemErroBanco(falha, "Não foi possível registrar a baixa."));
     } finally {
       setSalvando(false);
     }
@@ -187,7 +187,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
             {/* Digitar localiza entre TODAS as contas cadastradas, de todas as
                 secretarias, e ao abrir a lista as contas vêm organizadas por
                 Secretaria. Escolher a conta aqui registra de onde o dinheiro
-                saiu — não debita o saldo dela. Não existe cadastro de conta
+                saiu e que será debitada pela baixa. Não existe cadastro de conta
                 neste passo: só se escolhe conta que já existe. */}
             <SeletorContas
               className="mt-1"
@@ -232,8 +232,8 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
           )}
 
           <p className="rounded-lg bg-[#F4F7F9] px-3 py-2.5 text-[11px] leading-relaxed text-[#0F2A44]/65 sm:col-span-2">
-            A baixa registra o pagamento e abate o valor em aberto da nota. Ela <strong>não altera o saldo da conta</strong>
-            {" "}— a conta informada acima serve para identificar de onde o dinheiro saiu.
+            A baixa registra o pagamento, abate o valor em aberto da nota e <strong>debita o saldo da conta</strong>
+            {" "}informada acima, tudo na mesma operação.
           </p>
 
           {erro && (

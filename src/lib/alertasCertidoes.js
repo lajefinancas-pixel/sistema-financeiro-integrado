@@ -207,10 +207,9 @@ function erroDeEstrutura(erro) {
  * que continuavam carregando e aparecendo normalmente -- um aviso sobre uma ação
  * que a pessoa nem pediu.
  *
- * Três destinos, de propósito diferentes:
+ * Dois destinos:
  *   * estrutura ausente  -> aviso na tela: quem administra precisa rodar a migration;
- *   * recusa de permissão -> SÓ console: avisar é efeito secundário de abrir a
- *     tela, ninguém pediu a gravação e não há nada que quem consulta possa fazer;
+ *   * recusa de permissão -> aviso visível com código e texto do banco;
  *   * qualquer outra falha -> aviso na tela, como antes.
  */
 export function avisoDaVarredura(erro, mensagemPadrao, chamada) {
@@ -222,10 +221,12 @@ export function avisoDaVarredura(erro, mensagemPadrao, chamada) {
   if (ehRecusaDePermissao(erro)) {
     console.warn(
       `[Certidões] O banco recusou por permissão a chamada "${chamada}" da varredura de alertas. ` +
-        "As certidões e a listagem não são afetadas; nenhum aviso é mostrado na tela por isso.",
+        "As certidões e a listagem não são afetadas, mas as pendências podem estar desatualizadas.",
       erro,
     );
-    return null;
+    const codigo = String(erro?.code ?? erro?.status ?? "42501");
+    const texto = String(erro?.message ?? mensagemPadrao);
+    return `Falha na ${chamada} (${codigo}): ${texto}`;
   }
 
   return mensagemAmigavel(erro, mensagemPadrao);
@@ -364,9 +365,8 @@ export async function sincronizarAlertasCertidoes(usuarioId, certidoes) {
           .filter((linha) => !estagioPorCertidao.has(linha.certidao_id))
           .map((linha) => linha.id);
 
-  // As gravações são efeito secundário de abrir a tela. Uma recusa de permissão
-  // aqui não vira aviso de tela (só console): a pessoa não pediu esta operação e
-  // a listagem de certidões, que é o que ela abriu, não é afetada.
+  // A listagem continua disponível se a sincronização falhar, mas a falha fica
+  // visível porque as pendências podem deixar de ser criadas ou atualizadas.
   const falhas = await Promise.all([
     novas.length > 0
       ? notificar(novas, {
