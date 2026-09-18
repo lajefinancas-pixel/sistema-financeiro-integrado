@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -27,9 +28,6 @@ import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnal
 import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, carregarVinculosDaProgramacao, definirContaDePagamentos, definirNomeExibicaoDoPagamento, estruturaFase2Ausente, reabrirProgramacao } from "../lib/execucaoProgramacaoDados";
 import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoProgramacao";
 import ModalReaberturaProgramacao from "../components/pagamentos/ModalReaberturaProgramacao";
-import ModalEstornoTransferencia from "../components/pagamentos/ModalEstornoTransferencia";
-import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransferenciaEntreContas";
-import PainelExecucaoProgramacao from "../components/pagamentos/PainelExecucaoProgramacao";
 import LinhasExecucaoProgramacao from "../components/pagamentos/LinhasExecucaoProgramacao";
 import SeletorContas from "../components/comuns/SeletorContas";
 import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
@@ -718,7 +716,7 @@ export default function PagamentosRedesenhado() {
     setExclusaoProgramacao(null);
     if (String(programacaoId) === String(idExcluido)) limparEdicao();
     await carregarProgramacoes();
-    setMensagem("Programação excluída e enviada à Lixeira. A reserva foi liberada sem alterar o saldo real.");
+    setMensagem("Programação excluída e enviada à Lixeira. Nenhum saldo de conta foi alterado.");
   }
 
   async function concluirCancelamento(motivo) {
@@ -727,7 +725,7 @@ export default function PagamentosRedesenhado() {
     setExclusaoProgramacao(null);
     await carregarProgramacao(programacaoId, { manterRecolhimento: true });
     await carregarProgramacoes(programacaoId);
-    setMensagem("Programação cancelada. O pagamento pago e o saldo real foram preservados; a reserva remanescente foi liberada.");
+    setMensagem("Programação cancelada. As marcações foram preservadas e nenhum saldo de conta foi alterado.");
   }
 
   // Confirmar/reabrir um bloco é só apresentação: não grava, não movimenta
@@ -1127,18 +1125,18 @@ export default function PagamentosRedesenhado() {
     }
   }
 
-  // A efetivação integral continua passando, sem qualquer variação, pela função
-  // transacional e idempotente já existente no banco.
-  async function efetivarPagamento(pagamento) {
+  async function marcarSituacao(pagamento, situacao, valorPago = 0) {
     setErro("");
     try {
-      const { data: resultado, error } = await supabase.rpc("marcar_pagamento_pago", { p_pagamento_id: String(pagamento.id) });
+      const { data: resultado, error } = await supabase.rpc("marcar_situacao_programacao", {
+        p_pagamento_id: String(pagamento.id), p_situacao: situacao, p_valor_pago: valorPago,
+      });
       if (error) throw error;
-      if (!resultado?.ok) return { ok: false, mensagem: textoDoMotivo(resultado, nomeDaConta(resultado?.conta_id)) };
       await carregarProgramacao(programacao.id, { manterRecolhimento: true });
-      return { ok: true, mensagem: resultado.ja_pago ? "Pagamento já estava efetivado; nenhum débito foi repetido." : `Pagamento de ${formatBRL(pagamento.valor_a_pagar)} efetivado.` };
+      setMensagem("Marcação atualizada. A programação não movimentou saldo de conta.");
+      return { ok: true };
     } catch (falha) {
-      const texto = mensagemAmigavel(falha, "Não foi possível efetivar o pagamento.");
+      const texto = mensagemAmigavel(falha, "Não foi possível atualizar a marcação.");
       setErro(texto);
       return { ok: false, mensagem: texto };
     }
@@ -1265,7 +1263,7 @@ export default function PagamentosRedesenhado() {
   const totalProgramado = somarPagamentos(pagamentos);
   const totalPago = pagamentos.reduce((total, item) => total + (item.situacao === "pago" ? numero(item.valor_a_pagar) : numero(item.valor_pago)), 0);
   const totalNaoPago = pagamentos.reduce((total, item) => total + (["cancelado", "suspenso"].includes(item.situacao) ? numero(item.valor_a_pagar) : 0), 0);
-  const restante = calcularRestante(totalDisponivel, totalProgramado);
+  const restante = calcularRestante(totalDisponivel, totalPago);
   // "--" onde o saldo daquele dia não foi gravado. A tela não põe o saldo de
   // hoje no lugar do valor que falta, e não estima nada.
   const saldoDaLinha = (conta) => (conta.saldo == null ? TEXTO_SEM_REGISTRO : formatBRL(conta.saldo));
@@ -1368,17 +1366,20 @@ export default function PagamentosRedesenhado() {
             impressão não pode depender de rolagem. */}
         <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[var(--color-brand-navy)]/10 bg-[var(--color-brand-off-white)]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
-            <div className="grid min-w-[20rem] flex-1 gap-1.5 sm:grid-cols-4">
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo da programação</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></div>
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-white px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Total programado</span><strong className="text-[15px] font-bold tabular-nums text-[var(--color-brand-navy)]">{formatBRL(totalProgramado)}</strong></div>
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-emerald-50 px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-800/70">Pago</span><strong className="text-[15px] font-bold tabular-nums text-emerald-800">{formatBRL(totalPago)}</strong></div>
-              <div className="flex items-baseline justify-between gap-2 rounded-lg bg-rose-50 px-2.5 py-1"><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-800/70">Não pago</span><strong className="text-[15px] font-bold tabular-nums text-rose-800">{formatBRL(totalNaoPago)}</strong></div>
+            <div className="flex min-w-[18rem] flex-1 flex-wrap items-baseline gap-x-5 gap-y-1 rounded-lg bg-white px-3 py-1">
+              <div><span className="mr-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo restante</span><strong className={`text-xl font-bold tabular-nums ${restante < 0 ? "text-[#8A321C]" : "text-[var(--color-brand-navy)]"}`}>{formatBRL(restante)}</strong></div>
+              <span className="text-[10px] text-[var(--color-brand-navy)]/55">Saldo da programação <strong className="tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></span>
+              <span className="text-[10px] text-[var(--color-brand-navy)]/55">Total programado <strong className="tabular-nums text-[var(--color-brand-navy)]">{formatBRL(totalProgramado)}</strong></span>
+              <span className="text-[10px] text-[var(--color-brand-navy)]/50">Pago {formatBRL(totalPago)} · Não pago {formatBRL(totalNaoPago)}</span>
             </div>
-            {programacao && <div className="flex gap-1.5 print:hidden">
+            <div className="flex flex-wrap gap-1.5 print:hidden">
+              <Link to="/pagamentos/pendencias" className="inline-flex items-center rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)]">Pendências</Link>
+              {programacao && <>
               <button onClick={imprimir} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[var(--color-brand-navy-strong)]"><Printer size={14}/> Imprimir programação para análise</button>
               <button onClick={gerarPdf} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]"><FileDown size={14}/> PDF</button>
               <button onClick={exportarExcel} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-brand-navy)]/25 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--color-brand-navy)] hover:bg-[var(--color-brand-off-white-hover)]"><FileSpreadsheet size={14}/> Excel</button>
-            </div>}
+              </>}
+            </div>
           </div>
           {acimaDoSaldo && <p className="mx-auto mt-1.5 max-w-[1500px] rounded-md bg-[#8A321C] px-2.5 py-1 text-center text-[11px] font-semibold text-white"><AlertTriangle size={12} className="mr-1 inline"/> PROGRAMAÇÃO ACIMA DO SALDO DISPONÍVEL — diferença de {formatBRL(Math.abs(restante))}</p>}
         </div>
@@ -1548,16 +1549,12 @@ export default function PagamentosRedesenhado() {
 
             {emEtapaDeExecucao && <div className="mt-3 print:hidden"><LinhasExecucaoProgramacao
               pagamentos={pagamentosOrdenados}
-              contas={contasDaProgramacao}
-              contasSelecionadas={contasSelecionadas}
-              secretariaId={secretariaId}
               nomePagamento={nomePagamento}
-              permissoes={fase2Indisponivel ? { definir_conta_pagamento: false, executar_programacao: false } : (permissoesFase2 ?? {})}
-              estruturaAusente={fase2Indisponivel}
+              podeEditar={podeEditarProgramacao}
               salvando={salvando}
-              onDefinirConta={(pagamento, contaId) => gravarContaDosPagamentos([pagamento.id], contaId)}
-              onPagar={efetivarPagamento}
-              onAdiar={definirAdiamento}
+              onMarcar={marcarSituacao}
+              onEditarValor={editarValor}
+              onExcluir={(pagamento) => setPagamentos((itens) => itens.filter((item) => item !== pagamento))}
             /></div>}
 
             {/* Bloco 3 é o detalhamento de quem já está escolhido enquanto a lista
@@ -1571,35 +1568,6 @@ export default function PagamentosRedesenhado() {
             {/* Etapa de execução: a conta é definida POR PAGAMENTO. Nenhuma
                 operação daqui movimenta saldo, exceto a transferência entre
                 contas confirmada. */}
-            {emEtapaDeExecucao && <div className="mt-3 print:hidden">
-              {/* UMA ÚNICA FONTE DE SALDO NA PROGRAMAÇÃO INTEIRA: a etapa de
-                  execução recebe a MESMA lista de contas das contas de
-                  trabalho, do resumo, da impressão e do PDF. Numa programação
-                  de data anterior, aprovada ou fechada, isso significa o saldo
-                  congelado do dia em que ela foi montada -- a mesma conta não
-                  pode aparecer com um valor no topo da tela e outro embaixo.
-                  Definir a conta continua não debitando nada. */}
-              <PainelExecucaoProgramacao
-                programacao={programacao}
-                pagamentos={pagamentosOrdenados}
-                contas={contasDaProgramacao}
-                ocultarExecucao
-                contasSelecionadas={contasSelecionadas}
-                secretariaId={secretariaId}
-                nomePagamento={nomePagamento}
-                transferencias={transferencias}
-                permissoes={fase2Indisponivel ? { definir_conta_pagamento: false, executar_programacao: false, executar_transferencia: false, estornar_transferencia: false } : (permissoesFase2 ?? {})}
-                salvando={salvando}
-                saldoCongelado={modoSaldoCongelado}
-                dataFormatada={dataBR(programacao.data_programacao)}
-                estruturaAusente={fase2Indisponivel}
-                onDefinirConta={(pagamento, contaId) => gravarContaDosPagamentos([pagamento.id], contaId)}
-                onAtribuirAosSelecionados={(ids, contaId) => gravarContaDosPagamentos(ids, contaId)}
-                onAplicarATodos={(contaId) => gravarContaDosPagamentos(pagamentos.map((item) => item.id), contaId)}
-                onTransferir={abrirTransferencia}
-                onEstornar={abrirEstorno}
-              />
-            </div>}
           </>}
         </>}
         {mostrarAprovacao && programacao && <ModalAprovacaoProgramacao
@@ -1617,11 +1585,11 @@ export default function PagamentosRedesenhado() {
             { rotulo: "Data", valor: exclusaoProgramacao.programacao.data_programacao ? dataBR(exclusaoProgramacao.programacao.data_programacao) : dataBR(data) },
             { rotulo: "Situação", valor: statusLabel(exclusaoProgramacao.programacao.status, exclusaoProgramacao.programacao.fechado) },
           ]}
-          aviso="A programação irá para a Lixeira e a reserva será liberada. O saldo real não será alterado."
+          aviso="A programação irá para a Lixeira. Nenhum saldo de conta será alterado."
           exigirMotivo
           bloqueio={exclusaoProgramacao.temPagamentoPago ? {
             texto: "Esta programação tem pagamento marcado como pago e não pode ser excluída. O pagamento e o saldo real serão preservados.",
-            acao: { rotulo: "Cancelar programação", descricao: "Informe o motivo acima. O cancelamento libera somente a reserva remanescente.", onAcionar: concluirCancelamento },
+            acao: { rotulo: "Cancelar programação", descricao: "Informe o motivo acima. O cancelamento preserva o histórico das marcações.", onAcionar: concluirCancelamento },
           } : null}
           onCancelar={() => setExclusaoProgramacao(null)}
           onConfirmar={concluirExclusao}
@@ -1640,22 +1608,6 @@ export default function PagamentosRedesenhado() {
           onConfirmar={confirmarReabertura}
         />}
 
-        {mostrarTransferencia && programacao && <ModalTransferenciaEntreContas
-          programacao={programacao}
-          contas={contasTransferencia}
-          avisoSaldo={modoSaldoCongelado
-            ? `Esta programação de ${dataBR(programacao.data_programacao)} exibe o saldo considerado quando foi montada. Aqui os saldos são os de HOJE, porque a transferência move dinheiro de verdade agora.`
-            : ""}
-          onFechar={() => setMostrarTransferencia(false)}
-          onConcluida={() => aposMovimentoDeSaldo("Transferência confirmada. Transferência entre contas próprias não é despesa: o patrimônio total continua igual.")}
-        />}
-
-        {estornoAlvo && <ModalEstornoTransferencia
-          transferencia={estornoAlvo}
-          nomeConta={nomeDaConta}
-          onFechar={() => setEstornoAlvo(null)}
-          onConcluido={() => aposMovimentoDeSaldo("Transferência estornada. A original continua registrada no histórico e na auditoria.")}
-        />}
       </div>
     </Layout>
   );

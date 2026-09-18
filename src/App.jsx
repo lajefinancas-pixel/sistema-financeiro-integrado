@@ -17,6 +17,7 @@ import Configuracoes from "./pages/Configuracoes";
 import DiagnosticoPagamentos from "./pages/DiagnosticoPagamentos";
 import Lixeira from "./pages/Lixeira";
 import Usuarios from "./pages/equipe/Usuarios";
+import PendenciasPagamentos from "./pages/PendenciasPagamentos";
 
 function RotaProtegida({ children }) {
   const [sessao, setSessao] = React.useState(undefined);
@@ -51,6 +52,7 @@ export default function App() {
       <Route path="/processos/:area" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
+      <Route path="/pagamentos/pendencias" element={<RotaProtegida><PendenciasPagamentos /></RotaProtegida>} />
       <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />
       <Route path="/tarefas" element={<RotaProtegida><Tarefas /></RotaProtegida>} />
       <Route path="/equipe/usuarios" element={<RotaProtegida><Usuarios /></RotaProtegida>} />

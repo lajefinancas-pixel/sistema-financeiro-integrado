@@ -1,5 +1,6 @@
 import React from "react";
-import { formatBRL, mascararMoedaDigitando, mascararMoedaCompleta, paraNumeroMoeda } from "../lib/moeda";
+import { formatBRL, paraNumeroMoeda } from "../lib/moeda";
+import { valorPorExtenso } from "../lib/valorPorExtenso";
 
 /**
  * Campo de valor em real: mostra "R$ 1.000.000,00" enquanto o usuário digita e
@@ -12,50 +13,72 @@ import { formatBRL, mascararMoedaDigitando, mascararMoedaCompleta, paraNumeroMoe
  * texto é completado ("R$ 1.000.000,00").
  */
 export default function CampoMoeda({ valor, onValorChange, className = "", onFocus, onBlur, ...atributos }) {
-  const [texto, setTexto] = React.useState(() => textoInicial(valor));
-  const [digitando, setDigitando] = React.useState(false);
+  const [centavos, setCentavos] = React.useState(() => paraCentavos(valor));
+  const referencia = React.useRef(null);
 
-  // Enquanto o campo está em uso, quem manda é o que o usuário digitou.
   React.useEffect(() => {
-    if (!digitando) setTexto(textoInicial(valor));
-  }, [valor, digitando]);
+    setCentavos(paraCentavos(valor));
+  }, [valor]);
 
-  function aoDigitar(evento) {
-    const mascarado = mascararMoedaDigitando(evento.target.value);
-    setTexto(mascarado);
-    onValorChange?.(paraNumeroMoeda(mascarado), mascarado);
+  function publicar(proximos) {
+    const seguro = Math.max(0, Number(proximos) || 0);
+    const numero = seguro / 100;
+    const texto = formatBRL(numero);
+    setCentavos(seguro);
+    onValorChange?.(paraNumeroMoeda(texto), texto);
+    requestAnimationFrame(() => cursorNoFim(referencia.current));
   }
 
   function aoFocar(evento) {
-    setDigitando(true);
-    // Seleciona o conteúdo para que a digitação substitua o valor anterior.
-    evento.target.select();
+    cursorNoFim(evento.target);
     onFocus?.(evento);
   }
 
-  function aoSair(evento) {
-    setDigitando(false);
-    const completo = mascararMoedaCompleta(evento.target.value);
-    setTexto(completo);
-    onValorChange?.(paraNumeroMoeda(completo), completo);
-    onBlur?.(evento);
+  function aoTeclar(evento) {
+    if (/^\d$/.test(evento.key)) {
+      evento.preventDefault();
+      publicar(centavos * 10 + Number(evento.key));
+    } else if (evento.key === "Backspace" || evento.key === "Delete") {
+      evento.preventDefault();
+      publicar(Math.floor(centavos / 10));
+    } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "PageUp", "PageDown", ",", "."].includes(evento.key)) {
+      evento.preventDefault();
+      cursorNoFim(evento.currentTarget);
+    }
   }
 
-  return (
+  function aoColar(evento) {
+    evento.preventDefault();
+    publicar(Math.round(paraNumeroMoeda(evento.clipboardData.getData("text")) * 100));
+  }
+
+  const numero = centavos / 100;
+  return <div className="min-w-0">
     <input
       {...atributos}
+      ref={referencia}
       type="text"
-      inputMode="decimal"
-      value={texto}
-      onChange={aoDigitar}
+      inputMode="numeric"
+      value={formatBRL(numero)}
+      onChange={() => {}}
+      onKeyDown={aoTeclar}
+      onPaste={aoColar}
+      onClick={(evento) => cursorNoFim(evento.currentTarget)}
+      onSelect={(evento) => cursorNoFim(evento.currentTarget)}
       onFocus={aoFocar}
-      onBlur={aoSair}
+      onBlur={onBlur}
       className={className}
     />
-  );
+    {numero >= 10000 && <small className="mt-1 block text-[10px] leading-snug text-[var(--color-brand-navy,#0F2A44)]/55">{valorPorExtenso(numero)}</small>}
+  </div>;
 }
 
-function textoInicial(valor) {
-  if (valor === "" || valor === null || valor === undefined) return "";
-  return formatBRL(valor);
+function paraCentavos(valor) {
+  return Math.max(0, Math.round(paraNumeroMoeda(valor) * 100));
+}
+
+function cursorNoFim(campo) {
+  if (!campo || document.activeElement !== campo) return;
+  const fim = campo.value.length;
+  campo.setSelectionRange(fim, fim);
 }
