@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -33,6 +33,11 @@ function RotaProtegida({ children }) {
   return children;
 }
 
+function RedirecionarCertidoes() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/fornecedores/certidoes${search}${hash}`} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -43,6 +48,7 @@ export default function App() {
           pelo submenu de Fornecedores no menu lateral. A rota sem área é
           "Todos os Fornecedores", a página de Fornecedores de sempre. */}
       <Route path="/fornecedores" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
+      <Route path="/fornecedores/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
       <Route path="/fornecedores/:area" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       {/* PROCESSOS e as suas áreas, abertas pelo submenu de Processos no menu
           lateral. Neste envio existe Diárias; a rota sem área e qualquer área
@@ -50,7 +56,7 @@ export default function App() {
           debita conta, dá baixa em NF, altera saldo ou cria pagamento. */}
       <Route path="/processos" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
       <Route path="/processos/:area" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
-      <Route path="/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
+      <Route path="/certidoes" element={<RotaProtegida><RedirecionarCertidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/pagamentos/pendencias" element={<RotaProtegida><PendenciasPagamentos /></RotaProtegida>} />
       <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />

@@ -14,6 +14,7 @@ import { valorPorExtenso } from "../lib/valorPorExtenso";
  */
 export default function CampoMoeda({ valor, onValorChange, className = "", onFocus, onBlur, ...atributos }) {
   const [centavos, setCentavos] = React.useState(() => paraCentavos(valor));
+  const [emFoco, setEmFoco] = React.useState(false);
   const referencia = React.useRef(null);
 
   React.useEffect(() => {
@@ -30,8 +31,14 @@ export default function CampoMoeda({ valor, onValorChange, className = "", onFoc
   }
 
   function aoFocar(evento) {
+    setEmFoco(true);
     cursorNoFim(evento.target);
     onFocus?.(evento);
+  }
+
+  function aoDesfocar(evento) {
+    setEmFoco(false);
+    onBlur?.(evento);
   }
 
   function aoTeclar(evento) {
@@ -66,10 +73,10 @@ export default function CampoMoeda({ valor, onValorChange, className = "", onFoc
       onClick={(evento) => cursorNoFim(evento.currentTarget)}
       onSelect={(evento) => cursorNoFim(evento.currentTarget)}
       onFocus={aoFocar}
-      onBlur={onBlur}
+      onBlur={aoDesfocar}
       className={className}
     />
-    {numero >= 10000 && <small className="mt-1 block text-[10px] leading-snug text-[var(--color-brand-navy,#0F2A44)]/55">{valorPorExtenso(numero)}</small>}
+    {emFoco && numero >= 10000 && <small className="mt-1 block text-[10px] leading-snug text-[var(--color-brand-navy,#0F2A44)]/55">{valorPorExtenso(numero)}</small>}
   </div>;
 }
 

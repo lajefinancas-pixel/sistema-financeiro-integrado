@@ -2,7 +2,7 @@ import React from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   Home, Landmark, Users, Calendar, History, BarChart2, Settings, ReceiptText,
-  LogOut, ShieldCheck, ClipboardList, FileCheck2, Menu, X, PanelLeftClose,
+  LogOut, ShieldCheck, ClipboardList, Menu, X, PanelLeftClose,
   ChevronDown, ChevronRight, FolderOpen,
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
@@ -17,7 +17,6 @@ const navItems = [
   // sempre ("Todos os Fornecedores") e as áreas operacionais. As áreas NÃO são
   // itens principais do menu — vivem recuadas aqui dentro.
   { to: "/fornecedores", label: "Fornecedores", icon: Users, expansivel: true },
-  { to: "/certidoes", label: "Certidões", icon: FileCheck2 },
   { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
   { to: "/baixas", label: "Baixas de Pagamentos", icon: ReceiptText },
   // PROCESSOS: item expansível com as áreas documentais dentro. Neste envio
@@ -293,6 +292,9 @@ function ItemFornecedores({
         >
           <NavLink to={item.to} end onClick={onNavegar} className={classeSub}>
             Todos os Fornecedores
+          </NavLink>
+          <NavLink to={`${item.to}/certidoes`} onClick={onNavegar} className={classeSub}>
+            Certidões
           </NavLink>
           {areas.map((area) => (
             <NavLink
