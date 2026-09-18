@@ -1,5 +1,4 @@
 import React from "react";
-import { Trash2 } from "lucide-react";
 import CampoMoeda from "../CampoMoeda";
 
 export function situacaoDaExecucao(item) {
@@ -9,9 +8,9 @@ export function situacaoDaExecucao(item) {
   return "pendente";
 }
 
-const OPCOES = [["pago", "Pago"], ["parcial", "Parcial"], ["nao_pago", "Não pago"], ["pendente", "Pendente"]];
+const OPCOES = [["pago", "Pago"], ["parcial", "Parcial"], ["nao_pago", "Não pago"]];
 
-export default function LinhasExecucaoProgramacao({ pagamentos, nomePagamento, podeEditar = false, salvando, onMarcar, onEditarValor, onExcluir }) {
+export default function LinhasExecucaoProgramacao({ pagamentos, nomePagamento, podeMarcar = false, salvando, onMarcar }) {
   const [filtro, setFiltro] = React.useState("todos");
   const [parciais, setParciais] = React.useState({});
   const [processando, setProcessando] = React.useState(null);
@@ -32,9 +31,9 @@ export default function LinhasExecucaoProgramacao({ pagamentos, nomePagamento, p
     </div>
     <div className="divide-y divide-black/5">{visiveis.map((item) => <div key={item.id} className="grid min-h-12 items-center gap-2 px-3 py-1.5 md:grid-cols-[minmax(13rem,1fr)_10rem_minmax(19rem,auto)_auto]">
       <div className="min-w-0"><strong className="block truncate text-[13px] text-[var(--color-brand-navy)]">{nomePagamento(item)}</strong>{item.fornecedores?.razao_social && <small className="block truncate text-[10px] text-[var(--color-brand-navy)]/45">{item.fornecedores.razao_social}</small>}</div>
-      <CampoMoeda valor={item.valor_a_pagar} disabled={!podeEditar} onValorChange={(valor) => onEditarValor?.(item, valor)} aria-label={`Valor programado para ${nomePagamento(item)}`} className="w-full rounded-md border border-black/10 px-2 py-1 text-right text-xs font-semibold disabled:bg-transparent" />
-      <div className="flex flex-wrap items-center gap-1">{OPCOES.map(([id, rotulo]) => <button type="button" key={id} disabled={!podeEditar || salvando || processando === item.id} onClick={() => marcar(item,id)} className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${situacao(item) === id ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white" : "border-black/10 text-[var(--color-brand-navy)]/65"}`}>{rotulo}</button>)}{situacao(item) === "parcial" && <CampoMoeda valor={parciais[item.id] ?? item.valor_pago ?? 0} onValorChange={(valor)=>setParciais((atual)=>({...atual,[item.id]:valor}))} onBlur={()=>marcar(item,"parcial")} aria-label={`Valor parcial de ${nomePagamento(item)}`} className="w-28 rounded-md border border-black/10 px-2 py-1 text-right text-[10px]" />}</div>
-      <button type="button" onClick={() => onExcluir?.(item)} disabled={!podeEditar} className="rounded p-1 text-red-600 hover:bg-red-50 disabled:opacity-30" aria-label={`Excluir ${nomePagamento(item)}`}><Trash2 size={14}/></button>
+      <CampoMoeda valor={item.valor_a_pagar} disabled aria-label={`Valor programado para ${nomePagamento(item)}`} className="w-full rounded-md border border-black/10 bg-[var(--color-brand-off-white)] px-2 py-1 text-right text-xs font-semibold" />
+      <div className="flex flex-wrap items-center gap-1">{OPCOES.map(([id, rotulo]) => <button type="button" key={id} disabled={!podeMarcar || salvando || processando === item.id} onClick={() => marcar(item,id)} className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${situacao(item) === id ? "border-[var(--color-brand-navy)] bg-[var(--color-brand-navy)] text-white" : "border-black/10 text-[var(--color-brand-navy)]/65"}`}>{rotulo}</button>)}{situacao(item) === "parcial" && <CampoMoeda valor={parciais[item.id] ?? item.valor_pago ?? 0} disabled={!podeMarcar} onValorChange={(valor)=>setParciais((atual)=>({...atual,[item.id]:valor}))} onBlur={()=>marcar(item,"parcial")} aria-label={`Valor parcial de ${nomePagamento(item)}`} className="w-28 rounded-md border border-black/10 px-2 py-1 text-right text-[10px]" />}</div>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-brand-navy)]/45">Execução</span>
     </div>)}</div>
     {visiveis.length === 0 && <p className="px-3 py-8 text-center text-xs text-[var(--color-brand-navy)]/45">Nenhum fornecedor nesta situação.</p>}
   </section>;

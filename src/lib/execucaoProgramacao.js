@@ -19,9 +19,8 @@ export const STATUS_APROVADA = "aprovada";
 /** Rótulo do status como aparece na tela. */
 export function statusLabelExecucao(status, fechado = false) {
   if (fechado) return "HISTÓRICO";
-  if (status === STATUS_APROVADA) return "APROVADA / AGUARDANDO EXECUÇÃO";
-  if (status === STATUS_EM_ANALISE) return "EM ANÁLISE";
-  return "EM ELABORAÇÃO";
+  if (status === STATUS_APROVADA) return "CONFIRMADA / EM EXECUÇÃO";
+  return "EM MONTAGEM";
 }
 
 /** A programação já foi aprovada e está na etapa de execução? */
