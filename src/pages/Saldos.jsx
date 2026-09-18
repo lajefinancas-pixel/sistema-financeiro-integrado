@@ -1445,7 +1445,8 @@ export default function Saldos() {
                               <button
                                 onClick={() => excluirSecretaria(sec.id, sec.nome)}
                                 className="text-[#0F2A44]/30 hover:text-red-500"
-                                title="Excluir secretaria"
+                              title="Excluir secretaria"
+                              aria-label="Excluir secretaria"
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -1543,6 +1544,7 @@ export default function Saldos() {
                                           onClick={() => { setEditando(c.id); setNovoSaldo({ valor: "", data: hojeISO() }); }}
                                           className="text-[#0F2A44]/50 hover:text-[#0F2A44]"
                                           title="Lançar novo saldo"
+                                          aria-label="Lançar novo saldo"
                                         >
                                           <Pencil size={15} />
                                         </button>
@@ -1551,6 +1553,7 @@ export default function Saldos() {
                                             onClick={() => abrirEdicaoConta(c.id)}
                                             className="text-[#0F2A44]/40 hover:text-[#0F2A44]"
                                             title="Editar cadastro da conta (não altera saldos)"
+                                            aria-label="Editar cadastro da conta (não altera saldos)"
                                           >
                                             <Settings2 size={15} />
                                           </button>
@@ -1560,6 +1563,7 @@ export default function Saldos() {
                                             onClick={() => abrirSituacaoConta(c.id, "desativar")}
                                             className="text-[#0F2A44]/30 hover:text-[#B45309]"
                                             title="Desativar conta (o histórico é preservado)"
+                                            aria-label="Desativar conta (o histórico é preservado)"
                                           >
                                             <Archive size={15} />
                                           </button>

@@ -580,8 +580,11 @@ export async function finalizarProcesso(
  * trilha, como tudo o mais.
  */
 export async function reabrirProcesso(processo) {
+  if (!processo?.id) throw new Error("Processo sem identificador: não há o que reabrir.");
   const autor = await usuarioAtualId();
   const agora = new Date().toISOString();
+  const anterior = await carregarProcesso(processo.id);
+  if (String(anterior?.situacao) !== "finalizada") throw new Error("Somente um processo finalizado pode ser reaberto.");
 
   const { data, error } = await supabase
     .from(TABELA_PROCESSOS)
@@ -593,6 +596,7 @@ export async function reabrirProcesso(processo) {
       atualizado_por: autor,
     })
     .eq("id", processo.id)
+    .eq("situacao", "finalizada")
     .select(SELECAO)
     .single();
   if (error) throw error;
@@ -602,8 +606,13 @@ export async function reabrirProcesso(processo) {
     processoId: processo.id,
     acao: "reabriu",
     acaoAuditoria: "reabriu_processo",
-    anterior: { situacao: "finalizada" },
+    anterior,
     novo: { situacao: "rascunho" },
+    detalhes: {
+      descricao: "Processo reaberto para edição; o conteúdo anterior completo foi preservado neste snapshot.",
+      conteudo_anterior: anterior,
+      reaberto_em: agora,
+    },
     nivel: "atencao",
     usuarioId: autor,
   });

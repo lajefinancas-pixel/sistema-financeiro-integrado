@@ -368,6 +368,35 @@ export const CAMPOS_REQUISITANTE = Object.values(camposDoSignatario(SIGNATARIO_R
 export const CAMPOS_ASSINANTE_LIQUIDACAO = Object.values(camposDoSignatario(SIGNATARIO_LIQUIDACAO));
 
 /**
+ * Sugere na liquidação a mesma pessoa que assinou a requisição.
+ *
+ * Só acompanha mudanças enquanto os campos da liquidação continuam vazios ou
+ * iguais aos dados anteriores da requisição. Assim, uma escolha manual nunca é
+ * substituída e nenhum servidor é criado ou alterado no cadastro.
+ */
+export function sincronizarAssinanteDaLiquidacao(anterior, novo, { preenchidoManualmente = false } = {}) {
+  const antes = anterior ?? {};
+  const depois = { ...(novo ?? {}) };
+  if (preenchidoManualmente) return depois;
+
+  const requisitanteAntes = camposDoSignatario(SIGNATARIO_REQUISITANTE);
+  const requisitanteDepois = camposDoSignatario(SIGNATARIO_REQUISITANTE);
+  const liquidacao = camposDoSignatario(SIGNATARIO_LIQUIDACAO);
+  const pares = [
+    [liquidacao.servidorId, requisitanteAntes.servidorId, requisitanteDepois.servidorId],
+    [liquidacao.nome, requisitanteAntes.nome, requisitanteDepois.nome],
+    [liquidacao.cpf, requisitanteAntes.cpf, requisitanteDepois.cpf],
+    [liquidacao.cargo, requisitanteAntes.cargo, requisitanteDepois.cargo],
+  ];
+
+  const acompanha = pares.every(([destino, origemAnterior]) =>
+    vazio(antes[destino]) || texto(antes[destino]) === texto(antes[origemAnterior]));
+  if (!acompanha) return depois;
+  pares.forEach(([destino, , origemNova]) => { depois[destino] = depois[origemNova] ?? ""; });
+  return depois;
+}
+
+/**
  * DADOS GERAIS: digitados UMA VEZ e reutilizados nas duas páginas.
  *
  * Eles são compartilhados por CONSTRUÇÃO -- não há cópia a manter em dia, nem
