@@ -67,6 +67,7 @@ export default function PainelExecucaoProgramacao({
   onAtribuirAosSelecionados,
   onTransferir,
   onEstornar,
+  ocultarExecucao = false,
 }) {
   const [marcados, setMarcados] = React.useState(() => new Set());
   const [contaEmLote, setContaEmLote] = React.useState("");
@@ -128,7 +129,7 @@ export default function PainelExecucaoProgramacao({
 
   return (
     <div className="space-y-3">
-      <section className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+      {!ocultarExecucao && <section className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
         <CabecalhoRecolhivel
           aberta={execucaoAberta}
           onAlternar={() => setExecucaoAberta((valor) => !valor)}
@@ -357,7 +358,7 @@ export default function PainelExecucaoProgramacao({
           )}
 
         </div>
-      </section>
+      </section>}
 
       <section className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
         <CabecalhoRecolhivel
