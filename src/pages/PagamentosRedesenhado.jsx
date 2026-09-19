@@ -1261,9 +1261,10 @@ export default function PagamentosRedesenhado() {
     })
     : "";
   const totalProgramado = somarPagamentos(pagamentos);
-  const totalPago = pagamentos.reduce((total, item) => total + (item.situacao === "pago" ? numero(item.valor_a_pagar) : numero(item.valor_pago)), 0);
+  const totalPago = pagamentos.reduce((total, item) => total + (item.situacao === "pago" ? numero(item.valor_a_pagar) : 0), 0);
   const totalNaoPago = pagamentos.reduce((total, item) => total + (["cancelado", "suspenso"].includes(item.situacao) ? numero(item.valor_a_pagar) : 0), 0);
-  const restante = calcularRestante(totalDisponivel, totalPago);
+  // O restante é parte do planejamento e não muda com uma marcação de execução.
+  const restante = calcularRestante(totalDisponivel, totalProgramado);
   // "--" onde o saldo daquele dia não foi gravado. A tela não põe o saldo de
   // hoje no lugar do valor que falta, e não estima nada.
   const saldoDaLinha = (conta) => (conta.saldo == null ? TEXTO_SEM_REGISTRO : formatBRL(conta.saldo));
@@ -1367,8 +1368,8 @@ export default function PagamentosRedesenhado() {
         <div className="sticky top-0 z-30 -mx-4 mb-3 border-b border-[var(--color-brand-navy)]/10 bg-[var(--color-brand-off-white)]/95 px-4 py-2 shadow-[0_6px_18px_rgba(23,53,47,0.07)] backdrop-blur sm:-mx-6 sm:px-6">
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
             <div className="flex min-w-[18rem] flex-1 flex-wrap items-baseline gap-x-5 gap-y-1 rounded-lg bg-white px-3 py-1">
-              <div><span className="mr-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo restante</span><strong className={`text-xl font-bold tabular-nums ${restante < 0 ? "text-[#8A321C]" : "text-[var(--color-brand-navy)]"}`}>{formatBRL(restante)}</strong></div>
-              <span className="text-[10px] text-[var(--color-brand-navy)]/55">Saldo da programação <strong className="tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></span>
+              <div><span className="mr-2 text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Saldo da programação</span><strong className="text-xl font-bold tabular-nums text-[var(--color-brand-navy)]">{textoSaldoDaProgramacao}</strong></div>
+              <span className="text-[10px] text-[var(--color-brand-navy)]/55">Saldo restante <strong className={`tabular-nums ${restante < 0 ? "text-[#8A321C]" : "text-[var(--color-brand-navy)]"}`}>{textoRestante}</strong></span>
               <span className="text-[10px] text-[var(--color-brand-navy)]/55">Total programado <strong className="tabular-nums text-[var(--color-brand-navy)]">{formatBRL(totalProgramado)}</strong></span>
               <span className="text-[10px] text-[var(--color-brand-navy)]/50">Pago {formatBRL(totalPago)} · Não pago {formatBRL(totalNaoPago)}</span>
             </div>
@@ -1536,8 +1537,7 @@ export default function PagamentosRedesenhado() {
 
                 {/* Escolhidos, com o valor editável ao lado: na tela quando confirmado, na impressão sempre. */}
                 <div className={fornecedoresConfirmados ? "" : "hidden print:block"}>
-                  {pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[var(--color-brand-navy)]/45">Nenhum fornecedor escolhido.</p> : pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[var(--color-brand-navy)] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}
-                  <div className="bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div>
+                  {emEtapaDeExecucao ? <LinhasExecucaoProgramacao pagamentos={pagamentosOrdenados} nomePagamento={nomePagamento} podeMarcar={podeEditar && permissoesFase2?.executar_programacao !== false} salvando={salvando} onMarcar={marcarSituacao}/> : <>{pagamentos.length === 0 ? <p className="px-3 py-5 text-center text-[13px] text-[var(--color-brand-navy)]/45">Nenhum fornecedor escolhido.</p> : pagamentosOrdenados.map((pagamento, indice) => <div key={chaveDoPagamento(pagamento, indice)} data-item-programacao={chaveDoPagamento(pagamento, indice)} className="grid gap-1 border-b border-black/5 px-3 py-1 text-[13px] leading-tight last:border-0 sm:grid-cols-[1fr_9rem_auto] sm:items-center sm:gap-2"><div className="min-w-0">{nomeDoItem(pagamento, indice)}{pagamento.cadastrar_fornecedor_posteriormente && <small className="text-[10px] text-[#A5542F]">Cadastrar posteriormente</small>}{etiquetaDeOrigem(pagamento)}</div><CampoMoeda valor={pagamento.valor_a_pagar} onValorChange={(valor) => editarValor(pagamento, valor)} aria-label={`Valor a pagar para ${nomePagamento(pagamento)}`} className="w-full rounded-lg border border-black/10 px-2 py-1 text-right text-[13px] font-bold normal-case tracking-normal text-[var(--color-brand-navy)] print:hidden"/><strong className="hidden text-right tabular-nums print:block">{formatBRL(pagamento.valor_a_pagar)}</strong><button onClick={() => setPagamentos((itens) => itens.filter((item) => item !== pagamento))} className="rounded p-1 text-red-600 hover:bg-red-50 print:hidden" aria-label={`Retirar ${nomePagamento(pagamento)} da programação`}><Trash2 size={14}/></button></div>)}<div className="bg-[var(--color-brand-navy)] px-3 py-1.5 text-[11px] font-bold tracking-[0.04em] text-white">{pagamentos.length} {pagamentos.length === 1 ? "FORNECEDOR ESCOLHIDO" : "FORNECEDORES ESCOLHIDOS"} — TOTAL PROGRAMADO: {formatBRL(totalProgramado)}</div></>}
                 </div>
 
                 <div className="border-t border-black/5 p-2.5 print:hidden">
@@ -1546,14 +1546,6 @@ export default function PagamentosRedesenhado() {
                 </div>
               </section>
             </div>
-
-            {emEtapaDeExecucao && <div className="mt-3 print:hidden"><LinhasExecucaoProgramacao
-              pagamentos={pagamentosOrdenados}
-              nomePagamento={nomePagamento}
-              podeMarcar={podeEditar && permissoesFase2?.executar_programacao !== false}
-              salvando={salvando}
-              onMarcar={marcarSituacao}
-            /></div>}
 
             {/* Bloco 3 é o detalhamento de quem já está escolhido enquanto a lista
                 está aberta. Depois de confirmar, o valor editável passa a ficar no
