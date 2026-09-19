@@ -16,6 +16,13 @@ export const STATUS_ELABORACAO = "em_elaboracao";
 export const STATUS_EM_ANALISE = "em_analise";
 export const STATUS_APROVADA = "aprovada";
 
+/** Situação simples exibida na confirmação diária (não é uma baixa). */
+export function situacaoDaMarcacao(item) {
+  if (item?.situacao === "pago") return "pago";
+  if (item?.situacao === "suspenso" || item?.situacao === "cancelado") return "nao_pago";
+  return "pendente";
+}
+
 /** Rótulo do status como aparece na tela. */
 export function statusLabelExecucao(status, fechado = false) {
   if (fechado) return "HISTÓRICO";
