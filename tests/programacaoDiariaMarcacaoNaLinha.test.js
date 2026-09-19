@@ -34,7 +34,25 @@ test("marcar usa o valor integral e não recalcula os saldos do planejamento", a
   assert.match(pagina, /totalNaoPago = pagamentos\.reduce\([\s\S]*numero\(item\.valor_a_pagar\)/);
   assert.match(pagina, /restante = calcularRestante\(totalDisponivel, totalProgramado\)/);
   assert.match(marcar, /marcar_situacao_programacao/);
+  assert.match(marcar, /p_pagamento_id: String\(pagamento\.id\)[\s\S]*p_situacao: situacao/);
+  assert.doesNotMatch(marcar, /p_valor_pago/);
+  assert.match(marcar, /code: falha\?\.code[\s\S]*details: falha\?\.details/);
   assert.doesNotMatch(marcar, /contas_bancarias|saldos_historico|pagamentos_baixas|update\(.*saldo/is);
+});
+
+test("clicar na marcação ativa desfaz para pendente", async () => {
+  const linhas = await read("src/components/pagamentos/LinhasExecucaoProgramacao.jsx");
+  assert.match(linhas, /situacao\(item\) === nova \? "pendente" : nova/);
+});
+
+test("migration consolida a assinatura e protege o enum legado sem tocar saldos", async () => {
+  const sql = await read("supabase/migrations/20260919120000_consolidar_marcacao_programacao_diaria.sql");
+  assert.match(sql, /add value if not exists.*suspenso/i);
+  assert.match(sql, /drop function if exists public\.marcar_situacao_programacao\(text, text, numeric\)/i);
+  assert.match(sql, /function public\.marcar_situacao_programacao\(\s*p_pagamento_id text,\s*p_situacao text/s);
+  assert.match(sql, /when 'pendente' then 'programado'/);
+  assert.match(sql, /'movimentou_saldo', false/);
+  assert.doesNotMatch(sql, /insert into public\.saldos_historico|update public\.contas_bancarias/i);
 });
 
 test("saldo da programação volta a ser o valor principal do topo", async () => {

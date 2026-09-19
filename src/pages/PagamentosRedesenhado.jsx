@@ -1125,17 +1125,28 @@ export default function PagamentosRedesenhado() {
     }
   }
 
-  async function marcarSituacao(pagamento, situacao, valorPago = 0) {
+  async function marcarSituacao(pagamento, situacao) {
     setErro("");
+    const argumentos = {
+      p_pagamento_id: String(pagamento.id),
+      p_situacao: situacao,
+    };
     try {
-      const { data: resultado, error } = await supabase.rpc("marcar_situacao_programacao", {
-        p_pagamento_id: String(pagamento.id), p_situacao: situacao, p_valor_pago: valorPago,
-      });
+      const { data: resultado, error } = await supabase.rpc("marcar_situacao_programacao", argumentos);
       if (error) throw error;
       await carregarProgramacao(programacao.id, { manterRecolhimento: true });
       setMensagem("Marcação atualizada. A programação não movimentou saldo de conta.");
       return { ok: true };
     } catch (falha) {
+      if (typeof console !== "undefined") {
+        console.error("[Pagamentos Diários] Falha ao atualizar marcação", {
+          argumentos,
+          code: falha?.code,
+          message: falha?.message,
+          details: falha?.details,
+          hint: falha?.hint,
+        });
+      }
       const texto = mensagemAmigavel(falha, "Não foi possível atualizar a marcação.");
       setErro(texto);
       return { ok: false, mensagem: texto };

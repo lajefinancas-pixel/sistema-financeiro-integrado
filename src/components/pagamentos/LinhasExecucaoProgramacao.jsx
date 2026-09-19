@@ -15,7 +15,10 @@ export default function LinhasExecucaoProgramacao({ pagamentos, nomePagamento, p
 
   async function marcar(item, nova) {
     setProcessando(item.id);
-    await onMarcar?.(item, nova);
+    // Clicar outra vez na marcação ativa desfaz a decisão e volta a linha para
+    // pendente. O banco recebe somente os três comandos textuais consolidados;
+    // não existe mais parâmetro de valor da antiga baixa parcial.
+    await onMarcar?.(item, situacao(item) === nova ? "pendente" : nova);
     setProcessando(null);
   }
 
