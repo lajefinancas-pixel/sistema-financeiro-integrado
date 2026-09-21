@@ -270,29 +270,21 @@ export function desenharBrasaoPdf(pdf, x, y, lado, dados = null) {
  */
 export function estilosComuns() {
   return `
-    @page { size: A4 portrait; margin: 8mm 10mm 5mm; }
+    @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
     body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35;
       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-    /* A folha ocupa a área útil do A4. A quebra acontece antes de cada folha
-       posterior, nunca depois da última, evitando uma página final vazia. A
-       altura é MÍNIMA: conteúdo excepcional continua em vez de ser cortado. */
-    .folha { position: relative; width: 100%; max-width: 100%; min-height: calc(297mm - 13mm);
-      padding: 0 0 15mm; overflow: visible; }
+    /* A folha mede exatamente um A4 e contém as próprias margens. Assim o
+       navegador não soma margem de @page à largura do documento. */
+    .folha { position: relative; width: ${PAGINA.largura}mm; min-height: ${PAGINA.altura}mm;
+      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 4}mm; }
     .folha + .folha { page-break-before: always; break-before: page; }
 
-    /* Todo o conteúdo respeita a área útil definida por @page. Textos livres
-       quebram dentro da própria célula, fazendo a linha crescer sem invadir a
-       borda direita. A folga final do padding mantém o texto longe do traço. */
-    .folha > *, .cabecalho, .autorizacao, .faixa-assinaturas, .rodape {
-      max-width: 100%;
-    }
-    table { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box; }
-    th, td { box-sizing: border-box; white-space: normal; overflow-wrap: anywhere;
-      word-break: break-word; padding-right: 2mm; }
-    img, svg, canvas, object, embed { max-width: 100%; height: auto; object-fit: contain; }
+    table { width: 100%; box-sizing: border-box; }
+    th, td { box-sizing: border-box; min-width: 0; white-space: normal;
+      overflow-wrap: anywhere; word-break: break-word; }
 
     .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
     .cabecalho svg { display: block; flex: 0 0 auto; }
@@ -353,7 +345,7 @@ export function estilosComuns() {
     .faixa-assinaturas .local-data { margin-top: 0; }
     .faixa-assinaturas .assinatura-unica { margin: 8mm auto 0; width: 100%; max-width: 78mm; }
 
-    .rodape { position: absolute; left: 0; right: 0; bottom: 0;
+    .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
       border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
     .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
   `;
@@ -663,10 +655,10 @@ export function criarPincelBase(pdf, dados) {
     /** Um parágrafo corrido do formulário. */
     paragrafo(conteudo, { negrito = false, tamanho = 10, centralizado = false } = {}) {
       const entre = tamanho * 0.48;
-      const linhas = pdf.splitTextToSize(String(conteudo ?? ""), largUtil());
-      this.espaco(linhas.length * entre + 2);
       pdf.setFont("helvetica", negrito ? "bold" : "normal");
       pdf.setFontSize(tamanho);
+      const linhas = pdf.splitTextToSize(String(conteudo ?? ""), largUtil());
+      this.espaco(linhas.length * entre + 2);
       pdf.setTextColor(...TINTA.navy);
       linhas.forEach((linha, indice) => {
         if (centralizado) {
@@ -910,14 +902,14 @@ export function criarPincelBase(pdf, dados) {
 
     aviso(mensagem) {
       if (!mensagem) return;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7.5);
       const linhas = pdf.splitTextToSize(mensagem, largUtil() - 4);
       const altura = linhas.length * 3.4 + 3.4;
       this.espaco(altura + 2);
       pdf.setDrawColor(...TINTA.navy);
       pdf.setLineWidth(0.35);
       pdf.rect(xEsq(), estado.y, largUtil(), altura);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7.5);
       pdf.setTextColor(...TINTA.navy);
       linhas.forEach((linha, indice) => pdf.text(linha, xEsq() + 2, estado.y + 3.6 + indice * 3.4));
       estado.y += altura + 1.5;

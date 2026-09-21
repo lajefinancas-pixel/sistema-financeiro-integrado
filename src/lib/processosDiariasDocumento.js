@@ -454,7 +454,7 @@ function estilos() {
     .destaque { font-weight: bold; }
 
     .grade { display: flex; flex-wrap: wrap; border: .5pt solid ${COR.linha}; border-bottom: 0; }
-    .campo { border-bottom: .5pt solid ${COR.linha}; border-right: .5pt solid ${COR.linha}; padding: 1.4mm 2mm; overflow: hidden; }
+    .campo { border-bottom: .5pt solid ${COR.linha}; border-right: .5pt solid ${COR.linha}; padding: 1.4mm 2mm; min-width: 0; }
     .campo .rotulo { display: block; font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: ${COR.apoio}; }
     .campo .valor { display: block; font-size: 9.5pt; overflow-wrap: break-word; }
     .campo.forte .valor { font-weight: bold; }
@@ -464,8 +464,7 @@ function estilos() {
     .c67 { width: 66.66%; }
     .fim { border-right: 0; }
 
-    table.quadro { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box;
-      border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1.4mm 2mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt;
@@ -712,15 +711,24 @@ function criarPincel(pdf, dados) {
 
     /** Uma faixa de campos rotulados, em colunas proporcionais. */
     campos(itens) {
-      const altura = 9;
+      const preparados = itens.map((item) => {
+        const larguraCampo = largUtil() * (item.largura ?? 1 / itens.length);
+        pdf.setFont("helvetica", item.destaque ? "bold" : "normal");
+        pdf.setFontSize(9.5);
+        return {
+          ...item,
+          larguraCampo,
+          linhas: pdf.splitTextToSize(String(item.valor ?? SEM_REGISTRO), larguraCampo - 3.6),
+        };
+      });
+      const altura = Math.max(9, ...preparados.map((item) => 4.1 + item.linhas.length * 3.8));
       this.espaco(altura + 2);
       let x = xEsq();
       pdf.setDrawColor(...TINTA.linha);
       pdf.setLineWidth(0.2);
 
-      itens.forEach((item) => {
-        const larguraCampo = largUtil() * (item.largura ?? 1 / itens.length);
-        pdf.rect(x, estado.y, larguraCampo, altura);
+      preparados.forEach((item) => {
+        pdf.rect(x, estado.y, item.larguraCampo, altura);
 
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(6.5);
@@ -730,10 +738,9 @@ function criarPincel(pdf, dados) {
         pdf.setFont("helvetica", item.destaque ? "bold" : "normal");
         pdf.setFontSize(9.5);
         pdf.setTextColor(...TINTA.navy);
-        const cabe = pdf.splitTextToSize(String(item.valor ?? SEM_REGISTRO), larguraCampo - 3.6)[0] ?? "";
-        pdf.text(cabe, x + 1.8, estado.y + 7);
+        item.linhas.forEach((linha, indice) => pdf.text(linha, x + 1.8, estado.y + 7 + indice * 3.8));
 
-        x += larguraCampo;
+        x += item.larguraCampo;
       });
 
       estado.y += altura + 1.5;
@@ -753,11 +760,15 @@ function criarPincel(pdf, dados) {
       // endereço e CPF empilhados); a altura da linha é a da maior delas.
       const preparadas = colunas.map((coluna) => {
         const larguraColuna = largUtil() * (coluna.largura ?? 1 / colunas.length);
-        const partes = (coluna.partes ?? [{ valor: coluna.valor, negrito: coluna.negrito }]).map((parte) => ({
-          rotulo: texto(parte.rotulo),
-          negrito: parte.negrito === true,
-          linhas: pdf.splitTextToSize(String(parte.valor ?? SEM_REGISTRO), larguraColuna - 4),
-        }));
+        const partes = (coluna.partes ?? [{ valor: coluna.valor, negrito: coluna.negrito }]).map((parte) => {
+          pdf.setFont("helvetica", parte.negrito === true ? "bold" : "normal");
+          pdf.setFontSize(9.5);
+          return {
+            rotulo: texto(parte.rotulo),
+            negrito: parte.negrito === true,
+            linhas: pdf.splitTextToSize(String(parte.valor ?? SEM_REGISTRO), larguraColuna - 4),
+          };
+        });
         const alturaConteudo = partes.reduce(
           (soma, parte) => soma + (parte.rotulo !== "" ? 2.9 : 0) + parte.linhas.length * entre,
           0,
@@ -819,6 +830,8 @@ function criarPincel(pdf, dados) {
      */
     pautado(conteudo, { linhas: minimoDeLinhas = 16 } = {}) {
       const valor = texto(conteudo);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
       const escritas = valor === "" ? [] : pdf.splitTextToSize(valor, largUtil() - 5);
       const quantas = Math.max(minimoDeLinhas, escritas.length);
       const altura = quantas * PAUTA + 2;
