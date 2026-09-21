@@ -483,7 +483,7 @@ test("imprimir o processo completo dá DUAS folhas, cada documento na sua", () =
   assert.match(html, new RegExp(escapar(TITULO_PAGINA_1)));
   assert.match(html, new RegExp(escapar(TITULO_PAGINA_2)));
   // Cada documento começa em folha nova, e o A4 retrato é o do modelo.
-  assert.match(html, /page-break-after:\s*always/);
+  assert.match(html, /\.folha \+ \.folha \{ page-break-before: always; break-before: page; \}/);
   assert.match(html, /size:\s*A4 portrait/);
 
   // Um PDF só, com as duas páginas.
