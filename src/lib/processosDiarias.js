@@ -330,6 +330,14 @@ export function calcularValorTotal(quantidade, valorUnitario) {
 export function aplicarCalculo(formulario) {
   const base = { ...(formulario ?? {}) };
 
+  // Um processo que já foi finalizado pode voltar a rascunho para correções
+  // documentais. Nesse caso, o valor efetivamente usado continua sendo o que
+  // foi congelado na primeira finalização, nunca a tabela vigente hoje.
+  if (base.diaria_valor_unitario !== null && base.diaria_valor_unitario !== undefined) {
+    base.valor_unitario = paraNumeroMoeda(base.diaria_valor_unitario);
+    return base;
+  }
+
   if (base.valor_total_manual !== true) {
     base.valor_total = calcularValorTotal(base.quantidade_diarias, base.valor_unitario);
   }
@@ -359,6 +367,14 @@ function extensoAutomatico(valor) {
 export function valorExtensoDoProcesso(processo) {
   const proprio = texto(processo?.valor_extenso);
   return proprio !== "" ? proprio : extensoAutomatico(processo?.valor_total);
+}
+
+/** Valor unitário documental: o congelado prevalece depois da finalização. */
+export function valorUnitarioDoProcesso(processo) {
+  const congelado = processo?.diaria_valor_unitario;
+  return congelado === null || congelado === undefined
+    ? processo?.valor_unitario
+    : paraNumeroMoeda(congelado);
 }
 
 /** O total que o cálculo automático daria para o formulário atual. */
@@ -485,6 +501,7 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   });
   branco.quantidade_diarias = "";
   branco.valor_unitario = 0;
+  branco.diaria_valor_unitario = null;
   branco.diaria_pernoite = false;
   branco.valor_unitario_manual = false;
   return branco;
@@ -525,6 +542,10 @@ export function processoParaFormulario(processo) {
   formulario.valor_extenso_manual = processo?.valor_extenso_manual === true;
   formulario.valor_unitario_manual = processo?.valor_unitario_manual === true;
   formulario.diaria_pernoite = processo?.diaria_pernoite === true;
+  formulario.diaria_valor_unitario = processo?.diaria_valor_unitario ?? null;
+  if (formulario.diaria_valor_unitario !== null) {
+    formulario.valor_unitario = valorUnitarioDoProcesso(processo);
+  }
   formulario.fornecedor_id = processo?.fornecedor_id ?? null;
   formulario.beneficiario_servidor_id = processo?.beneficiario_servidor_id ?? null;
   formulario.assinante_secretaria_servidor_id = processo?.assinante_secretaria_servidor_id ?? null;
