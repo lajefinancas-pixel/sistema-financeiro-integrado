@@ -434,7 +434,7 @@ test("o processo completo sai em três folhas, cada documento começando em folh
   // Três folhas A4, e a quebra é da folha -- não depende do tamanho do texto.
   assert.equal((html.match(/class="folha"/g) ?? []).length, 3);
   assert.match(html, /size: A4 portrait/);
-  assert.match(html, /page-break-after: always/);
+  assert.match(html, /\.folha \+ \.folha \{ page-break-before: always; break-before: page; \}/);
   assert.ok(html.indexOf(TITULO_PAGINA_1) < html.indexOf(TITULO_PAGINA_2));
   assert.ok(html.indexOf(TITULO_PAGINA_2) < html.indexOf(TITULO_PAGINA_3));
   // O NÚMERO DO PROCESSO NÃO SAI NO PAPEL. Ele continua no sistema -- é o que

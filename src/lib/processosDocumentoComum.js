@@ -270,20 +270,29 @@ export function desenharBrasaoPdf(pdf, x, y, lado, dados = null) {
  */
 export function estilosComuns() {
   return `
-    @page { size: A4 portrait; margin: 0; }
+    @page { size: A4 portrait; margin: 8mm 10mm 5mm; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
     body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35;
       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-    /* A folha tem a altura da página e sempre quebra depois: é isto que faz cada
-       documento do processo começar em folha nova. A altura é MÍNIMA, não fixa
-       -- conteúdo excepcional transborda para uma folha a mais em vez de ser
-       cortado, e a fonte NÃO diminui para forçar uma folha só. */
-    .folha { position: relative; width: ${PAGINA.largura}mm; min-height: ${PAGINA.altura}mm;
-      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 4}mm;
-      page-break-after: always; break-after: page; }
-    .folha:last-child { page-break-after: auto; break-after: auto; }
+    /* A folha ocupa a área útil do A4. A quebra acontece antes de cada folha
+       posterior, nunca depois da última, evitando uma página final vazia. A
+       altura é MÍNIMA: conteúdo excepcional continua em vez de ser cortado. */
+    .folha { position: relative; width: 100%; max-width: 100%; min-height: calc(297mm - 13mm);
+      padding: 0 0 15mm; overflow: visible; }
+    .folha + .folha { page-break-before: always; break-before: page; }
+
+    /* Todo o conteúdo respeita a área útil definida por @page. Textos livres
+       quebram dentro da própria célula, fazendo a linha crescer sem invadir a
+       borda direita. A folga final do padding mantém o texto longe do traço. */
+    .folha > *, .cabecalho, .autorizacao, .faixa-assinaturas, .rodape {
+      max-width: 100%;
+    }
+    table { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box; }
+    th, td { box-sizing: border-box; white-space: normal; overflow-wrap: anywhere;
+      word-break: break-word; padding-right: 2mm; }
+    img, svg, canvas, object, embed { max-width: 100%; height: auto; object-fit: contain; }
 
     .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
     .cabecalho svg { display: block; flex: 0 0 auto; }
@@ -344,7 +353,7 @@ export function estilosComuns() {
     .faixa-assinaturas .local-data { margin-top: 0; }
     .faixa-assinaturas .assinatura-unica { margin: 8mm auto 0; width: 100%; max-width: 78mm; }
 
-    .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
+    .rodape { position: absolute; left: 0; right: 0; bottom: 0;
       border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
     .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
   `;

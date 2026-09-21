@@ -423,8 +423,6 @@ function estilos() {
   return `
     ${estilosComuns()}
 
-    .folha { padding: 8mm 10mm 20mm; }
-    .rodape { left: 10mm; right: 10mm; bottom: 5mm; }
     .linha-doc { margin: 2.4mm 0 0; }
     .linha-doc b { letter-spacing: .04em; }
     .abertura { margin: 2.4mm 0 0; text-align: justify; }
@@ -442,13 +440,15 @@ function estilos() {
     h2 { margin: 3.2mm 0 0; padding: 1mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
 
-    table.quadro { width: 100%; border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box;
+      border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1mm 1.6mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro th .ajuda { display: block; font-weight: normal; text-transform: none; letter-spacing: 0;
       font-size: 6.5pt; color: ${COR.apoio}; }
-    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.2mm 1.6mm; font-size: 9pt; line-height: 1.2; vertical-align: top;
-      overflow-wrap: break-word; }
+    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.2mm 2mm 1.2mm 1.6mm;
+      font-size: 9pt; line-height: 1.2; vertical-align: top; white-space: normal;
+      overflow-wrap: anywhere; word-break: break-word; }
     /* As linhas do quadro descritivo não se partem no meio na quebra de folha:
        item cortado ao meio não é documento. */
     table.quadro tr { page-break-inside: avoid; break-inside: avoid; }

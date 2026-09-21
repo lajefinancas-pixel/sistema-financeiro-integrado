@@ -463,11 +463,12 @@ function estilos() {
     .c67 { width: 66.66%; }
     .fim { border-right: 0; }
 
-    table.quadro { width: 100%; border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box;
+      border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1.4mm 2mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
-    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt; vertical-align: top;
-      overflow-wrap: break-word; }
+    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt;
+      vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     table.quadro td.numero { font-weight: bold; white-space: nowrap; }
     table.quadro td b { display: block; }
     table.quadro td span.rotulo { display: block; font-size: 6.5pt; letter-spacing: .08em;
