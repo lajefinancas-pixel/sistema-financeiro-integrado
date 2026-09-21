@@ -5,6 +5,7 @@ import { mensagemErroBanco } from "../src/lib/erros.js";
 
 const read = (arquivo) => readFile(new URL(`../${arquivo}`, import.meta.url), "utf8");
 const MIGRATION = "supabase/migrations/20260918193000_consolidar_baixas_e_permissao_alertas_certidoes.sql";
+const MIGRATION_DEBITO = "supabase/migrations/20260918150000_baixa_unico_debito_e_diagnostico_programacao.sql";
 
 test("frontend chama somente as RPCs canônicas de baixa e estorno", async () => {
   const fonte = await read("src/lib/baixasPagamentos.js");
@@ -45,6 +46,38 @@ test("telas explicam que baixa debita e estorno devolve o saldo", async () => {
   assert.match(estorno, /devolvido ao saldo da conta/);
   assert.doesNotMatch(registro, /não altera o saldo da conta/);
   assert.doesNotMatch(estorno, /não é alterado/);
+});
+
+test("caso 0011/2026: baixa parcial, quitação e estorno fecham saldo e aberto no centavo", async () => {
+  const sql = await read(MIGRATION_DEBITO);
+
+  // A prova estrutural usa a migration efetivamente entregue: débito e crédito
+  // são efeitos do mesmo registro preservado na razão de baixas.
+  assert.match(sql, /after insert or update of status on public\.pagamentos_baixas/);
+  assert.match(sql, /round\(v_saldo - new\.valor_pago, 2\)/);
+  assert.match(sql, /round\(v_saldo \+ new\.valor_pago, 2\)/);
+  assert.match(sql, /old\.status::text = 'efetivada' and new\.status::text = 'estornada'/);
+
+  // Processo 0011/2026, total de R$ 2.688,00: primeiro R$ 1.000,00 e depois
+  // R$ 1.688,00. O estorno da quitação reabre exatamente a segunda parcela.
+  let saldoConta = 10_000;
+  let valorEmAberto = 2_688;
+  const baixar = (valor) => {
+    assert.ok(valor > 0 && valor <= valorEmAberto);
+    saldoConta = Number((saldoConta - valor).toFixed(2));
+    valorEmAberto = Number((valorEmAberto - valor).toFixed(2));
+  };
+  const estornar = (valor) => {
+    saldoConta = Number((saldoConta + valor).toFixed(2));
+    valorEmAberto = Number((valorEmAberto + valor).toFixed(2));
+  };
+
+  baixar(1_000);
+  assert.deepEqual({ saldoConta, valorEmAberto }, { saldoConta: 9_000, valorEmAberto: 1_688 });
+  baixar(1_688);
+  assert.deepEqual({ saldoConta, valorEmAberto }, { saldoConta: 7_312, valorEmAberto: 0 });
+  estornar(1_688);
+  assert.deepEqual({ saldoConta, valorEmAberto }, { saldoConta: 9_000, valorEmAberto: 1_688 });
 });
 
 test("recusa na varredura de certidões permanece visível", async () => {
