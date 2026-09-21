@@ -440,13 +440,12 @@ function estilos() {
     h2 { margin: 3.2mm 0 0; padding: 1mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
 
-    table.quadro { width: 100%; max-width: 100%; table-layout: fixed; box-sizing: border-box;
-      border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1mm 1.6mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro th .ajuda { display: block; font-weight: normal; text-transform: none; letter-spacing: 0;
       font-size: 6.5pt; color: ${COR.apoio}; }
-    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.2mm 2mm 1.2mm 1.6mm;
+    table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.2mm 1.6mm;
       font-size: 9pt; line-height: 1.2; vertical-align: top; white-space: normal;
       overflow-wrap: anywhere; word-break: break-word; }
     /* As linhas do quadro descritivo não se partem no meio na quebra de folha:
@@ -691,11 +690,15 @@ function criarPincel(pdf, dados) {
 
       const preparadas = colunas.map((coluna) => {
         const larguraColuna = largUtil() * (coluna.largura ?? 1 / colunas.length);
-        const partes = (coluna.partes ?? [{ valor: coluna.valor, negrito: coluna.negrito }]).map((parte) => ({
-          rotulo: texto(parte.rotulo),
-          negrito: parte.negrito === true,
-          linhas: pdf.splitTextToSize(String(parte.valor ?? SEM_REGISTRO), larguraColuna - 4),
-        }));
+        const partes = (coluna.partes ?? [{ valor: coluna.valor, negrito: coluna.negrito }]).map((parte) => {
+          pdf.setFont("helvetica", parte.negrito === true ? "bold" : "normal");
+          pdf.setFontSize(9.5);
+          return {
+            rotulo: texto(parte.rotulo),
+            negrito: parte.negrito === true,
+            linhas: pdf.splitTextToSize(String(parte.valor ?? SEM_REGISTRO), larguraColuna - 4),
+          };
+        });
         const alturaConteudo = partes.reduce(
           (soma, parte) => soma + (parte.rotulo !== "" ? 2.9 : 0) + parte.linhas.length * entre,
           0,
@@ -768,6 +771,8 @@ function criarPincel(pdf, dados) {
       const largValor = largUtil() - largRotulo;
 
       linhas.forEach((item) => {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9.5);
         const escritas = pdf.splitTextToSize(String(item.valor ?? SEM_REGISTRO), largValor - 4);
         const altura = Math.max(8, escritas.length * entre + 3.4);
         this.espaco(altura + 2);
@@ -833,6 +838,8 @@ function criarPincel(pdf, dados) {
 
       itens.forEach((item, indice) => {
         const largDiscriminacao = largUtil() * proporcoes[2] - 4;
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9.5);
         const escritas = pdf.splitTextToSize(texto(item.discriminacao), largDiscriminacao);
         const altura = Math.max(6.8, escritas.length * entre + 2.8);
 
