@@ -58,6 +58,7 @@ import {
   relatorioDaPrestacao,
   situacaoInfo,
   valorExtensoDoProcesso,
+  valorUnitarioDoProcesso,
 } from "./processosDiarias.js";
 import {
   IDENTIDADE_PADRAO,
@@ -363,7 +364,7 @@ export function dadosDoDocumento(
     valor: {
       quantidade: quantidadeNumero(p.quantidade_diarias),
       quantidadeTexto: quantidadeTexto(p.quantidade_diarias),
-      unitario: moeda(p.valor_unitario),
+      unitario: moeda(valorUnitarioDoProcesso(p)),
       total: moeda(p.valor_total),
       totalSimples: moedaSimples(p.valor_total),
       extenso: ou(valorExtensoDoProcesso(p)),

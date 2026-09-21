@@ -29,6 +29,7 @@ import {
   preenchimentoDoProcesso,
   filtrosVazios,
   processoVazio,
+  processoParaFormulario,
   resolverPermissoesDiarias,
   sincronizarLiquidacao,
   soltarVinculoDeCadastro,
@@ -39,6 +40,7 @@ import {
   validarRascunho,
   valorExtensoDoProcesso,
   valorNaLiquidacao,
+  valorUnitarioDoProcesso,
 } from "../src/lib/processosDiarias.js";
 import {
   ESCOPOS,
@@ -153,6 +155,29 @@ test("valor total = quantidade × valor unitário, no centavo", () => {
 
   const calculado = aplicarCalculo({ quantidade_diarias: "3", valor_unitario: "1.234,56" });
   assert.equal(calculado.valor_total, 3703.68);
+});
+
+test("processo já congelado lê o valor persistido e não o recalcula", () => {
+  const processo = processoDeExemplo({
+    valor_unitario: 999.99,
+    valor_total: 640,
+    diaria_valor_unitario: "320.00",
+  });
+  const formulario = processoParaFormulario(processo);
+
+  assert.equal(valorUnitarioDoProcesso(processo), 320);
+  assert.equal(formulario.valor_unitario, 320);
+  assert.equal(aplicarCalculo({ ...formulario, liquidacao_data: "2026-03-20" }).valor_total, 640);
+  assert.match(dadosDoDocumento(processo).valor.unitario, /^R\$\s320,00$/);
+});
+
+test("salvar e refinalizar processo congelado não reenviam nem recalculam o valor", async () => {
+  const dados = await read("src/lib/processosDiariasDados.js");
+
+  assert.match(dados, /delete linha\.valor_unitario/);
+  assert.match(dados, /delete linha\.valor_total/);
+  assert.match(dados, /!temValorCongelado && tabela \? congelarTabelaNoProcesso/);
+  assert.match(dados, /if \(!jaCongelado && campo in congelado\)/);
 });
 
 test("valor assumido à mão não é recalculado por cima, e a divergência fica visível", () => {

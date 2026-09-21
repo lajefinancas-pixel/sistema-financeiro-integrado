@@ -385,6 +385,16 @@ export async function salvarProcesso(processoAnterior, formulario, { silencioso 
   const autor = await usuarioAtualId();
   const linha = formularioParaBanco(formulario);
 
+  // Depois da primeira finalização, nem o valor de trabalho nem a coluna de
+  // congelamento voltam ao payload. Assim uma correção de data, por exemplo,
+  // não tenta reinterpretar o processo com a tabela vigente.
+  if (processoAnterior?.diaria_valor_unitario !== null
+      && processoAnterior?.diaria_valor_unitario !== undefined) {
+    delete linha.valor_unitario;
+    delete linha.valor_total;
+    delete linha.valor_extenso;
+  }
+
   const { data, error } = await supabase
     .from(TABELA_PROCESSOS)
     .update({ ...linha, atualizado_em: new Date().toISOString(), atualizado_por: autor })
@@ -462,10 +472,12 @@ const CAMPOS_CONGELADOS = [
   "prefeita",
 ];
 
-function colunasDeCongelamento(congelado) {
+function colunasDeCongelamento(congelado, processoAnterior = {}) {
   const linha = {};
   CAMPOS_CONGELADOS.forEach((campo) => {
-    if (campo in congelado) linha[campo] = congelado[campo];
+    const jaCongelado = processoAnterior?.[campo] !== null
+      && processoAnterior?.[campo] !== undefined;
+    if (!jaCongelado && campo in congelado) linha[campo] = congelado[campo];
   });
   return linha;
 }
@@ -511,11 +523,13 @@ export async function finalizarProcesso(
   // O congelamento entra JUNTO com a situação, e não no salvamento de conteúdo:
   // as colunas dele estão na lista de controle do gatilho, então quem tem
   // permissão de finalizar consegue gravá-las sem precisar de permissão de editar.
+  const temValorCongelado = processoAnterior?.diaria_valor_unitario !== null
+    && processoAnterior?.diaria_valor_unitario !== undefined;
   const congelado = colunasDeCongelamento({
-    ...(tabela ? congelarTabelaNoProcesso(formulario, tabela) : {}),
+    ...(!temValorCongelado && tabela ? congelarTabelaNoProcesso(formulario, tabela) : {}),
     ...(identidade ? congelarIdentidadeNoProcesso(identidade, logoSistema) : {}),
     ...(prefeita ? congelarPrefeitaNoProcesso(prefeita) : {}),
-  });
+  }, processoAnterior);
 
   // A gravação da finalização. Em banco onde a migration do cadastro da
   // prefeita ainda não rodou, a coluna `prefeita` não existe: a finalização
