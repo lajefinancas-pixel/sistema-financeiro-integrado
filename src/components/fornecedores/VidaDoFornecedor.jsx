@@ -92,6 +92,7 @@ export default function VidaDoFornecedor({
   onVerHistorico,
   permissoesPagamento,
   onDadosPagamentoChange,
+  onEstornoConcluido,
 }) {
   const valores = fornecedor.valores ?? [];
   const [periodoPagamentos, setPeriodoPagamentos] = React.useState({ inicio: "", fim: "" });
@@ -182,6 +183,8 @@ export default function VidaDoFornecedor({
         onMudarSituacao={onMudarSituacao}
         onExcluirValor={onExcluirValor}
         onVerHistorico={onVerHistorico}
+        podeEstornarBaixa={permissoesPagamento?.estornar_baixa === true}
+        onEstornoConcluido={onEstornoConcluido}
       />
 
       <Bloco icone={Banknote} titulo="Pagamentos realizados">

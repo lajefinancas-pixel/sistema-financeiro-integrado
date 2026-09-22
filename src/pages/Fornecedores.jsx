@@ -2391,6 +2391,9 @@ export default function Fornecedores() {
                       onVerHistorico={() => setHistoricoDe(f)}
                       permissoesPagamento={permissoesEspeciais}
                       onDadosPagamentoChange={(formas) => setDadosPagamentoPorFornecedor((atual) => ({ ...atual, [String(f.id)]: formas.length > 0 }))}
+                      onEstornoConcluido={async () => {
+                        await Promise.all([carregarDados(), carregarPagamentosRealizados()]);
+                      }}
                     />
                   )}
                 </div>

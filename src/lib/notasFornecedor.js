@@ -70,7 +70,18 @@ export function dataDaNota(nota) {
 }
 
 export function notaResolvida(nota) {
-  return RESOLVIDAS.has(String(nota?.situacao ?? ""));
+  return chaveFinanceiraDaNota(nota) === "pago" || chaveFinanceiraDaNota(nota) === "cancelado";
+}
+
+/** Mesma classificação financeira usada em Baixas de Pagamentos. */
+export function chaveFinanceiraDaNota(nota) {
+  const gravada = String(nota?.situacao ?? "");
+  if (gravada === "cancelado") return "cancelado";
+  const total = numero(nota?.valor);
+  const pago = numero(nota?.valor_pago);
+  if (Math.max(total - pago, 0) <= 0.005) return "pago";
+  if (pago > 0.005) return "parcialmente_pago";
+  return "em_aberto";
 }
 
 /** Em aberto e com o vencimento já passado -- leitura de data, não de saldo. */
@@ -86,7 +97,7 @@ export function notaVencida(nota, hoje = hojeISO()) {
  * ver as duas coisas ("Vencida" e, embaixo, "Em aberto").
  */
 export function situacaoDaNota(nota, situacoes = [], hoje = hojeISO()) {
-  const chave = String(nota?.situacao ?? "").trim();
+  const chave = chaveFinanceiraDaNota(nota);
   const opcao = situacoes.find((s) => s.value === chave) ?? null;
   const rotulo = ROTULOS[chave] ?? opcao?.label ?? humanizar(chave) ?? "";
   const gravada = {
@@ -115,7 +126,7 @@ export function filtrosDeSituacao(notas = [], situacoes = [], hoje = hojeISO()) 
   const ordem = situacoes.map((s) => s.value);
   const contagem = new Map();
   notas.forEach((nota) => {
-    const chave = String(nota.situacao ?? "");
+    const chave = chaveFinanceiraDaNota(nota);
     contagem.set(chave, (contagem.get(chave) ?? 0) + 1);
   });
 
@@ -285,7 +296,7 @@ export function filtrarNotas(notas = [], filtros = FILTRO_VAZIO, hoje = hojeISO(
   return notas.filter((nota) => {
     if (f.situacao === "vencida") {
       if (!notaVencida(nota, hoje)) return false;
-    } else if (f.situacao !== "todas" && String(nota.situacao ?? "") !== f.situacao) {
+    } else if (f.situacao !== "todas" && chaveFinanceiraDaNota(nota) !== f.situacao) {
       return false;
     }
 

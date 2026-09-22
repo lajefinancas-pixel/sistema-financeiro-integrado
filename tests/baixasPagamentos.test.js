@@ -14,6 +14,9 @@ import {
   validarBaixaDeNota,
   validarValorBaixa,
   valorEmAbertoDaNota,
+  filtrarNotasDaTela,
+  reconciliarNotasComBaixas,
+  situacaoFinanceiraDaNota,
 } from "../src/lib/regrasBaixas.js";
 
 const read = (arquivo) => readFile(new URL(`../${arquivo}`, import.meta.url), "utf8");
@@ -33,6 +36,28 @@ test("bloqueia baixa superior ao saldo em aberto", () => {
   assert.equal(validarValorBaixa(15000, 15000).ok, true);
   assert.equal(validarValorBaixa(15000.01, 15000).ok, false);
   assert.match(validarValorBaixa(0, 15000).mensagem, /maior que zero/);
+});
+
+test("a tela soma somente baixas efetivadas e filtra abertas, parciais, baixadas e todas", () => {
+  const notas = [
+    { id: "aberta", valor: 100, valor_pago: 99, situacao: "em_aberto" },
+    { id: "parcial", valor: 100, valor_pago: 0, situacao: "em_aberto" },
+    { id: "paga", valor: 100, valor_pago: 0, situacao: "pago" },
+  ];
+  const baixas = [
+    { id: 1, valor_em_aberto_id: "parcial", valor_pago: 35, status: "efetivada" },
+    { id: 2, valor_em_aberto_id: "parcial", valor_pago: 10, status: "estornada" },
+    { id: 3, valor_em_aberto_id: "paga", valor_pago: 100, status: "efetivada" },
+  ];
+  const reconciliadas = reconciliarNotasComBaixas(notas, baixas);
+  assert.equal(reconciliadas[0].valor_pago, 0);
+  assert.equal(reconciliadas[1].valor_pago, 35);
+  assert.equal(reconciliadas[2].valor_pago, 100);
+  assert.equal(situacaoFinanceiraDaNota(reconciliadas[1]), "parcialmente_pago");
+  assert.deepEqual(filtrarNotasDaTela(reconciliadas, { situacao: "em_aberto" }).map((n) => n.id), ["aberta"]);
+  assert.deepEqual(filtrarNotasDaTela(reconciliadas, { situacao: "parcialmente_pago" }).map((n) => n.id), ["parcial"]);
+  assert.deepEqual(filtrarNotasDaTela(reconciliadas, { situacao: "pago" }).map((n) => n.id), ["paga"]);
+  assert.deepEqual(filtrarNotasDaTela(reconciliadas, { situacao: "" }).map((n) => n.id), ["aberta", "parcial", "paga"]);
 });
 
 test("permissões de baixa são independentes e relatórios incluem filtros", async () => {
