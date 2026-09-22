@@ -10,7 +10,9 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
+import ModalEstornarBaixa from "../baixas/ModalEstornarBaixa";
 import { formatBRL, paraNumeroMoeda } from "../../lib/moeda";
 import CampoMoeda from "../CampoMoeda";
 import { Bloco, Campo, Indicador, Vazio, textoOuTraco } from "./blocos";
@@ -79,6 +81,8 @@ export default function NotasDoFornecedor({
   onMudarSituacao,
   onExcluirValor,
   onVerHistorico,
+  podeEstornarBaixa = false,
+  onEstornoConcluido,
 }) {
   const hoje = React.useMemo(() => hojeISO(), []);
   const lista = notas ?? [];
@@ -87,6 +91,7 @@ export default function NotasDoFornecedor({
   const [maisFiltros, setMaisFiltros] = React.useState(false);
   // Uma nota expandida por vez: abrir outra recolhe a anterior.
   const [expandida, setExpandida] = React.useState(null);
+  const [baixaParaEstorno, setBaixaParaEstorno] = React.useState(null);
 
   const resumo = React.useMemo(
     () => resumoDasNotas({ notas: lista, totalAberto, totalPago, hoje }),
@@ -397,6 +402,8 @@ export default function NotasDoFornecedor({
                             hoje={hoje}
                             onMudarSituacao={onMudarSituacao}
                             onVerHistorico={onVerHistorico}
+                            podeEstornarBaixa={podeEstornarBaixa}
+                            onEstornarBaixa={setBaixaParaEstorno}
                           />
                         </td>
                       </tr>
@@ -407,6 +414,18 @@ export default function NotasDoFornecedor({
             </tbody>
           </table>
         </div>
+      )}
+      {baixaParaEstorno && (
+        <ModalEstornarBaixa
+          baixa={baixaParaEstorno}
+          nota={baixaParaEstorno.numero_nota}
+          nomeConta={baixaParaEstorno.contas?.join(" · ") || ""}
+          onFechar={() => setBaixaParaEstorno(null)}
+          onConcluido={async (retorno) => {
+            await onEstornoConcluido?.(retorno);
+            setBaixaParaEstorno(null);
+          }}
+        />
       )}
     </Bloco>
   );
@@ -430,6 +449,8 @@ function DetalheDaNota({
   hoje,
   onMudarSituacao,
   onVerHistorico,
+  podeEstornarBaixa,
+  onEstornarBaixa,
 }) {
   const tributos = tributosDaNota(nota);
   const bruto = valorBrutoDaNota(nota);
@@ -504,6 +525,15 @@ function DetalheDaNota({
                 <span>Conta: {p.contas?.length > 0 ? p.contas.join(" · ") : "--"}</span>
                 {p.secretaria && <span>Secretaria: {p.secretaria}</span>}
                 <span className="ml-auto">{p.status}</span>
+                {podeEstornarBaixa && p.efetivada && (
+                  <button
+                    type="button"
+                    onClick={() => onEstornarBaixa?.({ ...p, numero_nota: nota.numero_nota_fiscal })}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#8A321C]/20 px-2 py-1 text-[#8A321C] hover:bg-[#FBE9DF]"
+                  >
+                    <RotateCcw size={12} /> Estornar
+                  </button>
+                )}
               </div>
             ))}
           </div>

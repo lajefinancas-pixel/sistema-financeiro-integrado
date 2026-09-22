@@ -27,9 +27,10 @@ import {
   filtroBaixasAtivo,
   FILTRO_BAIXAS_VAZIO,
   nomeDoFornecedor,
-  notasEmAberto,
   numeroDaNota,
+  reconciliarNotasComBaixas,
   resumoDaNota,
+  situacaoFinanceiraDaNota,
   totaisDasNotas,
 } from "../lib/regrasBaixas";
 import { exportarExcelBaixas, gerarPdfBaixas, imprimirBaixas, VISAO_BAIXAS, VISAO_NOTAS } from "../lib/baixasDocumento";
@@ -67,9 +68,8 @@ import ModalTransferenciaEntreContas from "../components/pagamentos/ModalTransfe
  */
 const SITUACOES_NOTA = [
   { value: "em_aberto", label: "Em aberto" },
-  { value: "programado", label: "Programada" },
-  { value: "parcialmente_pago", label: "Parcialmente paga" },
-  { value: "suspenso", label: "Suspensa" },
+  { value: "parcialmente_pago", label: "Parcialmente baixadas" },
+  { value: "pago", label: "Baixadas" },
 ];
 
 const LIMITE_SUGESTOES = 8;
@@ -138,7 +138,7 @@ export default function Baixas() {
       // As quitadas vêm junto: a listagem só mostra as que têm valor em aberto,
       // mas o histórico e os documentos precisam da nota que a baixa quitou.
       const dados = await carregarNotasEBaixas(fornecedorId, { incluirQuitadas: true });
-      setNotas(dados.notas);
+      setNotas(reconciliarNotasComBaixas(dados.notas, dados.baixas));
       setBaixas(dados.baixas);
     } catch (falha) {
       console.error("[Baixas] Não foi possível carregar as notas do fornecedor.", falha);
@@ -162,8 +162,7 @@ export default function Baixas() {
   );
 
   const hoje = hojeISO();
-  const abertas = React.useMemo(() => notasEmAberto(notas), [notas]);
-  const notasFiltradas = React.useMemo(() => filtrarNotasDaTela(abertas, filtros, hoje), [abertas, filtros, hoje]);
+  const notasFiltradas = React.useMemo(() => filtrarNotasDaTela(notas, filtros, hoje), [notas, filtros, hoje]);
   const totais = React.useMemo(() => totaisDasNotas(notasFiltradas), [notasFiltradas]);
   const contaPorId = React.useMemo(
     () => new Map(base.contas.map((conta) => [String(conta.id), conta])),
@@ -261,6 +260,11 @@ export default function Baixas() {
       return;
     }
     const emAberto = Number(retorno?.valor_em_aberto ?? 0);
+    const jaBaixado = Number(retorno?.valor_pago ?? 0);
+    setFiltros((atuais) => ({
+      ...atuais,
+      situacao: retorno?.quitada ? "pago" : jaBaixado > 0 ? "parcialmente_pago" : "em_aberto",
+    }));
     setAviso(
       retorno?.quitada
         ? `Baixa registrada. A nota foi quitada e o valor foi debitado da conta.`
@@ -270,6 +274,11 @@ export default function Baixas() {
 
   async function aoEstornarBaixa(retorno) {
     await recarregarNotas();
+    const aindaBaixado = Number(retorno?.valor_pago ?? 0);
+    setFiltros((atuais) => ({
+      ...atuais,
+      situacao: aindaBaixado > 0 ? "parcialmente_pago" : "em_aberto",
+    }));
     setAviso(
       retorno?.ja_estornada
         ? "Esta baixa já estava estornada."
@@ -315,7 +324,7 @@ export default function Baixas() {
             <p className="mt-0.5 text-sm text-[#0F2A44]/60">
               {fornecedor
                 ? `${notasFiltradas.length} ${
-                    notasFiltradas.length === 1 ? "nota em aberto" : "notas em aberto"
+                    notasFiltradas.length === 1 ? "nota selecionada" : "notas selecionadas"
                   } de ${nomeExibicaoDoFornecedor(fornecedor)}`
                 : "Escolha o fornecedor para ver as notas que ainda têm valor em aberto"}
             </p>
@@ -514,7 +523,7 @@ export default function Baixas() {
 
             <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-black/5 bg-white p-4">
-                <span className="text-xs text-[#0F2A44]/50">Notas em aberto</span>
+                <span className="text-xs text-[#0F2A44]/50">Notas selecionadas</span>
                 <strong className="block text-xl text-[#0F2A44]">{totais.notas}</strong>
               </div>
               <div className="rounded-xl border border-black/5 bg-white p-4">
@@ -558,8 +567,8 @@ export default function Baixas() {
                   {!carregandoNotas && notasFiltradas.length === 0 && (
                     <tr>
                       <td colSpan="9" className="p-8 text-center text-[#0F2A44]/40">
-                        {abertas.length === 0
-                          ? "Este fornecedor não tem notas com valor em aberto."
+                        {notas.length === 0
+                          ? "Este fornecedor não tem notas lançadas."
                           : "Nenhuma nota encontrada com os filtros aplicados."}
                       </td>
                     </tr>
@@ -568,7 +577,11 @@ export default function Baixas() {
                   {!carregandoNotas &&
                     notasFiltradas.map((nota) => {
                       const resumo = resumoDaNota(nota);
-                      const situacao = situacaoDaNota(nota, SITUACOES_NOTA, hoje);
+                      const situacao = situacaoDaNota(
+                        { ...nota, situacao: situacaoFinanceiraDaNota(nota) },
+                        SITUACOES_NOTA,
+                        hoje,
+                      );
                       const historico = baixasDaNota(nota, baixas);
                       const aberta = String(expandida) === String(nota.id);
 
@@ -600,7 +613,7 @@ export default function Baixas() {
                               {formatBRL(resumo.valorEmAberto)}
                             </td>
                             <td className="p-3 text-right">
-                              {permissoes.registrar && (
+                              {permissoes.registrar && resumo.valorEmAberto > 0 && (
                                 <button
                                   type="button"
                                   onClick={(evento) => {
@@ -676,7 +689,7 @@ export default function Baixas() {
                                   </ul>
                                 )}
 
-                                {permissoes.registrar && (
+                                {permissoes.registrar && resumo.valorEmAberto > 0 && (
                                   <button
                                     type="button"
                                     onClick={() => setNotaParaBaixa(nota)}

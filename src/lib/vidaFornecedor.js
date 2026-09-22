@@ -44,7 +44,7 @@ export async function carregarPagamentosPorFornecedor() {
   const { data: baixas, error: erroBaixas } = await supabase
     .from("pagamentos_baixas")
     .select(
-      "id,fornecedor_id,pagamento_id,valor_em_aberto_id,valor_pago,data_pagamento,conta_id,status,documento,observacao",
+      "id,fornecedor_id,pagamento_id,valor_em_aberto_id,valor_pago,data_pagamento,conta_id,status,documento,observacao,estornada_em,motivo_estorno",
     )
     .order("data_pagamento", { ascending: false });
   if (!erroBaixas) {
@@ -63,6 +63,11 @@ export async function carregarPagamentosPorFornecedor() {
         valor_em_aberto_id: baixa.valor_em_aberto_id ?? null,
         data: soData(baixa.data_pagamento),
         valor: paraNumeroMoeda(baixa.valor_pago),
+        valor_pago: paraNumeroMoeda(baixa.valor_pago),
+        data_pagamento: soData(baixa.data_pagamento),
+        conta_id: baixa.conta_id,
+        status_chave: baixa.status,
+        motivo_estorno: baixa.motivo_estorno ?? "",
         contas: conta ? [nomeDaConta(conta)] : [],
         secretaria: conta?.secretarias?.nome ?? "",
         status: baixa.status === "estornada" ? "Estornada" : "Efetivada",

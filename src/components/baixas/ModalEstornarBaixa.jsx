@@ -111,7 +111,7 @@ export default function ModalEstornarBaixa({ baixa, nota, nomeConta, onFechar, o
             className="inline-flex items-center gap-2 rounded-lg bg-[#8A321C] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#8A321C]/90 disabled:opacity-40"
           >
             <RotateCcw size={16} />
-            {salvando ? "Estornando..." : "Confirmar estorno"}
+            {salvando ? "Estornando..." : "Confirmar estorno definitivo"}
           </button>
         </div>
       </form>

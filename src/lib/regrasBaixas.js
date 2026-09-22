@@ -79,6 +79,37 @@ export function valorBaixadoDaNota(nota) {
 }
 
 /**
+ * Total efetivamente baixado segundo o histórico. Registros estornados ficam
+ * preservados para auditoria, mas não compõem o pago. Quando o histórico não
+ * foi carregado, mantém a leitura do campo consolidado da nota.
+ */
+export function valorBaixadoEfetivoDaNota(nota, baixas) {
+  if (!Array.isArray(baixas)) return valorBaixadoDaNota(nota);
+  return centavos(
+    baixasDaNota(nota, baixas)
+      .filter((baixa) => String(baixa.status ?? "") === "efetivada")
+      .reduce((total, baixa) => total + paraNumeroMoeda(baixa.valor_pago), 0),
+  );
+}
+
+/** Usa o histórico canônico para manter linha, cartões e saldo sincronizados. */
+export function reconciliarNotasComBaixas(notas = [], baixas = []) {
+  return notas.map((nota) => ({
+    ...nota,
+    valor_pago: valorBaixadoEfetivoDaNota(nota, baixas),
+  }));
+}
+
+/** Situação financeira exibida pelo seletor, calculada pelos valores reais. */
+export function situacaoFinanceiraDaNota(nota) {
+  if (String(nota?.situacao ?? "") === "cancelado") return "cancelado";
+  const resumo = resumoDaNota(nota);
+  if (resumo.valorEmAberto <= TOLERANCIA) return "pago";
+  if (resumo.valorBaixado > TOLERANCIA) return "parcialmente_pago";
+  return "em_aberto";
+}
+
+/**
  * Valor em aberto da nota: o original menos o que já foi baixado. É a mesma
  * conta que as telas de Fornecedores e de Pagamentos Diários já fazem
  * (`valor - valor_pago`), então nada muda de lugar.
@@ -425,7 +456,7 @@ export const FILTRO_BAIXAS_VAZIO = {
   contaId: "",
   inicio: "",
   fim: "",
-  situacao: "",
+  situacao: "em_aberto",
   somenteVencidas: false,
 };
 
@@ -452,7 +483,9 @@ export function filtrarNotasDaTela(notas = [], filtros = FILTRO_BAIXAS_VAZIO, ho
   const situacao = String(filtros.situacao ?? "");
 
   return notas.filter((nota) => {
-    if (situacao !== "" && String(nota.situacao ?? "") !== situacao) return false;
+    const situacaoCalculada = situacaoFinanceiraDaNota(nota);
+    const cancelada = situacaoCalculada === "cancelado";
+    if (cancelada || (situacao !== "" && situacaoCalculada !== situacao)) return false;
 
     const vencimento = String(nota.data_vencimento ?? "");
     if (inicio !== "" && (vencimento === "" || vencimento < inicio)) return false;
