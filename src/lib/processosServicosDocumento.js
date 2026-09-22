@@ -42,6 +42,7 @@
 import { jsPDF } from "jspdf";
 import { formatBRLSimples, paraNumeroMoeda } from "./moeda.js";
 import { imprimirDocumentoHtml } from "./impressaoNavegador.js";
+import { FORMA_PAGAMENTO_BOLETO, formaPagamentoDoProcesso } from "./processosFormaPagamento.js";
 import {
   ATESTADOS,
   TIPOS_REQUISICAO,
@@ -378,6 +379,12 @@ export function dadosDoDocumento(
       pix: ou(p.pix),
       titular: texto(p.titular),
     },
+    pagamento: {
+      forma: formaPagamentoDoProcesso(p), codigo: ou(p.boleto_codigo),
+      beneficiario: ou(p.boleto_beneficiario), documento: ou(p.boleto_documento),
+      vencimento: dataBR(p.boleto_vencimento) || SEM_REGISTRO,
+      valor: moedaSimples(p.boleto_valor || p.valor_total),
+    },
 
     // O ÚNICO valor do processo, e ele só aparece na PÁGINA 2.
     valor: {
@@ -440,7 +447,7 @@ function estilos() {
     h2 { margin: 3.2mm 0 0; padding: 1mm 2mm; background: ${COR.navy}; color: #fff; font-size: 8pt;
       font-weight: bold; letter-spacing: .1em; text-transform: uppercase; }
 
-    table.quadro { width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; max-width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1mm 1.6mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro th .ajuda { display: block; font-weight: normal; text-transform: none; letter-spacing: 0;
@@ -543,6 +550,16 @@ function folhaRequisicao(dados) {
 
 /** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO (sempre em folha nova). */
 function folhaLiquidacao(dados) {
+  const quadroPagamento = dados.pagamento?.forma === FORMA_PAGAMENTO_BOLETO
+    ? `<td><span class="rotulo">Forma de pagamento</span><b>Boleto bancário</b>`
+      + `<span class="rotulo">Linha digitável / código</span>${escapar(dados.pagamento.codigo)}`
+      + `<span class="rotulo">Beneficiário</span>${escapar(dados.pagamento.beneficiario)}`
+      + `<span class="rotulo">CPF/CNPJ</span>${escapar(dados.pagamento.documento)}`
+      + `<span class="rotulo">Vencimento</span>${escapar(dados.pagamento.vencimento)}</td>`
+    : `<td><span class="rotulo">Banco</span>${escapar(dados.banco.banco)}`
+      + `<span class="rotulo">AG</span>${escapar(dados.banco.agencia)}`
+      + `<span class="rotulo">C</span>${escapar(dados.banco.conta)}`
+      + `<span class="rotulo">Chave PIX</span>${escapar(dados.banco.pix)}</td>`;
   return `<div class="folha">`
     + cabecalhoHtml(dados, TITULO_PAGINA_2)
     + avisoHtml(dados)
@@ -562,16 +579,13 @@ function folhaLiquidacao(dados) {
 
     + `<table class="quadro"><thead><tr>`
     + `<th style="width:40%">Favorecido(a)<span class="ajuda">(Nome e endereço completos)</span></th>`
-    + `<th style="width:32%">Dados bancários<span class="ajuda">(banco, agência e conta corrente)</span></th>`
+    + `<th style="width:32%">Pagamento<span class="ajuda">(dados bancários/PIX ou boleto)</span></th>`
     + `<th>Valor<span class="ajuda">(em algarismo e por extenso)</span></th>`
     + `</tr></thead><tbody><tr>`
     + `<td><span class="rotulo">Nome/Razão social</span><b>${escapar(dados.favorecido.nome)}</b>`
     + `<span class="rotulo">CPF/CNPJ</span>${escapar(dados.favorecido.cpfCnpj)}`
     + `<span class="rotulo">Endereço</span>${escapar(dados.favorecido.endereco)}</td>`
-    + `<td><span class="rotulo">Banco</span>${escapar(dados.banco.banco)}`
-    + `<span class="rotulo">AG</span>${escapar(dados.banco.agencia)}`
-    + `<span class="rotulo">C</span>${escapar(dados.banco.conta)}`
-    + `<span class="rotulo">Chave PIX</span>${escapar(dados.banco.pix)}</td>`
+    + quadroPagamento
     + `<td><b>R$ ${escapar(dados.valor.algarismo)}</b>`
     + `<span class="rotulo">Por extenso</span>${escapar(dados.valor.extenso)}</td>`
     + `</tr></tbody></table>`
@@ -975,10 +989,16 @@ function paginaLiquidacaoPdf(pincel, dados) {
       ],
     },
     {
-      rotulo: "Dados bancários",
-      ajuda: "(banco, agência e conta corrente)",
+      rotulo: "Pagamento",
+      ajuda: "(dados bancários/PIX ou boleto)",
       largura: 0.32,
-      partes: [
+      partes: dados.pagamento.forma === FORMA_PAGAMENTO_BOLETO ? [
+        { rotulo: "Forma", valor: "Boleto bancário", negrito: true },
+        { rotulo: "Linha digitável / código", valor: dados.pagamento.codigo },
+        { rotulo: "Beneficiário", valor: dados.pagamento.beneficiario },
+        { rotulo: "CPF/CNPJ", valor: dados.pagamento.documento },
+        { rotulo: "Vencimento", valor: dados.pagamento.vencimento },
+      ] : [
         { rotulo: "Banco", valor: dados.banco.banco },
         { rotulo: "AG", valor: dados.banco.agencia },
         { rotulo: "C", valor: dados.banco.conta },

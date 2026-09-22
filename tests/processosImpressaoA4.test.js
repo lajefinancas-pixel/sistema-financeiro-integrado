@@ -19,8 +19,8 @@ const documentos = () => [
 
 test("documentos de processos usam a área útil A4 e não forçam folha vazia ao final", () => {
   for (const html of documentos()) {
-    assert.match(html, /@page \{ size: A4 portrait; margin: 0; \}/);
-    assert.match(html, /\.folha \{[^}]*width: 210mm;[^}]*min-height: 297mm/);
+    assert.match(html, /@page \{ size: A4 portrait; margin: 8mm 11mm 16mm; \}/);
+    assert.match(html, /\.folha \{[^}]*width: 100%;[^}]*min-height: calc\(297mm - 24mm\)/);
     assert.match(html, /\.folha \+ \.folha \{ page-break-before: always; break-before: page; \}/);
     assert.doesNotMatch(html, /\.folha \{[^}]*page-break-after:\s*always/);
   }

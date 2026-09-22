@@ -22,6 +22,7 @@
 
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
+import { FORMA_PAGAMENTO_BOLETO, boletoValido } from "./processosFormaPagamento.js";
 import { CAMPOS_SIGNATARIOS, camposDoSignatario } from "./processosServidores.js";
 import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
 import { CAMPOS_ENCAMINHAMENTO } from "./processosEncaminhamento.js";
@@ -192,6 +193,8 @@ export const CAMPOS_COMPARTILHADOS = [
   "conta",
   "pix",
   "titular",
+  "forma_pagamento", "boleto_codigo", "boleto_beneficiario", "boleto_documento",
+  "boleto_vencimento", "boleto_valor",
   // A SECRETARIA DO ENCAMINHAMENTO DA PREFEITA -- a que recebe o processo para
   // as providências de pagamento. ⚠️ Ela não é a solicitante: vem do cadastro de
   // secretarias do MÓDULO FINANCEIRO, que este módulo só LÊ.
@@ -504,6 +507,7 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   branco.diaria_valor_unitario = null;
   branco.diaria_pernoite = false;
   branco.valor_unitario_manual = false;
+  branco.forma_pagamento = "dados_bancarios_pix";
   return branco;
 }
 
@@ -558,8 +562,9 @@ const CAMPOS_DATA = new Set([
   "data_processo", "requisicao_data", "data_saida", "data_retorno",
   "liquidacao_data", "liquidacao_data_saida", "liquidacao_data_retorno",
   "prestacao_data",
+  "boleto_vencimento",
 ]);
-const CAMPOS_MOEDA = new Set(["valor_total", "valor_unitario", "liquidacao_valor"]);
+const CAMPOS_MOEDA = new Set(["valor_total", "valor_unitario", "liquidacao_valor", "boleto_valor"]);
 /** Campos que vão para o banco como booleano, nunca como texto vazio. */
 const CAMPOS_BOOLEANOS = new Set(["diaria_pernoite"]);
 const CAMPOS_QUANTIDADE = new Set(["quantidade_diarias", "liquidacao_quantidade"]);
@@ -985,6 +990,9 @@ export function validarFinalizacao(formulario) {
   if (vazio(formulario?.destino)) erros.destino = "Informe o destino da viagem.";
   if (vazio(formulario?.finalidade)) erros.finalidade = "Descreva a finalidade da viagem.";
   if (paraNumeroMoeda(formulario?.valor_total) <= 0) erros.valor_total = "Informe o valor da diária.";
+  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && !boletoValido(formulario?.boleto_codigo)) {
+    erros.boleto_codigo = "Informe uma linha digitável ou código de barras válido.";
+  }
 
   const saida = texto(formulario?.data_saida);
   const retorno = texto(formulario?.data_retorno);

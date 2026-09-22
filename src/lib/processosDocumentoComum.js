@@ -270,21 +270,22 @@ export function desenharBrasaoPdf(pdf, x, y, lado, dados = null) {
  */
 export function estilosComuns() {
   return `
-    @page { size: A4 portrait; margin: 0; }
+    @page { size: A4 portrait; margin: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase}mm; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
     body { color: ${COR.navy}; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.35;
       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-    /* A folha mede exatamente um A4 e contém as próprias margens. Assim o
-       navegador não soma margem de @page à largura do documento. */
-    .folha { position: relative; width: ${PAGINA.largura}mm; min-height: ${PAGINA.altura}mm;
-      padding: ${PAGINA.margemTopo}mm ${PAGINA.margemLado}mm ${PAGINA.margemBase + 4}mm; }
+    /* A área útil pertence ao @page. Não se força uma segunda caixa de 210 mm:
+       isso evitava que a quebra entre anexos ganhasse uma página vazia. */
+    .folha { position: relative; width: 100%; min-height: calc(${PAGINA.altura}mm - ${PAGINA.margemTopo + PAGINA.margemBase}mm);
+      padding: 0 0 15mm; overflow: visible; }
     .folha + .folha { page-break-before: always; break-before: page; }
 
-    table { width: 100%; box-sizing: border-box; }
-    th, td { box-sizing: border-box; min-width: 0; white-space: normal;
-      overflow-wrap: anywhere; word-break: break-word; }
+    table { width: 100%; max-width: 100%; box-sizing: border-box; }
+    th, td { box-sizing: border-box; min-width: 0; max-width: 100%; white-space: normal;
+      overflow: visible; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+    img, svg, canvas, object, embed { max-width: 100%; height: auto; object-fit: contain; }
 
     .cabecalho { display: flex; align-items: center; gap: 4mm; border-bottom: 1.4pt solid ${COR.navy}; padding-bottom: 2mm; }
     .cabecalho svg { display: block; flex: 0 0 auto; }
@@ -345,7 +346,7 @@ export function estilosComuns() {
     .faixa-assinaturas .local-data { margin-top: 0; }
     .faixa-assinaturas .assinatura-unica { margin: 8mm auto 0; width: 100%; max-width: 78mm; }
 
-    .rodape { position: absolute; left: ${PAGINA.margemLado}mm; right: ${PAGINA.margemLado}mm; bottom: 6mm;
+    .rodape { position: absolute; left: 0; right: 0; bottom: 0;
       border-top: .5pt solid ${COR.navy}; padding-top: 1.2mm; text-align: center; color: ${COR.apoio}; font-size: 7pt; }
     .rodape .endereco { color: ${COR.navy}; font-weight: bold; }
   `;

@@ -111,6 +111,7 @@ const COLUNAS = [
   "destino", "data_saida", "hora_saida", "data_retorno", "hora_retorno",
   "quantidade_diarias", "valor_unitario", "finalidade",
   "banco_codigo", "banco", "agencia", "conta", "pix", "titular", "observacoes",
+  "forma_pagamento", "boleto_codigo", "boleto_beneficiario", "boleto_documento", "boleto_vencimento", "boleto_valor",
   // O vínculo interno com o cadastro de SERVIDORES e quem assinou pela
   // secretaria. As colunas `transporte` e `transporte_outro` saíram desta lista:
   // o campo não existe no modelo oficial, e elas ficam no banco só com o

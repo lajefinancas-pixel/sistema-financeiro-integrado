@@ -115,6 +115,7 @@ const COLUNAS = [
   "atestado", "referencia", "fundamentacao",
   "fornecedor_id", "favorecido_nome", "favorecido_cpf_cnpj", "favorecido_endereco",
   "banco_codigo", "banco", "agencia", "conta", "pix", "titular",
+  "forma_pagamento", "boleto_codigo", "boleto_beneficiario", "boleto_documento", "boleto_vencimento", "boleto_valor",
   "valor_total", "valor_extenso", "valor_extenso_manual",
   "liquidacao_data", "liquidacao_assinante_servidor_id", "liquidacao_assinante_nome",
   "liquidacao_assinante_cpf", "liquidacao_assinante_cargo", "liquidacao_observacoes",
