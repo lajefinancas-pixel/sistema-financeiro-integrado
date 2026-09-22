@@ -50,6 +50,7 @@ import {
   solicitantesAtivos,
 } from "../../lib/processosSecretariasSolicitantes.js";
 import SeletorBanco from "./SeletorBanco.jsx";
+import FormaPagamentoProcesso from "./FormaPagamentoProcesso.jsx";
 import {
   SIGNATARIOS_DO_DOCUMENTO,
   camposDoSignatario,
@@ -1640,8 +1641,10 @@ function SecaoRequisicao({
         ))}
       </Bloco>
 
-      <Bloco titulo="Dados bancários" apoio="Do documento. Editar aqui não altera o cadastro do fornecedor nem o PIX dele.">
-        <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
+      <Bloco titulo="Forma de pagamento" apoio="O boleto substitui os dados bancários do beneficiário somente neste documento.">
+        <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
+          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf}
+          dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
 
       <Bloco titulo="Observações">
@@ -1758,7 +1761,9 @@ function SecaoLiquidacao({
           criado continue abrindo -- só ninguém mais as digita nem as lê. */}
 
       <Bloco titulo="Dados bancários para crédito" apoio="Os mesmos da página 1. Editar aqui vale só para o documento.">
-        <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
+        <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
+          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf}
+          dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
     </>
   );

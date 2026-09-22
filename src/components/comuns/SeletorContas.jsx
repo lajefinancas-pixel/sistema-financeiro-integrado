@@ -202,11 +202,12 @@ function LinhaConta({ conta, multipla, marcada, desabilitado, onEscolher }) {
         onClick={() => onEscolher(conta)}
         disabled={desabilitado}
         aria-pressed={marcada}
-        className={`grid w-full grid-cols-1 items-center gap-x-3 gap-y-0.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-40 sm:grid-cols-[1.1fr_0.9fr_1.3fr_1.1fr_auto] ${
+        title={`${linha.banco} | ${linha.numero_conta} | ${linha.nome_conta} | ${linha.secretaria}`}
+        className={`grid min-h-12 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border-b border-black/[0.06] px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-40 sm:grid-cols-[minmax(5.5rem,1fr)_minmax(7.5rem,.9fr)_minmax(8rem,1.3fr)_minmax(8rem,1.1fr)_minmax(6rem,auto)] ${
           marcada ? "bg-[#0F2A44]/10 ring-1 ring-inset ring-[#0F2A44]/25" : "hover:bg-black/[0.04]"
         }`}
       >
-        <span className="flex items-center gap-1.5 text-black/70">
+        <span className="flex min-w-0 items-center gap-1.5 text-black/70">
           {multipla && (
             <span
               aria-hidden="true"
@@ -217,9 +218,9 @@ function LinhaConta({ conta, multipla, marcada, desabilitado, onEscolher }) {
           )}
           <span className="truncate">{linha.banco}</span>
         </span>
-        <span className="tabular-nums text-black/70">{linha.numero_conta}</span>
-        <span className="truncate font-medium text-[#0F2A44]">{linha.nome_conta}</span>
-        <span className="truncate text-[11px] text-black/50">{linha.secretaria}</span>
+        <span className="whitespace-nowrap tabular-nums text-right text-black/70 sm:text-left">{linha.numero_conta}</span>
+        <span className="truncate font-medium text-[#0F2A44]" title={linha.nome_conta}>{linha.nome_conta}</span>
+        <span className="truncate text-right text-[11px] text-black/50 sm:text-left" title={linha.secretaria}>{linha.secretaria}</span>
         <span className="tabular-nums text-right font-semibold text-[#0F2A44] sm:justify-self-end">
           {linha.saldo == null ? "--" : formatBRL(linha.saldo)}
         </span>

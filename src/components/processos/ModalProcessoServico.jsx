@@ -70,6 +70,7 @@ import {
   solicitantesAtivos,
 } from "../../lib/processosSecretariasSolicitantes.js";
 import SeletorBanco from "./SeletorBanco.jsx";
+import FormaPagamentoProcesso from "./FormaPagamentoProcesso.jsx";
 import {
   camposDoSignatario,
   dadosDoSignatarioParaDocumento,
@@ -1854,11 +1855,10 @@ function SecaoLiquidacao({
         </Bloco>
       )}
 
-      <Bloco
-        titulo="Dados bancários"
-        apoio="Do documento. Editar aqui não altera o cadastro do fornecedor nem o PIX dele."
-      >
-        <DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />
+      <Bloco titulo="Forma de pagamento" apoio="O boleto substitui os dados bancários do favorecido somente neste documento.">
+        <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
+          beneficiarioSugerido={formulario.favorecido_nome} documentoSugerido={formulario.favorecido_cpf_cnpj}
+          dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
 
       {/* ⚠️ A NF É CONSULTA. Vincular copia os valores para este documento e não

@@ -42,6 +42,7 @@
 import { jsPDF } from "jspdf";
 import { formatBRL, formatBRLSimples, paraNumeroMoeda } from "./moeda.js";
 import { imprimirDocumentoHtml } from "./impressaoNavegador.js";
+import { FORMA_PAGAMENTO_BOLETO, formaPagamentoDoProcesso } from "./processosFormaPagamento.js";
 import {
   LEI_DAS_DIARIAS,
   TITULO_PAGINA_1,
@@ -382,6 +383,12 @@ export function dadosDoDocumento(
       pix: ou(p.pix),
       titular: ou(p.titular),
     },
+    pagamento: {
+      forma: formaPagamentoDoProcesso(p), codigo: ou(p.boleto_codigo),
+      beneficiario: ou(p.boleto_beneficiario), documento: ou(p.boleto_documento),
+      vencimento: dataBR(p.boleto_vencimento) || SEM_REGISTRO,
+      valor: moeda(p.boleto_valor || p.valor_total),
+    },
 
     // PÁGINA 2 — a data da LIQUIDAÇÃO. Cada página assina com a data DELA: em
     // branco, a página 2 sai com a data do processo, que é o comportamento que
@@ -464,7 +471,7 @@ function estilos() {
     .c67 { width: 66.66%; }
     .fim { border-right: 0; }
 
-    table.quadro { width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
+    table.quadro { width: 100%; max-width: 100%; box-sizing: border-box; border-collapse: collapse; margin-top: 1.6mm; }
     table.quadro th { border: .5pt solid ${COR.navy}; background: ${COR.faixa}; padding: 1.4mm 2mm;
       font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; text-align: left; }
     table.quadro td { border: .5pt solid ${COR.navy}; padding: 1.8mm 2mm; font-size: 9.5pt;
@@ -567,6 +574,15 @@ function folhaRequisicao(dados) {
 
 /** Página 2: LIQUIDAÇÃO/SOLICITAÇÃO DE PAGAMENTO (sempre em folha nova). */
 function folhaLiquidacao(dados) {
+  const quadroPagamento = dados.pagamento?.forma === FORMA_PAGAMENTO_BOLETO
+    ? `<td><span class="rotulo">Forma de pagamento</span><b>Boleto bancário</b>`
+      + `<span class="rotulo">Linha digitável / código</span>${escapar(dados.pagamento.codigo)}`
+      + `<span class="rotulo">Beneficiário</span>${escapar(dados.pagamento.beneficiario)}`
+      + `<span class="rotulo">CPF/CNPJ</span>${escapar(dados.pagamento.documento)}`
+      + `<span class="rotulo">Vencimento</span>${escapar(dados.pagamento.vencimento)}</td>`
+    : `<td><span class="rotulo">Banco</span>${escapar(dados.banco.banco)}`
+      + `<span class="rotulo">Agência</span>${escapar(dados.banco.agencia)}`
+      + `<span class="rotulo">Conta</span>${escapar(dados.banco.conta)}</td>`;
   return `<div class="folha">`
     + cabecalhoHtml(dados, TITULO_PAGINA_2)
     + avisoHtml(dados)
@@ -591,15 +607,13 @@ function folhaLiquidacao(dados) {
 
     + `<table class="quadro"><thead><tr>`
     + `<th style="width:40%">Favorecido(a)</th>`
-    + `<th style="width:32%">Dados Bancários</th>`
+    + `<th style="width:32%">Pagamento</th>`
     + `<th>Valor (R$)</th>`
     + `</tr></thead><tbody><tr>`
     + `<td><span class="rotulo">Nome</span><b>${escapar(dados.servidor.nome)}</b>`
     + `<span class="rotulo">Endereço</span>${escapar(dados.servidor.endereco)}`
     + `<span class="rotulo">CNPJ/CPF</span>${escapar(dados.servidor.cpf)}</td>`
-    + `<td><span class="rotulo">Banco</span>${escapar(dados.banco.banco)}`
-    + `<span class="rotulo">Agência</span>${escapar(dados.banco.agencia)}`
-    + `<span class="rotulo">Conta</span>${escapar(dados.banco.conta)}</td>`
+    + quadroPagamento
     + `<td><b>${escapar(dados.valor.total)}</b>`
     + `<span class="rotulo">Valor por extenso</span>${escapar(dados.valor.extenso)}</td>`
     + `</tr></tbody></table>`
@@ -961,9 +975,15 @@ function paginaLiquidacaoPdf(pincel, dados) {
       ],
     },
     {
-      rotulo: "Dados Bancários",
+      rotulo: "Pagamento",
       largura: 0.32,
-      partes: [
+      partes: dados.pagamento.forma === FORMA_PAGAMENTO_BOLETO ? [
+        { rotulo: "Forma", valor: "Boleto bancário", negrito: true },
+        { rotulo: "Linha digitável / código", valor: dados.pagamento.codigo },
+        { rotulo: "Beneficiário", valor: dados.pagamento.beneficiario },
+        { rotulo: "CPF/CNPJ", valor: dados.pagamento.documento },
+        { rotulo: "Vencimento", valor: dados.pagamento.vencimento },
+      ] : [
         { rotulo: "Banco", valor: dados.banco.banco },
         { rotulo: "Agência", valor: dados.banco.agencia },
         { rotulo: "Conta", valor: dados.banco.conta },

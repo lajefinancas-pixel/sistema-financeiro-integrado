@@ -22,6 +22,7 @@
 
 import { formatBRL, paraNumeroMoeda } from "./moeda.js";
 import { valorPorExtenso } from "./valorPorExtenso.js";
+import { FORMA_PAGAMENTO_BOLETO, boletoValido } from "./processosFormaPagamento.js";
 import { camposDoSignatario } from "./processosServidores.js";
 import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
 import { CAMPOS_ENCAMINHAMENTO } from "./processosEncaminhamento.js";
@@ -460,6 +461,8 @@ export const CAMPOS_LIQUIDACAO = [
   "conta",
   "pix",
   "titular",
+  "forma_pagamento", "boleto_codigo", "boleto_beneficiario", "boleto_documento",
+  "boleto_vencimento", "boleto_valor",
   "valor_total",
   "valor_extenso",
   // A DATA DESTA PÁGINA: a data da Liquidação/Solicitação de Pagamento.
@@ -595,6 +598,7 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   ].forEach((campo) => {
     if (!(campo in branco)) branco[campo] = "";
   });
+  branco.forma_pagamento = "dados_bancarios_pix";
   return branco;
 }
 
@@ -640,8 +644,8 @@ export function processoParaFormulario(processo) {
   return formulario;
 }
 
-const CAMPOS_DATA = new Set(["data_processo", "requisicao_data", "liquidacao_data", "nota_emissao"]);
-const CAMPOS_MOEDA = new Set(["valor_total", "nota_valor_bruto", "nota_retencoes", "nota_valor_liquido"]);
+const CAMPOS_DATA = new Set(["data_processo", "requisicao_data", "liquidacao_data", "nota_emissao", "boleto_vencimento"]);
+const CAMPOS_MOEDA = new Set(["valor_total", "nota_valor_bruto", "nota_retencoes", "nota_valor_liquido", "boleto_valor"]);
 
 /**
  * Formulário -> linha do banco.
@@ -1206,6 +1210,9 @@ export function validarFinalizacao(formulario) {
   if (vazio(formulario?.tipo)) erros.tipo = "Marque uma das quatro opções da requisição.";
   if (totalDeItens(formulario) === 0) {
     erros.itens = "Descreva ao menos um item no quadro descritivo.";
+  }
+  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && !boletoValido(formulario?.boleto_codigo)) {
+    erros.boleto_codigo = "Informe uma linha digitável ou código de barras válido.";
   }
   return erros;
 }
