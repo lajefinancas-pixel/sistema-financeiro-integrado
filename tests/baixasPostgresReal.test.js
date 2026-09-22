@@ -34,6 +34,7 @@ const ANTERIOR = join(AQUI, "fixtures/baixasEstruturaAnterior.sql");
 
 const PADRONIZACAO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
 const DIAGNOSTICO = "supabase/migrations/20260828230000_diagnosticar_transferencia_entre_contas.sql";
+const CORRECAO_RPC = "supabase/migrations/20260922120000_corrigir_funcoes_baixa_pagamentos.sql";
 
 /**
  * As funções que a migration de baixas USA e NÃO CRIA, cada uma lida da
@@ -483,6 +484,107 @@ test("nível de evento sem 'critico' também aborta a migration com a mensagem c
     (await db.query("select to_regclass('public.pagamentos_baixas') is null as ausente")).rows[0].ausente,
     true,
   );
+
+  await db.close();
+});
+
+test("correção crítica: nota 296.771 baixa, quita e estorna com saldo no centavo", async (t) => {
+  const db = await abrirBanco();
+  if (!db) return t.skip("@electric-sql/pglite não instalado (npm i -D @electric-sql/pglite)");
+
+  await db.exec(`
+    create or replace function public.texto_verdadeiro(p_valor text)
+    returns boolean language sql immutable as $$
+      select lower(trim(coalesce(p_valor, ''))) in ('true','t','1','sim','s','yes','y')
+    $$;
+
+    update public.contas_bancarias
+       set nome_conta = 'Banco do Brasil 2.042-7 (FPM)'
+     where id = 3;
+    alter table public.saldos_historico add column data_saldo date;
+    create unique index saldos_historico_conta_data_teste
+      on public.saldos_historico(conta_id, data_saldo);
+    insert into public.saldos_historico(conta_id, valor_saldo, data_saldo)
+      values (3, 50000.00, '2026-09-22');
+    insert into public.fornecedores
+      (id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id)
+      values (8, 'AUTO POSTO GLOBO LTDA', 'AUTO POSTO GLOBO', '12345678000270', 1);
+    insert into public.valores_em_aberto
+      (id, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor, data_vencimento, situacao)
+      values (296771, 8, '296.771', '2026-09-01', 10079.27, '2026-09-22', 'em_aberto');
+
+    alter table public.pagamentos_baixas
+      add column if not exists saldo_antes numeric(14,2),
+      add column if not exists saldo_depois numeric(14,2);
+
+    create or replace function public.movimentar_saldo_pela_baixa()
+    returns trigger language plpgsql security definer set search_path=public as $fn$
+    declare v_saldo numeric(14,2); v_data date;
+    begin
+      if tg_op='INSERT' and new.status::text='efetivada' then
+        select valor_saldo, data_saldo into v_saldo, v_data
+          from public.saldos_historico where conta_id=new.conta_id
+          order by data_saldo desc, id desc limit 1 for update;
+        insert into public.saldos_historico(conta_id,valor_saldo,data_saldo)
+          values(new.conta_id,round(v_saldo-new.valor_pago,2),greatest(v_data,new.data_pagamento))
+          on conflict(conta_id,data_saldo) do update set valor_saldo=excluded.valor_saldo;
+        update public.pagamentos_baixas set saldo_antes=v_saldo,
+          saldo_depois=round(v_saldo-new.valor_pago,2) where id=new.id;
+      elsif tg_op='UPDATE' and old.status::text='efetivada' and new.status::text='estornada' then
+        select valor_saldo, data_saldo into v_saldo, v_data
+          from public.saldos_historico where conta_id=new.conta_id
+          order by data_saldo desc, id desc limit 1 for update;
+        insert into public.saldos_historico(conta_id,valor_saldo,data_saldo)
+          values(new.conta_id,round(v_saldo+new.valor_pago,2),v_data)
+          on conflict(conta_id,data_saldo) do update set valor_saldo=excluded.valor_saldo;
+      end if;
+      return new;
+    end $fn$;
+    create trigger pagamentos_baixas_movimentar_saldo
+      after insert or update of status on public.pagamentos_baixas
+      for each row execute function public.movimentar_saldo_pela_baixa();
+  `);
+
+  await db.exec(readFileSync(join(RAIZ, CORRECAO_RPC), "utf8"));
+  await db.exec(readFileSync(join(RAIZ, CORRECAO_RPC), "utf8"));
+
+  const argumentos = await db.query(`
+    select p.proname, pg_get_function_arguments(p.oid) argumentos
+      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.proname in ('registrar_baixa_nota','estornar_baixa_nota')
+     order by p.proname
+  `);
+  assert.match(argumentos.rows[0].argumentos, /p_baixa_id text, p_motivo text/);
+  assert.match(argumentos.rows[1].argumentos, /p_chave_idempotencia text, p_valor_em_aberto_id text/);
+
+  const registrar = (chave, valor) => db.query(
+    "select public.registrar_baixa_nota($1,$2,$3,$4,$5,$6) r",
+    [chave, "296771", valor, "2026-09-22", 3, null],
+  );
+  const saldo = async () => (await db.query(
+    "select valor_saldo::text valor from public.saldos_historico where conta_id=3 order by data_saldo desc,id desc limit 1",
+  )).rows[0].valor;
+  const nota = async () => (await db.query(
+    "select valor_pago::text pago,(valor-valor_pago)::text aberto,situacao::text situacao from public.valores_em_aberto where id=296771",
+  )).rows[0];
+
+  await registrar("nota-296771-parcial", 4000.13);
+  assert.equal(await saldo(), "45999.87");
+  assert.deepEqual(await nota(), { pago: "4000.13", aberto: "6079.14", situacao: "em_aberto" });
+  await assert.rejects(() => registrar("nota-296771-excesso", 6079.15), /maior do que o valor em aberto/i);
+  assert.equal(await saldo(), "45999.87");
+
+  const quitacao = await registrar("nota-296771-quitacao", 6079.14);
+  assert.equal(await saldo(), "39920.73");
+  assert.deepEqual(await nota(), { pago: "10079.27", aberto: "0.00", situacao: "pago" });
+
+  await db.query("select public.estornar_baixa_nota($1,$2)", [quitacao.rows[0].r.baixa_id, "Estorno do teste obrigatório"]);
+  assert.equal(await saldo(), "45999.87");
+  assert.deepEqual(await nota(), { pago: "4000.13", aberto: "6079.14", situacao: "em_aberto" });
+  assert.equal((await db.query(
+    "select count(*)::int n from public.pagamentos_baixas where id::text=$1 and status::text='estornada'",
+    [quitacao.rows[0].r.baixa_id],
+  )).rows[0].n, 1);
 
   await db.close();
 });
