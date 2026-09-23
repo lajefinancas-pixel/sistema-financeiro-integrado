@@ -132,19 +132,7 @@ export function agruparContasPorSecretaria(contas, { ordem = [] } = {}) {
 
   const posicao = new Map((ordem ?? []).map((id, i) => [String(id), i]));
   return [...grupos.values()]
-    // Saldos das Contas lê o cadastro por id crescente. Repetir essa mesma
-    // ordem dentro do grupo impede que cada consulta operacional imponha uma
-    // sequência acidental diferente.
-    .map((grupo) => ({
-      ...grupo,
-      contas: [...grupo.contas].sort((a, b) => {
-        const na = Number(a?.id);
-        const nb = Number(b?.id);
-        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-        return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "pt-BR", { numeric: true });
-      }),
-      quantidade: grupo.contas.length,
-    }))
+    .map((grupo) => ({ ...grupo, quantidade: grupo.contas.length }))
     .sort((a, b) => {
       const pa = posicao.has(String(a.secretariaId)) ? posicao.get(String(a.secretariaId)) : Number.MAX_SAFE_INTEGER;
       const pb = posicao.has(String(b.secretariaId)) ? posicao.get(String(b.secretariaId)) : Number.MAX_SAFE_INTEGER;

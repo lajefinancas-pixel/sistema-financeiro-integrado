@@ -1643,7 +1643,7 @@ function SecaoRequisicao({
 
       <Bloco titulo="Forma de pagamento" apoio="O boleto substitui os dados bancários do beneficiário somente neste documento.">
         <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
-          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf} valorSugerido={formulario.valor_total}
+          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf}
           dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
 
@@ -1762,7 +1762,7 @@ function SecaoLiquidacao({
 
       <Bloco titulo="Dados bancários para crédito" apoio="Os mesmos da página 1. Editar aqui vale só para o documento.">
         <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
-          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf} valorSugerido={formulario.valor_total}
+          beneficiarioSugerido={formulario.beneficiario_nome} documentoSugerido={formulario.beneficiario_cpf}
           dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
     </>

@@ -581,11 +581,6 @@ const CAMPOS_QUANTIDADE = new Set(["quantidade_diarias", "liquidacao_quantidade"
  */
 export function formularioParaBanco(formulario) {
   const base = aplicarCalculo(formulario ?? {});
-  if (base.forma_pagamento === FORMA_PAGAMENTO_BOLETO) {
-    base.boleto_beneficiario = base.beneficiario_nome;
-    base.boleto_documento = base.beneficiario_cpf;
-    base.boleto_valor = base.valor_total;
-  }
   const linha = {
     solicitante_id: vazio(base.solicitante_id) ? null : base.solicitante_id,
     secretaria_id: vazio(base.secretaria_id) ? null : base.secretaria_id,
@@ -995,7 +990,7 @@ export function validarFinalizacao(formulario) {
   if (vazio(formulario?.destino)) erros.destino = "Informe o destino da viagem.";
   if (vazio(formulario?.finalidade)) erros.finalidade = "Descreva a finalidade da viagem.";
   if (paraNumeroMoeda(formulario?.valor_total) <= 0) erros.valor_total = "Informe o valor da diária.";
-  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && formulario?.boleto_codigo && !boletoValido(formulario.boleto_codigo)) {
+  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && !boletoValido(formulario?.boleto_codigo)) {
     erros.boleto_codigo = "Informe uma linha digitável ou código de barras válido.";
   }
 
