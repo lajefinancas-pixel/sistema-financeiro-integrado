@@ -659,6 +659,13 @@ const CAMPOS_MOEDA = new Set(["valor_total", "nota_valor_bruto", "nota_retencoes
  */
 export function formularioParaBanco(formulario) {
   const base = aplicarCalculo(formulario ?? {});
+  if (base.forma_pagamento === FORMA_PAGAMENTO_BOLETO) {
+    // Boleto é apenas outra apresentação dos dados que o processo já possui.
+    // As cópias persistidas acompanham sempre o favorecido e o valor atuais.
+    base.boleto_beneficiario = base.favorecido_nome;
+    base.boleto_documento = base.favorecido_cpf_cnpj;
+    base.boleto_valor = base.valor_total;
+  }
   const linha = {
     solicitante_id: vazio(base.solicitante_id) ? null : base.solicitante_id,
     fornecedor_id: base.fornecedor_id ?? null,
@@ -1211,7 +1218,7 @@ export function validarFinalizacao(formulario) {
   if (totalDeItens(formulario) === 0) {
     erros.itens = "Descreva ao menos um item no quadro descritivo.";
   }
-  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && !boletoValido(formulario?.boleto_codigo)) {
+  if (formulario?.forma_pagamento === FORMA_PAGAMENTO_BOLETO && formulario?.boleto_codigo && !boletoValido(formulario.boleto_codigo)) {
     erros.boleto_codigo = "Informe uma linha digitável ou código de barras válido.";
   }
   return erros;
