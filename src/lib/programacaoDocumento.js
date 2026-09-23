@@ -89,7 +89,7 @@ function normalizar(dados) {
     emissao: bruto.emissao || agoraBR(),
     responsavel: bruto.responsavel || "--",
     contas: (bruto.contas ?? []).map((conta) => ({ banco: conta.banco || "--", conta: conta.conta || "--", saldo: numeroOuAusente(conta.saldo), nome: conta.nome || "--" })),
-    pagamentos: (bruto.pagamentosExecutados ?? bruto.pagamentos ?? []).map((item) => ({ fornecedor: item.fornecedor || "--", valor: numero(item.valor), valorPago: numero(item.valorPago), situacao: item.situacao || "pendente" })),
+    pagamentos: (bruto.pagamentos ?? []).map((item) => ({ fornecedor: item.fornecedor || "--", valor: numero(item.valor) })),
     totalContas: numeroOuAusente(bruto.totalContas),
     totalProgramado: numero(bruto.totalProgramado),
     restante: numeroOuAusente(bruto.restante),
@@ -251,10 +251,8 @@ const COLGROUP_PAGAMENTOS = `<colgroup><col style="width:${(LARGURA_FORNECEDOR *
 
 // Duas colunas e nada mais: fornecedor e valor. O documento é de leitura direta.
 function tabelaPagamentosHtml(bloco) {
-  const ordenadas = [...bloco.linhas].sort((a, b) => (a.situacao === "pago" ? 0 : 1) - (b.situacao === "pago" ? 0 : 1));
-  let grupoAnterior = "";
-  const linhas = ordenadas.length
-    ? ordenadas.map((item) => { const grupo = item.situacao === "pago" ? "PAGOS" : "NÃO PAGOS"; const separador = grupo !== grupoAnterior ? `<tr><td colspan="2" style="height:6mm;background:${COR.faixa};font-weight:bold">${grupo}</td></tr>` : ""; grupoAnterior = grupo; return `${separador}<tr><td>${escapar(item.fornecedor)}</td><td class="valor">${escapar(formatBRL(item.situacao === "pago" ? item.valorPago : item.valor))}</td></tr>`; }).join("")
+  const linhas = bloco.linhas.length
+    ? bloco.linhas.map((item) => `<tr><td>${escapar(item.fornecedor)}</td><td class="valor">${escapar(formatBRL(item.valor))}</td></tr>`).join("")
     : '<tr><td class="vazia" colspan="2">Nenhum pagamento proposto.</td></tr>';
   return `<table class="propostos">${COLGROUP_PAGAMENTOS}`
     + `<thead><tr><th>${COLUNAS_PAGAMENTOS[0]}</th><th class="valor">${COLUNAS_PAGAMENTOS[1]}</th></tr></thead>`
@@ -325,7 +323,7 @@ function texto(valor) {
   return String(valor ?? "");
 }
 
-export function gerarPdfProgramacao(entrada) {
+export function montarPdfProgramacao(entrada) {
   const dados = normalizar(entrada);
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const largura = pdf.internal.pageSize.getWidth();
@@ -442,12 +440,7 @@ export function gerarPdfProgramacao(entrada) {
     startY: y,
     head: [COLUNAS_PAGAMENTOS],
     body: dados.pagamentos.length
-      ? [
-        [{ content: `PAGOS — TOTAL ${formatBRLSimples(dados.pagamentos.filter((item) => item.situacao === "pago").reduce((soma, item) => soma + item.valorPago, 0))}`, colSpan: 2, styles: { fontStyle: "bold", fillColor: TINTA.faixa } }],
-        ...dados.pagamentos.filter((item) => item.situacao === "pago").map((item) => [texto(item.fornecedor), formatBRLSimples(item.valorPago)]),
-        [{ content: `NÃO PAGOS — TOTAL ${formatBRLSimples(dados.pagamentos.filter((item) => item.situacao !== "pago").reduce((soma, item) => soma + item.valor, 0))}`, colSpan: 2, styles: { fontStyle: "bold", fillColor: TINTA.faixa } }],
-        ...dados.pagamentos.filter((item) => item.situacao !== "pago").map((item) => [texto(item.fornecedor), formatBRLSimples(item.valor)]),
-      ]
+      ? dados.pagamentos.map((item) => [texto(item.fornecedor), formatBRLSimples(item.valor)])
       : [[{ content: "Nenhum pagamento proposto.", colSpan: 2, styles: { halign: "center", textColor: TINTA.apoio } }]],
     styles: { ...estiloTabela.styles, minCellHeight: ALTURA.linhaPagamento - 1, valign: "middle" },
     columnStyles: {
@@ -500,7 +493,12 @@ export function gerarPdfProgramacao(entrada) {
     pdf.text(`Página ${pagina} de ${paginas}`, largura - margem, altura - 6.5, { align: "right" });
   }
 
-  pdf.save(nomeDoArquivo(dados, "pdf"));
+  return pdf;
+}
+
+export function gerarPdfProgramacao(entrada) {
+  const pdf = montarPdfProgramacao(entrada);
+  pdf.save(nomeDoArquivo(normalizar(entrada), "pdf"));
 }
 
 // --- Planilha --------------------------------------------------------------

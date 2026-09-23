@@ -426,6 +426,50 @@ test("pagamentos propostos têm duas colunas e o somatório cai sob a coluna dos
   assert.match(documento, /\.somatorio \.valor \{ font-size: 10\.5pt;/);
 });
 
+test("documentos da programação não expõem a marcação interna de pago ou não pago", async () => {
+  const { htmlProgramacao, montarPdfProgramacao, montarPlanilhaProgramacao } = await import("../src/lib/programacaoDocumento.js");
+  const entrada = {
+    secretaria: "SECRETARIA DE FINANÇAS",
+    data: "23/09/2026",
+    contas: [{ banco: "BANCO", conta: "123", saldo: 1000, nome: "CONTA" }],
+    pagamentos: [
+      { fornecedor: "FORNECEDOR ALFA", valor: 300, situacao: "pago", valorPago: 300 },
+      { fornecedor: "FORNECEDOR BETA", valor: 200, situacao: "nao_pago", valorPago: 0 },
+    ],
+    totalContas: 1000,
+    totalProgramado: 500,
+    restante: 500,
+  };
+
+  const html = htmlProgramacao(entrada);
+  assert.doesNotMatch(html, /\bPAGOS?\b/i);
+  assert.match(html, /FORNECEDOR ALFA/);
+  assert.match(html, /FORNECEDOR BETA/);
+  assert.match(html, /TOTAL PROGRAMADO:/);
+  assert.match(html, /SALDO RESTANTE:/);
+
+  const pdf = montarPdfProgramacao(entrada);
+  const conteudoPdf = Buffer.from(pdf.output("arraybuffer")).toString("latin1");
+  assert.doesNotMatch(conteudoPdf, /\bPAGOS?\b/i);
+  assert.match(conteudoPdf, /FORNECEDOR ALFA/);
+  assert.match(conteudoPdf, /FORNECEDOR BETA/);
+  assert.match(conteudoPdf, /TOTAL PROGRAMADO/);
+  assert.match(conteudoPdf, /SALDO RESTANTE/);
+
+  const { planilha } = montarPlanilhaProgramacao(entrada);
+  const textos = Object.values(planilha).filter((celula) => celula && typeof celula === "object" && "v" in celula).map((celula) => String(celula.v));
+  assert.equal(textos.some((valor) => /\bPAGOS?\b/i.test(valor)), false);
+  assert.ok(textos.includes("FORNECEDOR ALFA"));
+  assert.ok(textos.includes("FORNECEDOR BETA"));
+
+  const [pagina, controles] = await Promise.all([
+    read("src/pages/PagamentosRedesenhado.jsx"),
+    read("src/components/pagamentos/LinhasExecucaoProgramacao.jsx"),
+  ]);
+  assert.doesNotMatch(pagina, /pagamentosExecutados/);
+  assert.match(controles, /\["pago", "PAGO"\].*\["nao_pago", "NÃO PAGO"\]/s);
+});
+
 test("documento sai com a identidade visual do sistema: brasão, órgão, lema e cor institucional", async () => {
   const { htmlProgramacao, IDENTIDADE } = await import("../src/lib/programacaoDocumento.js");
   const documento = htmlProgramacao({ secretaria: "SECRETARIA DE FINANÇAS", data: "28/08/2026", contas: [], pagamentos: [] });
