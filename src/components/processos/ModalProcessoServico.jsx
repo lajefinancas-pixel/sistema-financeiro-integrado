@@ -1858,7 +1858,6 @@ function SecaoLiquidacao({
       <Bloco titulo="Forma de pagamento" apoio="O boleto substitui os dados bancários do favorecido somente neste documento.">
         <FormaPagamentoProcesso formulario={formulario} somenteLeitura={somenteLeitura} definir={definir}
           beneficiarioSugerido={formulario.favorecido_nome} documentoSugerido={formulario.favorecido_cpf_cnpj}
-          valorSugerido={formulario.valor_total}
           dadosBancarios={<DadosBancarios formulario={formulario} bancos={bancos} somenteLeitura={somenteLeitura} definir={definir} />} />
       </Bloco>
 
