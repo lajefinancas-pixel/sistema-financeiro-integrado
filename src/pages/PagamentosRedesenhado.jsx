@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Copy, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
@@ -28,6 +28,7 @@ import { STATUS_APROVADA, aplicarContaEmPagamentos, emExecucao, emRevisaoPosAnal
 import { aprovarProgramacao, carregarContasParaTransferencia, carregarPermissoesFase2, carregarTransferenciasDaProgramacao, carregarVinculosDaProgramacao, definirContaDePagamentos, definirNomeExibicaoDoPagamento, estruturaFase2Ausente, reabrirProgramacao } from "../lib/execucaoProgramacaoDados";
 import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoProgramacao";
 import ModalReaberturaProgramacao from "../components/pagamentos/ModalReaberturaProgramacao";
+import ModalDuplicarProgramacao from "../components/pagamentos/ModalDuplicarProgramacao";
 import LinhasExecucaoProgramacao from "../components/pagamentos/LinhasExecucaoProgramacao";
 import SeletorContas from "../components/comuns/SeletorContas";
 import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
@@ -355,6 +356,7 @@ export default function PagamentosRedesenhado() {
   const [programacaoId, setProgramacaoId] = React.useState("");
   const [programacao, setProgramacao] = React.useState(null);
   const [exclusaoProgramacao, setExclusaoProgramacao] = React.useState(null);
+  const [duplicacao, setDuplicacao] = React.useState(null);
   const [contas, setContas] = React.useState([]);
   const [contasSelecionadas, setContasSelecionadas] = React.useState(new Set());
   const [buscaConta, setBuscaConta] = React.useState("");
@@ -695,6 +697,54 @@ export default function PagamentosRedesenhado() {
     } catch (falha) {
       registrarErroFase1("Falha ao criar programação", falha, { secretariaId, dataProgramacao: data });
       setErro(mensagemFalhaFase1(falha, "Não foi possível criar a programação."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function verificarDestinoDuplicacao(dataDestino) {
+    if (!programacao || !dataDestino || salvando) return;
+    setSalvando(true);
+    setErro("");
+    try {
+      const { count, error } = await supabase.from("programacoes_pagamento")
+        .select("id", { count: "exact", head: true })
+        .eq("secretaria_id", idInteiro(secretariaId, "Secretaria"))
+        .eq("data_programacao", dataDestino)
+        .is("excluido_em", null);
+      if (error) throw error;
+      if ((count ?? 0) > 0) {
+        setDuplicacao({ conflito: count });
+        return;
+      }
+      await confirmarDuplicacao(dataDestino);
+    } catch (falha) {
+      registrarErroFase1("Falha ao conferir data da duplicação", falha, { programacaoId: programacao.id, dataDestino });
+      setErro(mensagemFalhaFase1(falha, "Não foi possível conferir a data de destino."));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function confirmarDuplicacao(dataDestino) {
+    if (!programacao || !dataDestino) return;
+    setSalvando(true);
+    setErro("");
+    setMensagem("");
+    try {
+      const origemId = idInteiro(programacao.id, "Programação");
+      const { data: novaId, error } = await supabase.rpc("duplicar_programacao_diaria", {
+        p_programacao_origem_id: origemId,
+        p_data_destino: dataDestino,
+      });
+      if (error) throw error;
+      setDuplicacao(null);
+      setData(dataDestino);
+      setProgramacaoId(novaId);
+      setMensagem("Programação duplicada em montagem. Escolha as contas de trabalho e ajuste a Proposta antes de salvar.");
+    } catch (falha) {
+      registrarErroFase1("Falha ao duplicar programação", falha, { programacaoId: programacao.id, dataDestino });
+      setErro(mensagemFalhaFase1(falha, "Não foi possível duplicar a programação."));
     } finally {
       setSalvando(false);
     }
@@ -1440,7 +1490,7 @@ export default function PagamentosRedesenhado() {
           {!programacao ? <div className="rounded-xl border border-dashed border-[var(--color-brand-navy)]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[var(--color-brand-navy)]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[var(--color-brand-navy)]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--color-brand-navy)] px-3 py-2 text-white">
               <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
-              <div className="flex flex-wrap gap-2 print:hidden"><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-navy)] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para confirmar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para confirmar programação." : impedimentosDaAprovacao[0] || "Confirmar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> CONFIRMAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Volta à montagem sem desfazer baixas, transferências, marcações nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
+              <div className="flex flex-wrap gap-2 print:hidden"><button type="button" onClick={() => setDuplicacao({ conflito: 0 })} disabled={salvando || !podeEditar} className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-white/10 disabled:opacity-50"><Copy size={13}/> Duplicar programação</button><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-navy)] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para confirmar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para confirmar programação." : impedimentosDaAprovacao[0] || "Confirmar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> CONFIRMAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Volta à montagem sem desfazer baixas, transferências, marcações nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
             </div>
 
             {podeExcluir && <div className="mb-3 flex justify-end print:hidden"><button type="button" onClick={() => abrirExclusao(programacao)} disabled={salvando} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"><Trash2 size={13}/> Excluir programação</button></div>}
@@ -1607,6 +1657,16 @@ export default function PagamentosRedesenhado() {
           salvando={salvando}
           onFechar={() => setMostrarReabertura(false)}
           onConfirmar={confirmarReabertura}
+        />}
+
+        {duplicacao && programacao && <ModalDuplicarProgramacao
+          programacao={programacao}
+          conflito={duplicacao.conflito}
+          salvando={salvando}
+          onFechar={() => setDuplicacao(null)}
+          onMudarData={() => setDuplicacao((atual) => atual?.conflito ? { conflito: 0 } : atual)}
+          onVerificar={verificarDestinoDuplicacao}
+          onConfirmar={confirmarDuplicacao}
         />}
 
       </div>
