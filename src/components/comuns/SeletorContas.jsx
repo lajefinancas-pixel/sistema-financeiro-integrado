@@ -12,6 +12,7 @@ import {
   rotuloDoGrupo,
   selecionadasNoGrupo,
 } from "../../lib/contasBancariasBusca";
+import { carregarOrganizacaoSecretarias, mapaDeCoresDasSecretarias } from "../../lib/organizacaoSecretarias";
 
 /**
  * Lista de contas bancárias JÁ CADASTRADAS, para escolher conta.
@@ -59,7 +60,7 @@ export default function SeletorContas({
   selecionadas = [],
   valor = "",
   onEscolher,
-  ordemSecretarias = [],
+  ordemSecretarias,
   acoes = null,
   placeholder = PLACEHOLDER_BUSCA_CONTA,
   busca: buscaControlada,
@@ -71,6 +72,15 @@ export default function SeletorContas({
 }) {
   const [buscaInterna, setBuscaInterna] = React.useState("");
   const [recolhidos, setRecolhidos] = React.useState(() => new Set());
+  const [organizacao, setOrganizacao] = React.useState({ ordem: [], secretarias: [] });
+
+  React.useEffect(() => {
+    let ativo = true;
+    carregarOrganizacaoSecretarias()
+      .then((dados) => { if (ativo) setOrganizacao(dados); })
+      .catch(() => { /* organização é apoio visual e nunca bloqueia a escolha */ });
+    return () => { ativo = false; };
+  }, []);
 
   const controlado = buscaControlada != null;
   const busca = controlado ? buscaControlada : buscaInterna;
@@ -85,9 +95,14 @@ export default function SeletorContas({
   const buscando = busca.trim() !== "";
   // Busca global: percorre todas as contas recebidas, de todas as secretarias.
   const encontradas = React.useMemo(() => filtrarContasCadastradas(contas, busca), [contas, busca]);
+  const ordemEfetiva = ordemSecretarias ?? organizacao.ordem;
+  const cores = React.useMemo(
+    () => mapaDeCoresDasSecretarias(organizacao.secretarias),
+    [organizacao.secretarias],
+  );
   const grupos = React.useMemo(
-    () => agruparContasPorSecretaria(contas, { ordem: ordemSecretarias }),
-    [contas, ordemSecretarias],
+    () => agruparContasPorSecretaria(contas, { ordem: ordemEfetiva }),
+    [contas, ordemEfetiva],
   );
 
   // Só mexe no conjunto de grupos recolhidos — seleção nenhuma é tocada aqui.
@@ -133,56 +148,21 @@ export default function SeletorContas({
           encontradas.length === 0 ? (
             <p className="px-2 py-6 text-center text-xs text-black/50">{MENSAGEM_SEM_RESULTADO}</p>
           ) : (
-            <ul className="space-y-0.5">
-              {encontradas.map((conta) => (
-                <LinhaConta
-                  key={conta.id}
-                  conta={conta}
-                  multipla={multipla}
-                  marcada={marcadas.has(String(conta.id))}
-                  desabilitado={desabilitado}
-                  onEscolher={escolher}
-                />
+            <div className="space-y-1">
+              {agruparContasPorSecretaria(encontradas, { ordem: ordemEfetiva }).map((grupo) => (
+                <GrupoContas key={grupo.chave} grupo={grupo} cor={cores.get(String(grupo.secretariaId))} sempreAberto
+                  marcadas={marcadas} multipla={multipla} desabilitado={desabilitado} onEscolher={escolher} />
               ))}
-            </ul>
+            </div>
           )
         ) : (
           <div className="space-y-1">
             {grupos.map((grupo) => {
               const recolhido = grupoRecolhido(recolhidos, grupo.chave);
-              const marcadasNoGrupo = selecionadasNoGrupo(grupo, marcadas);
               return (
-                <section key={grupo.chave} className="rounded-lg border border-black/5">
-                  <button
-                    type="button"
-                    onClick={() => alternar(grupo.chave)}
-                    aria-expanded={!recolhido}
-                    className="flex w-full items-center gap-2 rounded-lg bg-black/[0.03] px-2.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-black/70 hover:bg-black/[0.06]"
-                  >
-                    {recolhido ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                    <span className="flex-1 truncate">{rotuloDoGrupo(grupo)}</span>
-                    {marcadasNoGrupo > 0 && (
-                      <span className="shrink-0 rounded-full bg-[#0F2A44] px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white">
-                        {marcadasNoGrupo} selecionada{marcadasNoGrupo === 1 ? "" : "s"}
-                      </span>
-                    )}
-                  </button>
-
-                  {!recolhido && (
-                    <ul className="space-y-0.5 p-1">
-                      {grupo.contas.map((conta) => (
-                        <LinhaConta
-                          key={conta.id}
-                          conta={conta}
-                          multipla={multipla}
-                          marcada={marcadas.has(String(conta.id))}
-                          desabilitado={desabilitado}
-                          onEscolher={escolher}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                <GrupoContas key={grupo.chave} grupo={grupo} cor={cores.get(String(grupo.secretariaId))}
+                  recolhido={recolhido} onAlternar={() => alternar(grupo.chave)} marcadas={marcadas}
+                  multipla={multipla} desabilitado={desabilitado} onEscolher={escolher} />
               );
             })}
           </div>
@@ -190,6 +170,22 @@ export default function SeletorContas({
       </div>
     </div>
   );
+}
+
+function GrupoContas({ grupo, cor = "#2563EB", recolhido = false, sempreAberto = false, onAlternar, marcadas, multipla, desabilitado, onEscolher }) {
+  const marcadasNoGrupo = selecionadasNoGrupo(grupo, marcadas);
+  return <section className="overflow-hidden rounded-lg border border-black/5">
+    <button type="button" onClick={onAlternar} disabled={sempreAberto} aria-expanded={!recolhido}
+      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wide disabled:cursor-default"
+      style={{ backgroundColor: `${cor}14`, borderLeft: `4px solid ${cor}`, color }}>
+      {!sempreAberto && (recolhido ? <ChevronRight size={14} /> : <ChevronDown size={14} />)}
+      <span className="flex-1 truncate">{rotuloDoGrupo(grupo)}</span>
+      {marcadasNoGrupo > 0 && <span className="shrink-0 rounded-full bg-[#0F2A44] px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white">{marcadasNoGrupo} selecionada{marcadasNoGrupo === 1 ? "" : "s"}</span>}
+    </button>
+    {(sempreAberto || !recolhido) && <ul className="space-y-0.5 p-1">{grupo.contas.map((conta) =>
+      <LinhaConta key={conta.id} conta={conta} multipla={multipla} marcada={marcadas.has(String(conta.id))}
+        desabilitado={desabilitado} onEscolher={onEscolher} />)}</ul>}
+  </section>;
 }
 
 /** Uma conta cadastrada: Banco | Nº da Conta | Nome da Conta | Secretaria | Saldo. */
@@ -203,7 +199,7 @@ function LinhaConta({ conta, multipla, marcada, desabilitado, onEscolher }) {
         disabled={desabilitado}
         aria-pressed={marcada}
         title={`${linha.banco} | ${linha.numero_conta} | ${linha.nome_conta} | ${linha.secretaria}`}
-        className={`grid min-h-12 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border-b border-black/[0.06] px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-40 sm:grid-cols-[minmax(5.5rem,1fr)_minmax(7.5rem,.9fr)_minmax(8rem,1.3fr)_minmax(8rem,1.1fr)_minmax(6rem,auto)] ${
+        className={`grid grid-cols-1 sm:grid-cols-[minmax(5.5rem,1fr)_minmax(7.5rem,.9fr)_minmax(8rem,1.3fr)_minmax(8rem,1.1fr)_minmax(6rem,auto)] min-h-12 w-full items-center gap-x-3 gap-y-1 rounded-lg border-b border-black/[0.06] px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-40 ${
           marcada ? "bg-[#0F2A44]/10 ring-1 ring-inset ring-[#0F2A44]/25" : "hover:bg-black/[0.04]"
         }`}
       >

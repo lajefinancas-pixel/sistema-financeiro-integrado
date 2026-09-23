@@ -384,10 +384,10 @@ export function dadosDoDocumento(
       titular: ou(p.titular),
     },
     pagamento: {
-      forma: formaPagamentoDoProcesso(p), codigo: ou(p.boleto_codigo),
-      beneficiario: ou(p.boleto_beneficiario), documento: ou(p.boleto_documento),
+      forma: formaPagamentoDoProcesso(p), codigo: texto(p.boleto_codigo),
+      beneficiario: ou(p.beneficiario_nome), documento: ou(p.beneficiario_cpf),
       vencimento: dataBR(p.boleto_vencimento) || SEM_REGISTRO,
-      valor: moeda(p.boleto_valor || p.valor_total),
+      valor: moeda(p.valor_total),
     },
 
     // PÁGINA 2 — a data da LIQUIDAÇÃO. Cada página assina com a data DELA: em
@@ -576,7 +576,7 @@ function folhaRequisicao(dados) {
 function folhaLiquidacao(dados) {
   const quadroPagamento = dados.pagamento?.forma === FORMA_PAGAMENTO_BOLETO
     ? `<td><span class="rotulo">Forma de pagamento</span><b>Boleto bancário</b>`
-      + `<span class="rotulo">Linha digitável / código</span>${escapar(dados.pagamento.codigo)}`
+      + (dados.pagamento.codigo ? `<span class="rotulo">Linha digitável / código</span>${escapar(dados.pagamento.codigo)}` : "")
       + `<span class="rotulo">Beneficiário</span>${escapar(dados.pagamento.beneficiario)}`
       + `<span class="rotulo">CPF/CNPJ</span>${escapar(dados.pagamento.documento)}`
       + `<span class="rotulo">Vencimento</span>${escapar(dados.pagamento.vencimento)}</td>`
@@ -979,7 +979,7 @@ function paginaLiquidacaoPdf(pincel, dados) {
       largura: 0.32,
       partes: dados.pagamento.forma === FORMA_PAGAMENTO_BOLETO ? [
         { rotulo: "Forma", valor: "Boleto bancário", negrito: true },
-        { rotulo: "Linha digitável / código", valor: dados.pagamento.codigo },
+        ...(dados.pagamento.codigo ? [{ rotulo: "Linha digitável / código", valor: dados.pagamento.codigo }] : []),
         { rotulo: "Beneficiário", valor: dados.pagamento.beneficiario },
         { rotulo: "CPF/CNPJ", valor: dados.pagamento.documento },
         { rotulo: "Vencimento", valor: dados.pagamento.vencimento },

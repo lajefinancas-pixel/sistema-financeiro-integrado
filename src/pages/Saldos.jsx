@@ -37,8 +37,14 @@ import ModalContaBancaria from "../components/saldos/ModalContaBancaria";
 import ModalSituacaoConta from "../components/saldos/ModalSituacaoConta";
 import ModalLimparCampos from "../components/saldos/ModalLimparCampos";
 import ContasDesativadas from "../components/saldos/ContasDesativadas";
+import {
+  CHAVE_ORDEM_SECRETARIAS_LOCAL,
+  CORES_SECRETARIAS,
+  TABELA_ORDEM_SECRETARIAS,
+  carregarOrganizacaoSecretarias,
+  ordenarSecretariasPorPreferencia,
+} from "../lib/organizacaoSecretarias";
 
-const CORES = ["#2563EB", "#16A34A", "#EA9A1E", "#7C3AED", "#DB2777", "#0EA5E9", "#059669", "#D97706"];
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -78,17 +84,6 @@ function gerarDiasDoMes(ano, mes) {
 
 // Mesma ordem do cabeçalho da planilha, usada para achar a coluna de valor.
 const COLUNAS_EXCEL_SALDOS = ["Secretaria", "Banco", "Número da Conta", "Saldo", "Nome da Conta"];
-
-const TABELA_ORDEM = "preferencias_ordem_secretarias";
-const CHAVE_ORDEM_LOCAL = "saldos:ordem-secretarias";
-
-// Mantém a ordem escolhida pelo usuário; secretarias novas entram no fim da lista.
-function ordenarPorPreferencia(lista, ordem) {
-  const posicao = new Map((ordem ?? []).map((id, i) => [id, i]));
-  return [...lista].sort(
-    (a, b) => (posicao.has(a.id) ? posicao.get(a.id) : 1e9) - (posicao.has(b.id) ? posicao.get(b.id) : 1e9)
-  );
-}
 
 function montarSecoes(lista) {
   return lista
@@ -276,7 +271,7 @@ export default function Saldos() {
         const contasDaSec = contasComSaldo.filter((c) => c.ativo && c.secretaria_id === sec.id);
         // Cada conta entra no total UMA ÚNICA VEZ, pelo id da conta.
         const total = totalizarSaldos(contasDaSec).saldoReal;
-        return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
+        return { id: sec.id, nome: sec.nome, cor: CORES_SECRETARIAS[i % CORES_SECRETARIAS.length], contas: contasDaSec, total };
       });
 
       setSecretarias(secs ?? []);
@@ -302,28 +297,9 @@ export default function Saldos() {
   // que a tela "pisque" na ordem antiga enquanto a preferência é buscada.
   async function carregarOrdem() {
     try {
-      const { data: dadosUsuario } = await supabase.auth.getUser();
-      const id = dadosUsuario?.user?.id ?? null;
+      const { usuarioId: id, ordem } = await carregarOrganizacaoSecretarias();
       setUsuarioId(id);
-      if (!id) return;
-
-      const local = localStorage.getItem(`${CHAVE_ORDEM_LOCAL}:${id}`);
-      if (local) {
-        try {
-          const salvo = JSON.parse(local);
-          if (Array.isArray(salvo)) setOrdemSecretarias(salvo);
-        } catch {
-          /* cache inválido: ignora */
-        }
-      }
-
-      const { data, error } = await supabase
-        .from(TABELA_ORDEM)
-        .select("ordem")
-        .eq("usuario_id", id)
-        .maybeSingle();
-      if (error) return; // sem preferência salva ainda: mantém a ordem alfabética
-      if (Array.isArray(data?.ordem)) setOrdemSecretarias(data.ordem);
+      setOrdemSecretarias(ordem);
     } catch {
       /* a ordenação é um complemento: nunca deve impedir a página de carregar */
     }
@@ -333,12 +309,12 @@ export default function Saldos() {
     setOrdemSecretarias(novaOrdem);
     if (!usuarioId) return;
     try {
-      localStorage.setItem(`${CHAVE_ORDEM_LOCAL}:${usuarioId}`, JSON.stringify(novaOrdem));
+      localStorage.setItem(`${CHAVE_ORDEM_SECRETARIAS_LOCAL}:${usuarioId}`, JSON.stringify(novaOrdem));
     } catch {
       /* armazenamento local indisponível: segue apenas com o Supabase */
     }
     const { error } = await supabase
-      .from(TABELA_ORDEM)
+      .from(TABELA_ORDEM_SECRETARIAS)
       .upsert({ usuario_id: usuarioId, ordem: novaOrdem, atualizado_em: new Date().toISOString() },
         { onConflict: "usuario_id" });
     if (error) setErro(mensagemAmigavel(error, "Não foi possível salvar a ordem das secretarias."));
@@ -1175,11 +1151,11 @@ export default function Saldos() {
   }
 
   const secretariasAtual = React.useMemo(
-    () => ordenarPorPreferencia(contasPorSecretaria, ordemSecretarias),
+    () => ordenarSecretariasPorPreferencia(contasPorSecretaria, ordemSecretarias),
     [contasPorSecretaria, ordemSecretarias]
   );
   const secretariasHistorico = React.useMemo(
-    () => ordenarPorPreferencia(contasPorSecretariaNaData, ordemSecretarias),
+    () => ordenarSecretariasPorPreferencia(contasPorSecretariaNaData, ordemSecretarias),
     [contasPorSecretariaNaData, ordemSecretarias]
   );
   // Ordem completa (inclusive secretarias sem saldo na data escolhida), usada ao arrastar.
