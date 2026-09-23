@@ -204,9 +204,32 @@ export async function carregarSecretariasDasAreas() {
  * Gravação
  * ---------------------------------------------------------------------- */
 
+let usuarioEmCache;
+
+/**
+ * Id de quem está na sessão em public.usuarios (não o id de auth.users).
+ *
+ * As colunas de autoria das seis tabelas desta área têm chave estrangeira para
+ * public.usuarios. Gravar auth.uid() diretamente nelas produz 23503 para todo
+ * cadastro, e o tratamento genérico desse código acaba parecendo uma trava de
+ * vínculo com lançamentos. Sem cadastro interno, a autoria fica nula — as
+ * colunas aceitam null e a operação principal continua sujeita à RLS.
+ */
 async function usuarioAtualId() {
-  const { data } = await supabase.auth.getUser();
-  return data?.user?.id ?? null;
+  if (usuarioEmCache !== undefined) return usuarioEmCache;
+
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user?.id) return null;
+
+  const { data, error } = await supabase
+    .from("usuarios")
+    .select("id")
+    .eq("auth_id", auth.user.id)
+    .limit(1);
+  if (error) return null;
+
+  usuarioEmCache = data?.[0]?.id ?? null;
+  return usuarioEmCache;
 }
 
 /**
