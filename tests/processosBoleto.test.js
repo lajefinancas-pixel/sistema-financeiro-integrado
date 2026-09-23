@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { boletoValido, formatarCodigoBoleto } from "../src/lib/processosFormaPagamento.js";
 import { dadosDoDocumento, htmlDoProcesso } from "../src/lib/processosServicosDocumento.js";
-import { formularioParaBanco, processoVazio } from "../src/lib/processosServicos.js";
+import { formularioParaBanco, processoVazio, validarFinalizacao } from "../src/lib/processosServicos.js";
 
 test("boleto aceita os formatos bancários usuais e rejeita código incompleto", () => {
   assert.equal(boletoValido("1".repeat(44)), true);
@@ -10,25 +10,29 @@ test("boleto aceita os formatos bancários usuais e rejeita código incompleto",
   assert.equal(boletoValido("1".repeat(43)), false);
 });
 
-test("forma de pagamento e boleto são gravados e impressos sem exigir banco do favorecido", () => {
+test("boleto reutiliza favorecido e valor do processo e aceita linha vazia", () => {
   const formulario = {
     ...processoVazio({ ano: 2026, hoje: "2026-09-22" }),
     forma_pagamento: "boleto",
-    boleto_codigo: "1".repeat(47),
-    boleto_beneficiario: "Companhia de Energia",
-    boleto_documento: "12.345.678/0001-90",
+    boleto_codigo: "",
+    favorecido_nome: "Companhia de Energia",
+    favorecido_cpf_cnpj: "12.345.678/0001-90",
     boleto_vencimento: "2026-09-30",
-    boleto_valor: 321.45,
+    valor_total: 321.45,
   };
   const linha = formularioParaBanco(formulario);
   assert.equal(linha.forma_pagamento, "boleto");
   assert.equal(linha.banco, null);
   assert.equal(linha.boleto_valor, 321.45);
+  assert.equal(linha.boleto_beneficiario, "Companhia de Energia");
+  assert.equal(linha.boleto_documento, "12.345.678/0001-90");
+  assert.equal(validarFinalizacao(formulario).boleto_codigo, undefined);
 
   const html = htmlDoProcesso(dadosDoDocumento(formulario), { escopo: "liquidacao" });
   assert.match(html, /Boleto bancário/);
   assert.match(html, /Companhia de Energia/);
   assert.match(html, /30\/09\/2026/);
+  assert.doesNotMatch(html, /Linha digitável[^<]*--/);
 });
 
 test("processo antigo continua usando dados bancários por padrão", () => {
