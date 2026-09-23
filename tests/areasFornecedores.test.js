@@ -63,6 +63,7 @@ function semComentarios(fonte) {
 }
 
 const MIGRATION = "supabase/migrations/20260910140000_areas_fornecedores_patrocinios_alugueis_bandas.sql";
+const DADOS = "src/lib/areasFornecedoresDados.js";
 
 const FORNECEDOR = {
   id: 7,
@@ -86,6 +87,27 @@ function registro(area, extras = {}) {
     ...extras,
   };
 }
+
+test("criação nas três áreas usa o id de public.usuarios, não o id da autenticação", () => {
+  const fonte = ler(DADOS);
+  const inicio = fonte.indexOf("async function usuarioAtualId()");
+  const trechoUsuario = fonte.slice(
+    inicio,
+    fonte.indexOf("/* -------------------------------------------------------------------------\n * Leitura", inicio),
+  );
+
+  assert.match(trechoUsuario, /from\("usuarios"\)/);
+  assert.match(trechoUsuario, /eq\("auth_id", auth\.user\.id\)/);
+  assert.match(trechoUsuario, /return usuarioEmCache/);
+  assert.doesNotMatch(trechoUsuario, /return (?:data|auth)\?\.user\?\.id/);
+
+  // A correção é compartilhada por Bandas, Patrocínios e Aluguéis e vale
+  // também para edição, inativação e vínculo de NF, sem tocar nas baixas.
+  assert.match(fonte, /const autor = await usuarioAtualId\(\);[\s\S]*?\.insert\(linha\)/);
+  assert.match(fonte, /atualizado_por: autor/);
+  assert.match(fonte, /inativado_por: null/);
+  assert.match(fonte, /criado_por: autor/);
+});
 
 /* -------------------------------------------------------------------------
  * As três áreas e a estrutura delas

@@ -69,7 +69,7 @@ const USUARIO_ADMIN = "99999999-9999-9999-9999-999999999999";
 const USUARIO_INATIVADOR = "88888888-8888-8888-8888-888888888888";
 
 /**
- * O cenário: UM fornecedor (a produtora) e as suas notas.
+ * O cenário: dois fornecedores e as notas da produtora principal.
  *
  * O perfil "Auxiliar" existe para o caso da permissão parcial: ele enxerga
  * Fornecedores e pode INATIVAR, mas não pode editar. O perfil "Consulta" não
@@ -95,7 +95,9 @@ const DADOS = `
     ('${USUARIO_INATIVADOR}', '${INATIVADOR}', 'Auxiliar de Cadastro', 'ativo', '${PERFIL_INATIVADOR}'),
     ('77777777-7777-7777-7777-777777777777', '${CONSULTA}', 'Estagiário', 'ativo', '${PERFIL_CONSULTA}');
   insert into public.fornecedores (id, razao_social, nome_fantasia, cpf_cnpj, secretaria_id)
-    values (7, 'Produções Artísticas São José LTDA', 'SJ Produções', '12345678000199', 1);
+    values
+      (7, 'Produções Artísticas São José LTDA', 'SJ Produções', '12345678000199', 1),
+      (8, 'Auto Posto Globo LTDA', 'Posto Globo', '98765432000110', 1);
   insert into public.contas_bancarias (id, nome_conta, numero_conta, banco_id, secretaria_id, saldo_atual)
     values (3, 'Conta Movimento', '00123-4', 1, 1, 250000.00);
   insert into public.valores_em_aberto (id, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor, data_vencimento, situacao)
@@ -153,6 +155,40 @@ test("as três áreas de Fornecedores em Postgres real", async (t) => {
 
   await t.test("a migration é idempotente: roda duas vezes sem reclamar", async () => {
     await db.exec(readFileSync(MIGRATION_AREAS, "utf8"));
+  });
+
+  await t.test("cria Bandas, Patrocínios e Aluguéis para dois fornecedores sem exigir vínculo", async () => {
+    await db.exec("begin");
+    try {
+      for (const fornecedorId of [7, 8]) {
+        await db.query(
+          `insert into public.fornecedor_bandas (fornecedor_id, banda, evento, valor, criado_por)
+           values ($1, $2, 'TESTE', 11111.11, $3)`,
+          [fornecedorId, `Forró Teste ${fornecedorId}`, USUARIO_ADMIN],
+        );
+        await db.query(
+          `insert into public.fornecedor_patrocinios (fornecedor_id, nome, evento, valor, criado_por)
+           values ($1, $2, 'TESTE', 11111.11, $3)`,
+          [fornecedorId, `Patrocínio Teste ${fornecedorId}`, USUARIO_ADMIN],
+        );
+        await db.query(
+          `insert into public.fornecedor_alugueis (fornecedor_id, descricao, objeto, valor, criado_por)
+           values ($1, $2, 'Estrutura', 11111.11, $3)`,
+          [fornecedorId, `Aluguel Teste ${fornecedorId}`, USUARIO_ADMIN],
+        );
+      }
+
+      for (const { tabela } of AREAS_SQL) {
+        const { rows } = await db.query(
+          `select count(*)::int as total
+             from public.${tabela}
+            where fornecedor_id in (7, 8)`,
+        );
+        assert.equal(rows[0].total, 2);
+      }
+    } finally {
+      await db.exec("rollback");
+    }
   });
 
   await t.test("nenhuma das seis tabelas tem coluna de valor pago, pago ou saldo", async () => {
@@ -235,14 +271,14 @@ test("as três áreas de Fornecedores em Postgres real", async (t) => {
         (7, 'DJ Nordeste', 'Réveillon 2027', '2026-12-31', 1, 8000.00);
     `);
 
-    // Seis registros do mesmo fornecedor, e UM cadastro só.
+    // Seis registros do mesmo fornecedor, sem duplicar nenhum cadastro.
     const { rows } = await db.query(`
       select (select count(*)::int from public.fornecedor_patrocinios where fornecedor_id = 7) as patrocinios,
              (select count(*)::int from public.fornecedor_alugueis where fornecedor_id = 7) as alugueis,
              (select count(*)::int from public.fornecedor_bandas where fornecedor_id = 7) as bandas,
              (select count(*)::int from public.fornecedores) as fornecedores
     `);
-    assert.deepEqual(rows[0], { patrocinios: 2, alugueis: 1, bandas: 3, fornecedores: 1 });
+    assert.deepEqual(rows[0], { patrocinios: 2, alugueis: 1, bandas: 3, fornecedores: 2 });
   });
 
   await t.test("testes 4 e 5: nome artístico diferente da razão social, vários por fornecedor", async () => {
