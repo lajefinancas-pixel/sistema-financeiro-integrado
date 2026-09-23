@@ -54,6 +54,7 @@ import {
   ordenarFornecedoresPorNome,
   ordenarPagamentosPorNome,
 } from "../lib/nomesFornecedor";
+import { validarFornecedoresDaProgramacao } from "../lib/validacaoFornecedoresProgramacao";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -323,6 +324,17 @@ function registrarErroFase2(operacao, falha, contexto = {}) {
   });
 }
 
+function detalhesTecnicosDaFalha(falha) {
+  if (!falha || typeof falha !== "object") return null;
+  const linhas = [
+    ["Código", falha.code ?? falha.status],
+    ["Mensagem", falha.message],
+    ["DETAIL", falha.details],
+    ["HINT", falha.hint],
+  ].filter(([, valor]) => valor !== null && valor !== undefined && String(valor).trim() !== "");
+  return linhas.length ? linhas.map(([rotulo, valor]) => `${rotulo}: ${valor}`).join("\n") : null;
+}
+
 /**
  * Nome do item como a tela e o papel o mostram:
  * nome de exibição da programação -> apelido do cadastro -> razão social.
@@ -348,6 +360,7 @@ export default function PagamentosRedesenhado() {
   const [carregando, setCarregando] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState("");
+  const [detalhesErro, setDetalhesErro] = React.useState(null);
   const [mensagem, setMensagem] = React.useState("");
   const [secretarias, setSecretarias] = React.useState([]);
   const [secretariaId, setSecretariaId] = React.useState("");
@@ -923,6 +936,7 @@ export default function PagamentosRedesenhado() {
     if (!programacao || !podeEditarProgramacao) return false;
     setSalvando(true);
     setErro("");
+    setDetalhesErro(null);
     setMensagem("");
     try {
       const { data: auth, error: erroAuth } = await supabase.auth.getUser();
@@ -963,6 +977,11 @@ export default function PagamentosRedesenhado() {
         origem_tipo: itemTemOrigem(item) ? item.origem_tipo : null,
         origem_id: itemTemOrigem(item) ? item.origem_id : null,
       }));
+      // A edição inline troca somente o valor. Antes de reaproveitar os vínculos
+      // (inclusive os copiados pela duplicação), confirma cada fornecedor pela
+      // mesma visão que a FK usa. Assim um id removido nunca chega a
+      // salvar_planejamento_programacao e a mensagem identifica a linha.
+      await validarFornecedoresDaProgramacao(supabase, pagamentos);
       const programacaoIdInteiro = idInteiro(programacao.id, "Programação");
       const argumentos = {
         p_programacao_id: programacaoIdInteiro,
@@ -987,6 +1006,7 @@ export default function PagamentosRedesenhado() {
     } catch (falha) {
       registrarErroFase1("Falha ao salvar programação", falha, { programacaoId: programacao?.id });
       setErro(mensagemFalhaFase1(falha, "Não foi possível salvar a programação.", "salvar"));
+      setDetalhesErro(detalhesTecnicosDaFalha(falha));
     } finally {
       setSalvando(false);
     }
@@ -1000,6 +1020,7 @@ export default function PagamentosRedesenhado() {
     const { error } = await supabase.rpc("marcar_programacao_em_analise", { p_programacao_id: idInteiro(programacao.id, "Programação") });
     if (error) {
       registrarErroFase1("Falha ao marcar programação em análise", error, { programacaoId: programacao.id });
+      setDetalhesErro(detalhesTecnicosDaFalha(error));
       return setErro(mensagemFalhaFase1(error, "Não foi possível marcar como em análise.", "em_analise"));
     }
     setProgramacao((atual) => ({ ...atual, status: "em_analise" }));
@@ -1042,6 +1063,7 @@ export default function PagamentosRedesenhado() {
     if (!salvo) return;
     setSalvando(true);
     setErro("");
+    setDetalhesErro(null);
     setMensagem("");
     try {
       await aprovarProgramacao({
@@ -1057,6 +1079,7 @@ export default function PagamentosRedesenhado() {
     } catch (falha) {
       registrarErroFase2("Falha ao aprovar programação", falha, { programacaoId: programacao.id });
       setErro(mensagemFalhaFase2(falha, "Não foi possível aprovar a programação.", "aprovar"));
+      setDetalhesErro(detalhesTecnicosDaFalha(falha));
     } finally {
       setSalvando(false);
     }
@@ -1481,7 +1504,14 @@ export default function PagamentosRedesenhado() {
             registro ele nasceu. */}
         {semColunasDeOrigem && (envioAnotado || envioPendente) && <div className="mb-3 rounded-xl border border-[var(--color-brand-gold)]/40 bg-[#FBF3EA] px-3 py-2 text-[13px] text-[#8A321C] print:hidden">{AVISO_MIGRATION_ORIGEM}</div>}
 
-        {(erro || mensagem) && <div className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>{erro || mensagem}<button onClick={() => { setErro(""); setMensagem(""); }} className="float-right"><X size={15}/></button></div>}
+        {(erro || mensagem) && <div role={erro ? "alert" : "status"} className={`mb-3 rounded-xl px-3 py-2 text-[13px] print:hidden ${erro ? "border border-red-200 bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>
+          <button onClick={() => { setErro(""); setMensagem(""); setDetalhesErro(null); }} className="float-right ml-2 rounded p-0.5 hover:bg-black/5" aria-label="Fechar aviso"><X size={15}/></button>
+          <p>{erro || mensagem}</p>
+          {erro && detalhesErro && <details className="mt-2 border-t border-red-200 pt-2">
+            <summary className="cursor-pointer select-none font-semibold underline decoration-red-300 underline-offset-2">Ver detalhes técnicos</summary>
+            <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white/70 p-2 font-mono text-[11px] leading-relaxed text-red-950">{detalhesErro}</pre>
+          </details>}
+        </div>}
 
         {carregando ? <p className="py-12 text-center text-[13px] text-[var(--color-brand-navy)]/55">Carregando...</p> : <>
           {programacoes.length > 0 && <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 print:hidden">{programacoes.map((item) => <div key={item.id} className="flex shrink-0 overflow-hidden rounded-full border border-black/10"><button onClick={() => setProgramacaoId(item.id)} className={`px-3 py-1 text-[11px] font-semibold ${String(programacaoId) === String(item.id) ? "bg-[var(--color-brand-navy)] text-white" : "bg-white text-[var(--color-brand-navy)]"}`}>{item.nome_programacao} · {statusLabel(item.status, item.fechado)}</button>{podeExcluir && <button type="button" onClick={() => abrirExclusao(item)} className="border-l border-black/10 bg-white px-2 text-red-600 hover:bg-red-50" aria-label={`Excluir ${item.nome_programacao}`} title="Excluir programação"><Trash2 size={13}/></button>}</div>)}</div>}
