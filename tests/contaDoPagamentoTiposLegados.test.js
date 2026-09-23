@@ -36,7 +36,7 @@ const MIGRATION = "supabase/migrations/20260911120000_blindar_tipos_legados_paga
 const MIGRATION_DEFEITO = "supabase/migrations/20260828210000_padronizar_usuario_em_vinculos_pagamentos.sql";
 const MIGRATION_APROVACAO = "supabase/migrations/20260828170000_corrigir_aprovacao_programacao.sql";
 const MIGRATION_FASE_2 = "supabase/migrations/20260828140000_execucao_financeira_fase_2.sql";
-const MIGRATION_SALVAR = "supabase/migrations/20260910150000_origem_do_item_na_programacao_diaria.sql";
+const MIGRATION_SALVAR = "supabase/migrations/20260923150000_corrigir_usuario_programacao.sql";
 const MIGRATION_FORNECEDORES = "supabase/migrations/20260828190000_corrigir_gravacao_fornecedores_programacao.sql";
 const PAGINA = "src/pages/PagamentosRedesenhado.jsx";
 const DADOS_LIB = "src/lib/execucaoProgramacaoDados.js";
@@ -263,6 +263,7 @@ test("os três caminhos da tela chamam a mesma função do banco", async () => {
 // ---------------------------------------------------------------------------
 
 const OPERADOR = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const REGISTRO_OPERADOR = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 
 // A estrutura legada da produção: public.pagamentos.situacao é ENUM, e é essa a
 // coluna que fazia `coalesce(situacao, '')` estourar com 22P02.
@@ -325,9 +326,9 @@ create table public.programacoes_pagamento (
   total_programado numeric(14,2) not null default 0,
   restante numeric(14,2) not null default 0,
   conta_pagamento_id integer,
-  responsavel_id uuid,
+  responsavel_id uuid references public.usuarios(id),
   aprovada_em timestamptz,
-  aprovada_por uuid,
+  aprovada_por uuid references public.usuarios(id),
   updated_at timestamptz
 );
 
@@ -345,7 +346,7 @@ create table public.pagamentos (
   origem_tipo text,
   origem_id uuid,
   excluido_em timestamptz,
-  excluido_por uuid
+  excluido_por uuid references public.usuarios(id)
 );
 
 create table public.programacao_contas (
@@ -360,7 +361,7 @@ create table public.programacao_contas (
 
 create table public.auditoria_eventos (
   id serial primary key,
-  usuario_id uuid not null,
+  usuario_id uuid not null references public.usuarios(id),
   modulo text,
   acao text not null,
   registro_afetado text,
@@ -381,9 +382,9 @@ $x$;
 const DADOS = `
 insert into public.secretarias values (1, 'Educação');
 insert into public.usuarios (id, auth_id, nome_completo, status) values
-  ('${OPERADOR}', '${OPERADOR}', 'Chefe do setor', 'ativo');
+  ('${REGISTRO_OPERADOR}', '${OPERADOR}', 'Chefe do setor', 'ativo');
 insert into public.permissoes_efetivas (usuario_id, modulo, pode_visualizar, pode_cadastrar, pode_editar, pode_aprovar, pode_excluir) values
-  ('${OPERADOR}', 'pagamentos', true, true, true, true, false);
+  ('${REGISTRO_OPERADOR}', 'pagamentos', true, true, true, true, false);
 insert into public.fornecedores (id, razao_social, secretaria_id) values
   (7, 'José da Silva Comércio de Alimentos Ltda.', 1),
   (8, 'Padaria Central Ltda.', 1),
@@ -391,12 +392,16 @@ insert into public.fornecedores (id, razao_social, secretaria_id) values
 insert into public.contas_bancarias (id, nome_conta, numero_conta, secretaria_id) values
   (11, 'FUNDEB', '2.042-7', 1),
   (12, 'MERENDA', '1.001-9', 1),
-  (13, 'DESATIVADA', '9.999-0', 1);
+  (13, 'DESATIVADA', '9.999-0', 1),
+  (17, 'RECURSOS PRÓPRIOS', '3.001-0', 1),
+  (18, 'SAÚDE', '4.001-0', 1),
+  (19, 'ASSISTÊNCIA', '5.001-0', 1);
 update public.contas_bancarias set ativo = false where id = 13;
 insert into public.saldos_historico (conta_id, data_saldo, valor_saldo) values
   (11, '2026-09-10', 180000.00), (12, '2026-09-10', 42350.75);
 insert into public.programacoes_pagamento (id, secretaria_id, data_programacao, status)
-  values (50, 1, '2026-09-10', 'em_elaboracao');
+  values (50, 1, '2026-09-10', 'em_elaboracao'),
+         (41, 1, '2026-09-23', 'em_elaboracao');
 `;
 
 const CONTAS = [
@@ -407,6 +412,17 @@ const ITENS = [
   { fornecedor_id: 7, valor_a_pagar: 1200.5 },
   { fornecedor_id: 8, valor_a_pagar: 800.0 },
   { fornecedor_id: 9, valor_a_pagar: 450.25 },
+];
+
+const CONTAS_CASO_41 = [11, 12, 17, 18, 19].map((conta_id, indice) => ({
+  conta_id,
+  saldo_considerado: 50000,
+  ordem: indice + 1,
+}));
+
+const ITENS_CASO_41 = [
+  { fornecedor_id: 7, nome_exibicao_programacao: "ADAUTO RODRIGUES DA SILVA LTDA", valor_a_pagar: 1500 },
+  { fornecedor_id: null, nome_avulso: "CRISTIANO (ENTRADA)", valor_a_pagar: 900 },
 ];
 
 /**
@@ -429,9 +445,11 @@ async function abrirBanco({ legado = false } = {}) {
   // A conferência de fornecedor que o salvamento usa, também a de verdade.
   await db.exec(funcaoDaMigration(MIGRATION_FORNECEDORES, "fornecedor_referenciavel"));
   await db.exec(funcaoDaMigration(MIGRATION_FASE_2, "pode_em_pagamentos_fase2"));
-  // Salvar, marcar em análise e aprovar, as de verdade e já corrigidas.
+  // Instala as dependências e depois as três RPCs da correção vigente.
   await db.exec(readFileSync(join(RAIZ, MIGRATION_APROVACAO), "utf8"));
-  await db.exec(funcaoDaMigration(MIGRATION_SALVAR, "salvar_planejamento_programacao"));
+  for (const rpc of ["salvar_planejamento_programacao", "marcar_programacao_em_analise", "aprovar_programacao_pagamento"]) {
+    await db.exec(funcaoDaMigration(MIGRATION_SALVAR, rpc));
+  }
   await db.exec(DADOS);
   await db.exec(
     legado
@@ -645,6 +663,49 @@ test("5. salvar, marcar em análise e aprovar continuam funcionando depois da mi
   }
 });
 
+test("programação 41: editar fornecedor e avulso, salvar, marcar em análise e aprovar sem 23503", async (t) => {
+  const db = await abrirBanco();
+  if (!db) return pular(t);
+  try {
+    const executarSalvamento = (itens) =>
+      db.query("select public.salvar_planejamento_programacao($1, $2::jsonb, $3::jsonb, $4, $5, $6) as r", [
+        41,
+        JSON.stringify(CONTAS_CASO_41),
+        JSON.stringify(itens),
+        250000,
+        itens.reduce((total, item) => total + item.valor_a_pagar, 0),
+        247450,
+      ]);
+
+    await executarSalvamento(ITENS_CASO_41);
+    const gravados = (
+      await db.query("select id, fornecedor_id, nome_avulso from public.pagamentos where programacao_id = 41 order by id")
+    ).rows;
+    assert.equal(gravados.length, 2);
+
+    const editados = [
+      { id: gravados[0].id, ...ITENS_CASO_41[0], valor_a_pagar: 1600 },
+      { id: gravados[1].id, ...ITENS_CASO_41[1], valor_a_pagar: 950 },
+    ];
+    assert.equal((await executarSalvamento(editados)).rows[0].r.ok, true);
+    assert.equal(
+      Number((await db.query("select count(*) as n from public.programacao_contas where programacao_id = 41 and ativa")).rows[0].n),
+      5,
+    );
+
+    assert.equal((await db.query("select public.marcar_programacao_em_analise(41) as r")).rows[0].r.ok, true);
+    assert.equal((await db.query("select public.aprovar_programacao_pagamento(41, null, null, null) as r")).rows[0].r.ok, true);
+
+    const identidade = (
+      await db.query("select responsavel_id, aprovada_por from public.programacoes_pagamento where id = 41")
+    ).rows[0];
+    assert.equal(identidade.responsavel_id, REGISTRO_OPERADOR);
+    assert.equal(identidade.aprovada_por, REGISTRO_OPERADOR);
+  } finally {
+    await db.close();
+  }
+});
+
 test("6. definir conta não altera saldo nenhum", async (t) => {
   const db = await abrirBanco();
   if (!db) return pular(t);
@@ -715,7 +776,7 @@ test("sem permissão de editar em pagamentos, o banco recusa a atribuição de c
   if (!db) return pular(t);
   try {
     const ids = await prepararAprovada(db);
-    await db.exec(`update public.permissoes_efetivas set pode_editar = false where usuario_id = '${OPERADOR}'`);
+    await db.exec(`update public.permissoes_efetivas set pode_editar = false where usuario_id = '${REGISTRO_OPERADOR}'`);
     await assert.rejects(() => definirConta(db, ids, 11), /permissão para definir a conta/i);
     assert.equal(await comContaDefinida(db), 0);
   } finally {
@@ -737,7 +798,7 @@ test("a porta da Fase 2 responde igual com as permissões em coluna de texto", a
     `);
     assert.equal((await definirConta(db, ids, 11)).rows[0].r.pagamentos_atualizados, 3);
 
-    await db.exec(`update public.permissoes_efetivas set pode_editar = 'false' where usuario_id = '${OPERADOR}'`);
+    await db.exec(`update public.permissoes_efetivas set pode_editar = 'false' where usuario_id = '${REGISTRO_OPERADOR}'`);
     await assert.rejects(() => definirConta(db, ids, 12), /permissão para definir a conta/i);
   } finally {
     await db.close();
