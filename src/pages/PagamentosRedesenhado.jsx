@@ -1264,7 +1264,6 @@ export default function PagamentosRedesenhado() {
       contas: contasSelecionadasComSaldo.map((conta) => ({ banco: conta.banco, conta: conta.numero_conta, saldo: conta.saldo ?? null, nome: conta.nome_conta })),
       // A MESMA ordem da tela: o papel sai na sequência que a pessoa leu.
       pagamentos: pagamentosOrdenados.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar) })),
-      pagamentosExecutados: pagamentosOrdenados.map((item) => ({ fornecedor: nomePagamento(item), valor: numero(item.valor_a_pagar), valorPago: item.situacao === "pago" ? numero(item.valor_a_pagar) : numero(item.valor_pago), situacao: item.situacao || "pendente" })),
       totalContas: saldoDaProgramacaoIndisponivel ? null : totalDisponivel,
       totalProgramado,
       restante: saldoDaProgramacaoIndisponivel ? null : restante,
