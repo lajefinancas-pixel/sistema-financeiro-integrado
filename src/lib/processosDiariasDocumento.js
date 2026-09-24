@@ -56,6 +56,7 @@ import {
   nomeDaSecretaria,
   numeroDoProcesso,
   quantidadeDeDiarias,
+  tipoDiariaDosItens,
   relatorioDaPrestacao,
   situacaoInfo,
   valorExtensoDoProcesso,
@@ -203,6 +204,8 @@ function quantidadeTexto(valor) {
 function tipoDiariaDoProcesso(processo) {
   const escrito = texto(processo?.tipo_diaria);
   if (escrito !== "") return escrito;
+  const misto = tipoDiariaDosItens(processo?.diaria_itens);
+  if (misto !== "") return misto;
   return tipoDiariaComposto({
     faixa: processo?.diaria_faixa,
     categoria: processo?.diaria_categoria,

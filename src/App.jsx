@@ -58,6 +58,7 @@ export default function App() {
       <Route path="/processos/:area" element={<RotaProtegida><ModuloProcessos /></RotaProtegida>} />
       <Route path="/certidoes" element={<RotaProtegida><RedirecionarCertidoes /></RotaProtegida>} />
       <Route path="/pagamentos" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
+      <Route path="/pagamentos/programacoes" element={<RotaProtegida><Pagamentos /></RotaProtegida>} />
       <Route path="/pagamentos/pendencias" element={<RotaProtegida><PendenciasPagamentos /></RotaProtegida>} />
       <Route path="/baixas" element={<RotaProtegida><Baixas /></RotaProtegida>} />
       <Route path="/tarefas" element={<RotaProtegida><Tarefas /></RotaProtegida>} />
