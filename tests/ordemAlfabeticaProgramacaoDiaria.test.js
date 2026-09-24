@@ -221,8 +221,9 @@ test("a tela usa a lista ordenada nos escolhidos, na execução e no papel", asy
   assert.match(pagina, /const pagamentosOrdenados = React\.useMemo\(\(\) => ordenarPagamentosPorNome\(pagamentos\), \[pagamentos\]\);/);
   // Lista de seleção da Proposta.
   assert.match(pagina, /setFornecedores\(ordenarFornecedoresPorNome\(/);
-  // Lista dos escolhidos e lista de valores (duas vezes a mesma linha).
-  assert.equal((pagina.match(/pagamentosOrdenados\.map\(\(pagamento, indice\)/g) ?? []).length, 2);
+  // Lista dos escolhidos e lista de valores (duas vezes a mesma linha completa,
+  // com chave e registro unidos antes da renderização).
+  assert.equal((pagina.match(/linhasProposta\.map\(\(\{ pagamento, chave \}, indice\)/g) ?? []).length, 2);
   // Tabela de definir a conta de cada pagamento.
   assert.match(pagina, /pagamentos=\{pagamentosOrdenados\}/);
   // Impressão, PDF e Excel: a mesma carga, a mesma ordem.
@@ -239,9 +240,9 @@ test("a tela usa a lista ordenada nos escolhidos, na execução e no papel", asy
 
   // A linha é identificada pelo item, não pela posição: o valor sendo digitado
   // e a renomeação aberta sobrevivem à reordenação.
-  assert.match(pagina, /chavesDeExibicaoDosPagamentos\(pagamentos\)/);
-  assert.match(pagina, /key=\{chaveDoPagamento\(pagamento, indice\)\}/);
-  assert.match(pagina, /data-item-programacao=\{chaveDoPagamento\(pagamento, indice\)\}/);
+  assert.match(pagina, /linhasDaProposta\(pagamentos\)/);
+  assert.match(pagina, /key=\{chave\}/);
+  assert.match(pagina, /data-item-programacao=\{chave\}/);
   // O item recém-incluído é trazido à vista com a menor rolagem possível.
   assert.match(pagina, /scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/);
 
