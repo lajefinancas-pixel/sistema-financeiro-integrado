@@ -103,7 +103,7 @@ const COLUNAS = [
   "objeto", "valor_total", "valor_total_manual", "valor_extenso", "valor_extenso_manual",
   "beneficiario_cargo", "beneficiario_lotacao",
   "tipo_diaria", "custeio_despesas", "data_diarias",
-  "diaria_faixa", "diaria_categoria", "diaria_pernoite", "diaria_itens", "valor_unitario_manual",
+  "diaria_faixa", "diaria_categoria", "diaria_pernoite", "valor_unitario_manual",
   "diaria_valor_unitario", "diaria_pernoite_percentual", "diaria_tabela_versao",
   "diaria_tabela_id", "identidade_visual",
   // A PREFEITA CONGELADA no processo (nome, CPF e cargo de quem autorizou).
