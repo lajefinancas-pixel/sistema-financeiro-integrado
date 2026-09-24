@@ -30,6 +30,7 @@ import ModalAprovacaoProgramacao from "../components/pagamentos/ModalAprovacaoPr
 import ModalReaberturaProgramacao from "../components/pagamentos/ModalReaberturaProgramacao";
 import ModalDuplicarProgramacao from "../components/pagamentos/ModalDuplicarProgramacao";
 import LinhasExecucaoProgramacao from "../components/pagamentos/LinhasExecucaoProgramacao";
+import ListaProgramacoes from "../components/pagamentos/ListaProgramacoes";
 import SeletorContas from "../components/comuns/SeletorContas";
 import { contasSelecionadasDaLista, filtrarContasCadastradas, rotuloContasSelecionadas } from "../lib/contasBancariasBusca";
 import { estruturaDePixAusente } from "../lib/contasBancarias";
@@ -359,6 +360,8 @@ export default function PagamentosRedesenhado() {
   const podeEditar = permissao?.pode_editar !== false;
   const podeExcluir = permissao?.pode_excluir === true;
   const [carregando, setCarregando] = React.useState(true);
+  const [aba, setAba] = React.useState("montagem");
+  const programacaoParaAbrir = React.useRef(null);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState("");
   const [detalhesErro, setDetalhesErro] = React.useState(null);
@@ -487,7 +490,12 @@ export default function PagamentosRedesenhado() {
   React.useEffect(() => {
     if (!secretariaId) return;
     carregarBase();
-    carregarProgramacoes();
+    const preferida = programacaoParaAbrir.current;
+    const corresponde = preferida
+      && String(preferida.secretaria_id) === String(secretariaId)
+      && preferida.data_programacao === data;
+    carregarProgramacoes(corresponde ? preferida.id : "");
+    if (corresponde) programacaoParaAbrir.current = null;
   }, [secretariaId, data]);
 
   // Fornecedor acrescentado entra na posição alfabética dele, que pode ser
@@ -630,6 +638,19 @@ export default function PagamentosRedesenhado() {
       registrarErroFase1("Falha ao carregar programações", falha, { secretariaId, dataProgramacao: data });
       setErro(mensagemFalhaFase1(falha, "Não foi possível carregar as programações."));
     }
+  }
+
+  function abrirProgramacaoDaLista(item) {
+    setErro("");
+    setMensagem("");
+    setAba("montagem");
+    if (String(secretariaId) === String(item.secretaria_id) && data === item.data_programacao) {
+      setProgramacaoId(item.id);
+      return;
+    }
+    programacaoParaAbrir.current = item;
+    setSecretariaId(String(item.secretaria_id));
+    setData(item.data_programacao);
   }
 
   function limparEdicao() {
@@ -1450,6 +1471,12 @@ export default function PagamentosRedesenhado() {
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
       <div className="mx-auto max-w-[1500px] px-4 pb-10 sm:px-6">
+        <nav aria-label="Áreas de Pagamentos Diários" className="mb-4 flex gap-1 border-b border-[var(--color-brand-navy)]/10 print:hidden">
+          <button type="button" onClick={() => setAba("montagem")} aria-current={aba === "montagem" ? "page" : undefined} className={`relative px-4 py-3 text-sm font-semibold transition-colors ${aba === "montagem" ? "text-[var(--color-brand-navy)] after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-[#B06A3C]" : "text-[var(--color-brand-navy)]/50 hover:text-[var(--color-brand-navy)]"}`}>Montagem</button>
+          <button type="button" onClick={() => setAba("programacoes")} aria-current={aba === "programacoes" ? "page" : undefined} className={`relative px-4 py-3 text-sm font-semibold transition-colors ${aba === "programacoes" ? "text-[var(--color-brand-navy)] after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-[#B06A3C]" : "text-[var(--color-brand-navy)]/50 hover:text-[var(--color-brand-navy)]"}`}>Programações</button>
+        </nav>
+
+        {aba === "programacoes" ? <ListaProgramacoes onAbrir={abrirProgramacaoDaLista}/> : <>
         {/* Faixa fina e sempre visível: os três totais de um lado, a impressão do
             outro. É desta tela que sai o papel levado ao gestor, então o botão de
             impressão não pode depender de rolagem. */}
@@ -1654,6 +1681,7 @@ export default function PagamentosRedesenhado() {
                 operação daqui movimenta saldo, exceto a transferência entre
                 contas confirmada. */}
           </>}
+        </>}
         </>}
         {mostrarAprovacao && programacao && <ModalAprovacaoProgramacao
           resumo={resumoDaAprovacao}
