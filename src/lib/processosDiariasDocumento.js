@@ -53,6 +53,7 @@ import {
   dataDaPrestacao,
   dataDaRequisicao,
   dataDasDiarias,
+  itensDeDiaria,
   nomeDaSecretaria,
   numeroDoProcesso,
   quantidadeDeDiarias,
@@ -204,7 +205,9 @@ function quantidadeTexto(valor) {
 function tipoDiariaDoProcesso(processo) {
   const escrito = texto(processo?.tipo_diaria);
   if (escrito !== "") return escrito;
-  const misto = tipoDiariaDosItens(processo?.diaria_itens);
+  // `itensDeDiaria` converte diaria_itens NULL (processo anterior à migration)
+  // na única linha formada pelos campos legados, também para impressão/PDF.
+  const misto = tipoDiariaDosItens(itensDeDiaria(processo));
   if (misto !== "") return misto;
   return tipoDiariaComposto({
     faixa: processo?.diaria_faixa,
