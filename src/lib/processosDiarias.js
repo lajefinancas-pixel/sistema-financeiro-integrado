@@ -26,7 +26,6 @@ import { FORMA_PAGAMENTO_BOLETO, boletoValido } from "./processosFormaPagamento.
 import { CAMPOS_SIGNATARIOS, camposDoSignatario } from "./processosServidores.js";
 import { CAMPOS_SOLICITANTE_NO_PROCESSO } from "./processosSecretariasSolicitantes.js";
 import { CAMPOS_ENCAMINHAMENTO } from "./processosEncaminhamento.js";
-import { rotuloDaCategoria, rotuloDaFaixa } from "./processosDiariasTabela.js";
 
 /* -------------------------------------------------------------------------
  * Identificação do módulo
@@ -318,62 +317,6 @@ export function calcularValorTotal(quantidade, valorUnitario) {
   return Math.round(total * 100) / 100;
 }
 
-export function itensDeDiaria(processo = {}) {
-  if (Array.isArray(processo.diaria_itens) && processo.diaria_itens.length > 0) {
-    return processo.diaria_itens.map((item) => ({
-      faixa: String(item?.faixa ?? ""),
-      categoria: String(item?.categoria ?? ""),
-      pernoite: item?.pernoite === true,
-      quantidade: item?.quantidade ?? "",
-      valor_unitario: paraNumeroMoeda(item?.valor_unitario),
-    }));
-  }
-  const temLegado = processo.diaria_faixa || processo.diaria_categoria
-    || quantidadeDeDiarias(processo.quantidade_diarias) > 0 || paraNumeroMoeda(processo.valor_unitario) > 0;
-  if (!temLegado) return [];
-  return [{
-    faixa: String(processo.diaria_faixa ?? ""),
-    categoria: String(processo.diaria_categoria ?? ""),
-    pernoite: processo.diaria_pernoite === true,
-    quantidade: processo.quantidade_diarias ?? "",
-    valor_unitario: paraNumeroMoeda(processo.valor_unitario),
-  }];
-}
-
-export function valorTotalDosItens(itens = []) {
-  return Math.round(itens.reduce(
-    (total, item) => total + calcularValorTotal(item?.quantidade, item?.valor_unitario),
-    0,
-  ) * 100) / 100;
-}
-
-export function quantidadeTotalDosItens(itens = []) {
-  return itens.reduce((total, item) => total + quantidadeDeDiarias(item?.quantidade), 0);
-}
-
-function quantidadeLegivel(valor) {
-  const numero = quantidadeDeDiarias(valor);
-  const exibido = Number.isInteger(numero) ? String(numero) : String(numero).replace(".", ",");
-  return `${exibido} ${numero === 1 ? "diária" : "diárias"}`;
-}
-
-export function tipoDiariaDosItens(itens = []) {
-  const validos = itens.filter((item) => quantidadeDeDiarias(item?.quantidade) > 0);
-  if (validos.length === 0) return "";
-  const grupos = new Map();
-  validos.forEach((item) => {
-    const faixa = rotuloDaFaixa(item.faixa);
-    const categoria = rotuloDaCategoria(item.categoria);
-    const chave = `${faixa}\u0000${categoria}`;
-    if (!grupos.has(chave)) grupos.set(chave, { faixa, categoria, partes: [] });
-    grupos.get(chave).partes.push(`${quantidadeLegivel(item.quantidade)} ${item.pernoite ? "com" : "sem"} pernoite`);
-  });
-  return [...grupos.values()].map(({ faixa, categoria, partes }) => {
-    const escolha = [faixa, categoria].filter(Boolean).join(" — ");
-    return `${partes.join(" + ")}${escolha ? ` — ${escolha}` : ""}`;
-  }).join("; ");
-}
-
 /**
  * Aplica o cálculo automático ao formulário: o total e o valor por extenso.
  *
@@ -398,11 +341,8 @@ export function aplicarCalculo(formulario) {
     return base;
   }
 
-  const itens = itensDeDiaria(base);
   if (base.valor_total_manual !== true) {
-    base.valor_total = itens.length > 0
-      ? valorTotalDosItens(itens)
-      : calcularValorTotal(base.quantidade_diarias, base.valor_unitario);
+    base.valor_total = calcularValorTotal(base.quantidade_diarias, base.valor_unitario);
   }
   if (base.valor_extenso_manual !== true) {
     base.valor_extenso = extensoAutomatico(base.valor_total);
@@ -442,10 +382,7 @@ export function valorUnitarioDoProcesso(processo) {
 
 /** O total que o cálculo automático daria para o formulário atual. */
 export function valorTotalCalculado(formulario) {
-  const itens = itensDeDiaria(formulario);
-  return itens.length > 0
-    ? valorTotalDosItens(itens)
-    : calcularValorTotal(formulario?.quantidade_diarias, formulario?.valor_unitario);
+  return calcularValorTotal(formulario?.quantidade_diarias, formulario?.valor_unitario);
 }
 
 /** true quando o total digitado à mão discorda do cálculo (o papel avisa). */
@@ -570,7 +507,6 @@ export function processoVazio({ ano = new Date().getFullYear(), hoje = dataDeHoj
   branco.diaria_valor_unitario = null;
   branco.diaria_pernoite = false;
   branco.valor_unitario_manual = false;
-  branco.diaria_itens = [];
   branco.forma_pagamento = "dados_bancarios_pix";
   return branco;
 }
@@ -611,7 +547,6 @@ export function processoParaFormulario(processo) {
   formulario.valor_unitario_manual = processo?.valor_unitario_manual === true;
   formulario.diaria_pernoite = processo?.diaria_pernoite === true;
   formulario.diaria_valor_unitario = processo?.diaria_valor_unitario ?? null;
-  formulario.diaria_itens = itensDeDiaria(processo);
   if (formulario.diaria_valor_unitario !== null) {
     formulario.valor_unitario = valorUnitarioDoProcesso(processo);
   }
@@ -660,7 +595,6 @@ export function formularioParaBanco(formulario) {
     valor_total_manual: base.valor_total_manual === true,
     valor_extenso_manual: base.valor_extenso_manual === true,
     valor_unitario_manual: base.valor_unitario_manual === true,
-    diaria_itens: itensDeDiaria(base),
   };
 
   ["data_processo", "beneficiario_nome", "beneficiario_cpf", "beneficiario_endereco", "objeto", "valor_total", "valor_extenso"]

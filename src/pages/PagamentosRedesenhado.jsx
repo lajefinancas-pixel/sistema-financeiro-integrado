@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Copy, FileDown, FileSpreadsheet, Pencil, Plus, Printer, Search, Trash2, Unlock, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import Layout from "../components/Layout";
@@ -356,13 +356,11 @@ function statusLabel(status, fechado = false) {
 }
 
 export default function PagamentosRedesenhado() {
-  const localizacao = useLocation();
-  const navegar = useNavigate();
   const { permissao, usuario } = usePermissaoModulo("pagamentos");
   const podeEditar = permissao?.pode_editar !== false;
   const podeExcluir = permissao?.pode_excluir === true;
   const [carregando, setCarregando] = React.useState(true);
-  const mostrandoProgramacoes = localizacao.pathname === "/pagamentos/programacoes";
+  const [aba, setAba] = React.useState("montagem");
   const programacaoParaAbrir = React.useRef(null);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState("");
@@ -645,7 +643,7 @@ export default function PagamentosRedesenhado() {
   function abrirProgramacaoDaLista(item) {
     setErro("");
     setMensagem("");
-    navegar(`/pagamentos?programacao=${item.id}`);
+    setAba("montagem");
     if (String(secretariaId) === String(item.secretaria_id) && data === item.data_programacao) {
       setProgramacaoId(item.id);
       return;
@@ -1473,7 +1471,12 @@ export default function PagamentosRedesenhado() {
   return (
     <Layout titulo="Pagamentos Diários" subtitulo="Planejamento diário para análise da gestão">
       <div className="mx-auto max-w-[1500px] px-4 pb-10 sm:px-6">
-        {mostrandoProgramacoes ? <ListaProgramacoes onAbrir={abrirProgramacaoDaLista}/> : <>
+        <nav aria-label="Áreas de Pagamentos Diários" className="mb-4 flex gap-1 border-b border-[var(--color-brand-navy)]/10 print:hidden">
+          <button type="button" onClick={() => setAba("montagem")} aria-current={aba === "montagem" ? "page" : undefined} className={`relative px-4 py-3 text-sm font-semibold transition-colors ${aba === "montagem" ? "text-[var(--color-brand-navy)] after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-[#B06A3C]" : "text-[var(--color-brand-navy)]/50 hover:text-[var(--color-brand-navy)]"}`}>Montagem</button>
+          <button type="button" onClick={() => setAba("programacoes")} aria-current={aba === "programacoes" ? "page" : undefined} className={`relative px-4 py-3 text-sm font-semibold transition-colors ${aba === "programacoes" ? "text-[var(--color-brand-navy)] after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-[#B06A3C]" : "text-[var(--color-brand-navy)]/50 hover:text-[var(--color-brand-navy)]"}`}>Programações</button>
+        </nav>
+
+        {aba === "programacoes" ? <ListaProgramacoes onAbrir={abrirProgramacaoDaLista}/> : <>
         {/* Faixa fina e sempre visível: os três totais de um lado, a impressão do
             outro. É desta tela que sai o papel levado ao gestor, então o botão de
             impressão não pode depender de rolagem. */}

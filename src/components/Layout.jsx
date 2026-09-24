@@ -17,7 +17,7 @@ const navItems = [
   // sempre ("Todos os Fornecedores") e as áreas operacionais. As áreas NÃO são
   // itens principais do menu — vivem recuadas aqui dentro.
   { to: "/fornecedores", label: "Fornecedores", icon: Users, expansivel: true },
-  { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar, submenu: "pagamentos" },
+  { to: "/pagamentos", label: "Pagamentos Diários", icon: Calendar },
   { to: "/baixas", label: "Baixas de Pagamentos", icon: ReceiptText },
   // PROCESSOS: item expansível com as áreas documentais dentro. Neste envio
   // existe Diárias; Serviços/Materiais e Arquivo entram nos envios deles.
@@ -40,7 +40,6 @@ const CHAVE_FORNECEDORES_ABERTO = "sfi.menuLateral.fornecedoresAberto";
 // O submenu de PROCESSOS guarda a preferência dele em chave própria, pelo
 // mesmo motivo -- e sem interferir na de Fornecedores.
 const CHAVE_PROCESSOS_ABERTO = "sfi.menuLateral.processosAberto";
-const CHAVE_PAGAMENTOS_ABERTO = "sfi.menuLateral.pagamentosAberto";
 
 // Abaixo de 768px (celular) o menu vira gaveta sobreposta; de tablet para cima
 // o usuário escolhe entre menu aberto e faixa de ícones.
@@ -89,22 +88,6 @@ function lerPreferenciaProcessos() {
 function gravarPreferenciaProcessos(aberto) {
   try {
     window.localStorage.setItem(CHAVE_PROCESSOS_ABERTO, aberto ? "1" : "0");
-  } catch {
-    /* navegador sem armazenamento local: a preferência vale só para esta tela */
-  }
-}
-
-function lerPreferenciaPagamentos() {
-  try {
-    return window.localStorage.getItem(CHAVE_PAGAMENTOS_ABERTO) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function gravarPreferenciaPagamentos(aberto) {
-  try {
-    window.localStorage.setItem(CHAVE_PAGAMENTOS_ABERTO, aberto ? "1" : "0");
   } catch {
     /* navegador sem armazenamento local: a preferência vale só para esta tela */
   }
@@ -344,8 +327,8 @@ function ItemFornecedores({
  * Quem não pode visualizar nenhuma área não recebe o item -- a lista de áreas
  * chega vazia e o menu não mostra a seção.
  */
-function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeItem, compacto, pathname }) {
-  const dentroDoModulo = pathname === item.to || pathname.startsWith(`${item.to}/`);
+function ItemProcessos({ item, areas, expandido, onAlternar, onNavegar, classeItem, compacto, pathname }) {
+  const emProcessos = pathname === item.to || pathname.startsWith(`${item.to}/`);
   if (areas.length === 0) return null;
 
   // Faixa de ícones: o ícone leva direto para a primeira área liberada, e o
@@ -358,7 +341,7 @@ function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeI
           onAlternar(true);
           onNavegar();
         }}
-        className={classeItem(dentroDoModulo)}
+        className={classeItem(emProcessos)}
         aria-label={item.label}
         title={item.label}
       >
@@ -369,8 +352,8 @@ function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeI
   }
 
   const classeLinha = [
-    classeItem(dentroDoModulo && !expandido),
-    expandido && dentroDoModulo ? "bg-white/10" : "",
+    classeItem(emProcessos && !expandido),
+    expandido && emProcessos ? "bg-white/10" : "",
   ].join(" ");
 
   const classeSub = ({ isActive }) =>
@@ -387,7 +370,7 @@ function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeI
         onClick={() => onAlternar(!expandido)}
         className={`${classeLinha} w-full text-left`}
         aria-expanded={expandido}
-        aria-controls={`submenu-${item.submenu}`}
+        aria-controls="submenu-processos"
       >
         <item.icon size={18} className="shrink-0" />
         <span className="truncate">{item.label}</span>
@@ -400,7 +383,7 @@ function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeI
 
       {expandido && (
         <div
-          id={`submenu-${item.submenu}`}
+          id="submenu-processos"
           className="mt-1 ml-[1.6rem] space-y-0.5 border-l border-white/15 pl-2"
         >
           {areas.map((area) => (
@@ -414,11 +397,6 @@ function ItemComSubmenu({ item, areas, expandido, onAlternar, onNavegar, classeI
   );
 }
 
-// Mantém o componente próprio de Processos como contrato estável do menu.
-function ItemProcessos(props) {
-  return <ItemComSubmenu {...props} />;
-}
-
 export default function Layout({ children, usuario }) {
   const localizacao = useLocation();
   const telaEstreita = usarTelaEstreita();
@@ -428,7 +406,6 @@ export default function Layout({ children, usuario }) {
   const [fornecedoresAberto, definirFornecedoresAberto] = React.useState(lerPreferenciaFornecedores);
   const areasDeFornecedores = useAreasVisiveisNoMenu();
   const [processosAberto, definirProcessosAberto] = React.useState(lerPreferenciaProcessos);
-  const [pagamentosAberto, definirPagamentosAberto] = React.useState(lerPreferenciaPagamentos);
   const areasDeProcessos = useAreasDeProcessosNoMenu();
   const botaoFecharRef = React.useRef(null);
 
@@ -461,11 +438,6 @@ export default function Layout({ children, usuario }) {
     gravarPreferenciaProcessos(aberto);
   }
 
-  function alternarPagamentos(aberto) {
-    definirPagamentosAberto(aberto);
-    gravarPreferenciaPagamentos(aberto);
-  }
-
   function fecharGaveta() {
     definirGavetaAberta(false);
     definirSubmenuAberto(false);
@@ -489,13 +461,6 @@ export default function Layout({ children, usuario }) {
   React.useEffect(() => {
     if (emProcessos) definirProcessosAberto(true);
   }, [emProcessos]);
-
-  const emPagamentos =
-    localizacao.pathname === "/pagamentos" || localizacao.pathname.startsWith("/pagamentos/");
-
-  React.useEffect(() => {
-    if (emPagamentos) definirPagamentosAberto(true);
-  }, [emPagamentos]);
 
   // Sai do modo compacto (ou vira celular): o painel flutuante perde o sentido.
   React.useEffect(() => {
@@ -623,21 +588,6 @@ export default function Layout({ children, usuario }) {
                 areas={areasDeProcessos}
                 expandido={processosAberto}
                 onAlternar={alternarProcessos}
-                onNavegar={fecharGaveta}
-                classeItem={classeItem}
-                compacto={compacto}
-                pathname={localizacao.pathname}
-              />
-            ) : item.submenu === "pagamentos" ? (
-              <ItemComSubmenu
-                key={item.to}
-                item={item}
-                areas={[
-                  { id: "montagem", to: "/pagamentos", rotulo: "Montagem" },
-                  { id: "programacoes", to: "/pagamentos/programacoes", rotulo: "Programações" },
-                ]}
-                expandido={pagamentosAberto}
-                onAlternar={alternarPagamentos}
                 onNavegar={fecharGaveta}
                 classeItem={classeItem}
                 compacto={compacto}
