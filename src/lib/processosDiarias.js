@@ -319,8 +319,13 @@ export function calcularValorTotal(quantidade, valorUnitario) {
 }
 
 export function itensDeDiaria(processo = {}) {
-  if (Array.isArray(processo.diaria_itens) && processo.diaria_itens.length > 0) {
-    return processo.diaria_itens.map((item) => ({
+  // Registros anteriores a `diaria_itens` chegam com a coluna explicitamente
+  // NULL. O mesmo normalizador também é usado enquanto o modal de um processo
+  // novo ainda não tem registro; por isso, null precisa ser tão seguro quanto
+  // um argumento omitido.
+  const registro = processo ?? {};
+  if (Array.isArray(registro.diaria_itens) && registro.diaria_itens.length > 0) {
+    return registro.diaria_itens.map((item) => ({
       faixa: String(item?.faixa ?? ""),
       categoria: String(item?.categoria ?? ""),
       pernoite: item?.pernoite === true,
@@ -328,27 +333,28 @@ export function itensDeDiaria(processo = {}) {
       valor_unitario: paraNumeroMoeda(item?.valor_unitario),
     }));
   }
-  const temLegado = processo.diaria_faixa || processo.diaria_categoria
-    || quantidadeDeDiarias(processo.quantidade_diarias) > 0 || paraNumeroMoeda(processo.valor_unitario) > 0;
+  const temLegado = registro.diaria_faixa || registro.diaria_categoria
+    || quantidadeDeDiarias(registro.quantidade_diarias) > 0 || paraNumeroMoeda(registro.valor_unitario) > 0;
   if (!temLegado) return [];
   return [{
-    faixa: String(processo.diaria_faixa ?? ""),
-    categoria: String(processo.diaria_categoria ?? ""),
-    pernoite: processo.diaria_pernoite === true,
-    quantidade: processo.quantidade_diarias ?? "",
-    valor_unitario: paraNumeroMoeda(processo.valor_unitario),
+    faixa: String(registro.diaria_faixa ?? ""),
+    categoria: String(registro.diaria_categoria ?? ""),
+    pernoite: registro.diaria_pernoite === true,
+    quantidade: registro.quantidade_diarias ?? "",
+    valor_unitario: paraNumeroMoeda(registro.valor_unitario),
   }];
 }
 
 export function valorTotalDosItens(itens = []) {
-  return Math.round(itens.reduce(
+  return Math.round((Array.isArray(itens) ? itens : []).reduce(
     (total, item) => total + calcularValorTotal(item?.quantidade, item?.valor_unitario),
     0,
   ) * 100) / 100;
 }
 
 export function quantidadeTotalDosItens(itens = []) {
-  return itens.reduce((total, item) => total + quantidadeDeDiarias(item?.quantidade), 0);
+  return (Array.isArray(itens) ? itens : [])
+    .reduce((total, item) => total + quantidadeDeDiarias(item?.quantidade), 0);
 }
 
 function quantidadeLegivel(valor) {
@@ -358,7 +364,8 @@ function quantidadeLegivel(valor) {
 }
 
 export function tipoDiariaDosItens(itens = []) {
-  const validos = itens.filter((item) => quantidadeDeDiarias(item?.quantidade) > 0);
+  const validos = (Array.isArray(itens) ? itens : [])
+    .filter((item) => quantidadeDeDiarias(item?.quantidade) > 0);
   if (validos.length === 0) return "";
   const grupos = new Map();
   validos.forEach((item) => {

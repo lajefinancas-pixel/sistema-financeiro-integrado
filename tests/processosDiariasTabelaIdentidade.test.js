@@ -44,6 +44,7 @@ import {
 import {
   alteracaoManualDeValorUnitario,
   aplicarCalculo,
+  itensDeDiaria,
   podeEditarTabelaDeDiarias,
   podeVerTabelaDeDiarias,
   processoVazio,
@@ -430,6 +431,41 @@ test("teste 7: o Tipo de Diária é composto pelas escolhas e sai preenchido no 
     secretarias: SECRETARIAS,
   });
   assert.equal(escrito.servidor.tipoDiaria, "Diária especial");
+});
+
+test("compatibilidade: diaria_itens NULL usa a linha legada na tela e no documento", () => {
+  const antigo = processoDeExemplo({
+    diaria_itens: null,
+    diaria_faixa: "al_ate_100",
+    diaria_categoria: "outros_agentes",
+    diaria_pernoite: true,
+    quantidade_diarias: 2,
+    valor_unitario: 115.91,
+    tipo_diaria: "",
+  });
+
+  assert.deepEqual(itensDeDiaria(antigo), [{
+    faixa: "al_ate_100",
+    categoria: "outros_agentes",
+    pernoite: true,
+    quantidade: 2,
+    valor_unitario: 115.91,
+  }]);
+  assert.deepEqual(itensDeDiaria(null), []);
+  assert.equal(tipoDiariaDosItens(null), "");
+  assert.equal(
+    dadosDoDocumento(antigo, { secretarias: SECRETARIAS }).servidor.tipoDiaria,
+    "2 diárias com pernoite — Estado de AL até 100 km — Outros Agentes",
+  );
+});
+
+test("compatibilidade: diaria_itens preenchido preserva todas as linhas mistas", () => {
+  const itens = [
+    { faixa: "al_ate_100", categoria: "outros_agentes", pernoite: true, quantidade: 2, valor_unitario: 115.91 },
+    { faixa: "al_ate_100", categoria: "outros_agentes", pernoite: false, quantidade: 1, valor_unitario: 89.16 },
+  ];
+  assert.deepEqual(itensDeDiaria({ diaria_itens: itens }), itens);
+  assert.equal(valorTotalDosItens(itens), 320.98);
 });
 
 /* -------------------------------------------------------------------------
