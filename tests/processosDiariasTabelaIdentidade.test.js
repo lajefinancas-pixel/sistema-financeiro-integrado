@@ -50,6 +50,8 @@ import {
   resolverPermissoesDiarias,
   MODULO_DIARIAS,
   MODULO_DIARIAS_TABELA,
+  tipoDiariaDosItens,
+  valorTotalDosItens,
 } from "../src/lib/processosDiarias.js";
 import {
   dadosDoDocumento,
@@ -714,4 +716,24 @@ test("a versão da tabela é identificável anos depois", () => {
     identificacaoDaVersao({ ...TABELA_PADRAO, id: "8b1f2c40-aaaa-4000-8000-000000000001" }),
     "Tabela de Diárias — atualizada em 23/03/2026 (versão 8b1f2c40)",
   );
+});
+
+test("diárias mistas somam cada linha e geram a composição legível", () => {
+  const base = { faixa: "demais_regioes", categoria: "prefeito_vice" };
+  const itens = [
+    { ...base, pernoite: true, quantidade: 2, valor_unitario: valorUnitarioDaTabela(TABELA_PADRAO, { ...base, pernoite: true }) },
+    { ...base, pernoite: false, quantidade: 1, valor_unitario: valorUnitarioDaTabela(TABELA_PADRAO, { ...base, pernoite: false }) },
+  ];
+  assert.equal(valorTotalDosItens(itens), 3129.73);
+  assert.equal(aplicarCalculo({ diaria_itens: itens }).valor_total, 3129.73);
+  assert.equal(
+    tipoDiariaDosItens(itens),
+    "2 diárias com pernoite + 1 diária sem pernoite — Estados do N, S, SUD e C. Oeste — Prefeito e Vice",
+  );
+});
+
+test("uma única linha mantém o cálculo simples", () => {
+  const itens = [{ faixa: "demais_regioes", categoria: "prefeito_vice", pernoite: false, quantidade: 1, valor_unitario: 869.37 }];
+  assert.equal(valorTotalDosItens(itens), 869.37);
+  assert.equal(aplicarCalculo({ diaria_itens: itens }).valor_total, 869.37);
 });
