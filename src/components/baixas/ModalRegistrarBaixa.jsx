@@ -13,6 +13,7 @@ import {
   situacaoAposBaixa,
   validarBaixaDeNota,
 } from "../../lib/regrasBaixas";
+import { consultarRegularidadePagamento } from "../../lib/regularidadePagamentoFornecedor.js";
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -32,7 +33,7 @@ function hojeISO() {
  * guardada no rascunho da sessão e reenviada em toda tentativa. O banco recusa a
  * segunda gravação com a mesma chave.
  */
-export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onFechar, onConcluida }) {
+export default function ModalRegistrarBaixa({ nota, fornecedorId, fornecedor, contas = [], onFechar, onConcluida }) {
   const resumo = resumoDaNota(nota);
   const chaveRascunho = `sfi.baixa.nota.${nota?.id ?? "nova"}`;
   const rascunho = React.useMemo(() => {
@@ -54,6 +55,27 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
   );
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState(null);
+  const [regularidade, setRegularidade] = React.useState(null);
+  const [consultandoRegularidade, setConsultandoRegularidade] = React.useState(Boolean(fornecedorId));
+  const [erroRegularidade, setErroRegularidade] = React.useState(false);
+
+  React.useEffect(() => {
+    let ativo = true;
+    if (!fornecedorId) {
+      setConsultandoRegularidade(false);
+      return undefined;
+    }
+    consultarRegularidadePagamento(fornecedorId)
+      .then((resultado) => { if (ativo) setRegularidade(resultado); })
+      .catch(() => {
+        if (ativo) {
+          setErroRegularidade(true);
+          setErro("Não foi possível conferir agora as certidões e os dados para pagamento do fornecedor. A baixa fica indisponível até a conferência.");
+        }
+      })
+      .finally(() => { if (ativo) setConsultandoRegularidade(false); });
+    return () => { ativo = false; };
+  }, [fornecedorId]);
 
   React.useEffect(() => {
     try {
@@ -83,6 +105,12 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
     if (!conferencia.ok) {
       setErro(conferencia.mensagem);
       return;
+    }
+    if (regularidade?.pendente) {
+      const continuar = window.confirm(
+        `Atenção: o fornecedor possui pendências no cadastro:\n\n${regularidade.avisos.map((aviso) => `• ${aviso}`).join("\n")}\n\nDeseja registrar a baixa mesmo assim?`,
+      );
+      if (!continuar) return;
     }
 
     setSalvando(true);
@@ -129,6 +157,17 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
               {descricaoDaNota(nota) ? ` · ${descricaoDaNota(nota)}` : ""}
             </p>
           </div>
+
+          {(consultandoRegularidade || regularidade?.pendente) && (
+            <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 sm:col-span-2">
+              <AlertTriangle size={15} className="shrink-0" />
+              <span>
+                {consultandoRegularidade
+                  ? "Conferindo certidões e dados para pagamento do fornecedor..."
+                  : `Atenção antes da baixa: ${regularidade.avisos.join("; ")}. A confirmação segue o mesmo padrão de aviso usado em Serviços.`}
+              </span>
+            </div>
+          )}
           <button
             type="button"
             onClick={onFechar}
@@ -254,7 +293,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedor, contas = [], onF
           </button>
           <button
             type="submit"
-            disabled={salvando || !conferencia.ok}
+            disabled={salvando || consultandoRegularidade || erroRegularidade || !conferencia.ok}
             className="rounded-lg bg-[#0F2A44] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
           >
             {salvando ? "Registrando..." : "Confirmar baixa"}
