@@ -61,10 +61,13 @@ export default function ModalRegistrarBaixa({ nota, fornecedorId, fornecedor, co
 
   React.useEffect(() => {
     let ativo = true;
+    setRegularidade(null);
+    setErroRegularidade(false);
     if (!fornecedorId) {
       setConsultandoRegularidade(false);
       return undefined;
     }
+    setConsultandoRegularidade(true);
     consultarRegularidadePagamento(fornecedorId)
       .then((resultado) => { if (ativo) setRegularidade(resultado); })
       .catch(() => {
@@ -104,6 +107,13 @@ export default function ModalRegistrarBaixa({ nota, fornecedorId, fornecedor, co
     if (salvando) return;
     if (!conferencia.ok) {
       setErro(conferencia.mensagem);
+      return;
+    }
+    // O botão já fica desabilitado durante a consulta, mas esta guarda também
+    // protege submissões programáticas e cliques que coincidam com a troca de
+    // fornecedor. Sem conferência, nenhuma baixa segue silenciosamente.
+    if (consultandoRegularidade || erroRegularidade || !regularidade) {
+      setErro("Aguarde a conferência das certidões e dos dados para pagamento do fornecedor antes de registrar a baixa.");
       return;
     }
     if (regularidade?.pendente) {
