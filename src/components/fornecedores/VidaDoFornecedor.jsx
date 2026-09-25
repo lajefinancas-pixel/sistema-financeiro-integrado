@@ -24,6 +24,8 @@ import NotasDoFornecedor from "./NotasDoFornecedor";
 import DadosParaPagamento from "./DadosParaPagamento";
 import { Bloco, Campo, Indicador, Vazio, textoOuTraco } from "./blocos";
 import VinculosEspecificos from "./VinculosEspecificos.jsx";
+import FormaPagamentoProcesso from "../processos/FormaPagamentoProcesso.jsx";
+import { formaPagamentoPadraoDoFornecedor } from "../../lib/processosFormaPagamento.js";
 
 /**
  * "Vida do fornecedor": o que a listagem mostra quando um cadastro é aberto.
@@ -93,6 +95,8 @@ export default function VidaDoFornecedor({
   permissoesPagamento,
   onDadosPagamentoChange,
   onEstornoConcluido,
+  podeEditarFornecedor,
+  onFormaPagamentoPadraoChange,
 }) {
   const valores = fornecedor.valores ?? [];
   const [periodoPagamentos, setPeriodoPagamentos] = React.useState({ inicio: "", fim: "" });
@@ -147,11 +151,25 @@ export default function VidaDoFornecedor({
         </div>
       </Bloco>
 
-      <DadosParaPagamento
-        fornecedorId={fornecedor.id}
-        permissoes={permissoesPagamento}
-        onChange={onDadosPagamentoChange}
-      />
+      <section className="rounded-xl border border-black/10 bg-white p-4">
+        <h3 className="text-sm font-semibold text-[#0F2A44]">Forma de pagamento padrão</h3>
+        <p className="mb-3 text-xs text-[#0F2A44]/50">Sugere a opção inicial em processos novos e continua editável em cada processo.</p>
+        <FormaPagamentoProcesso
+          formulario={{ forma_pagamento: formaPagamentoPadraoDoFornecedor(fornecedor) }}
+          somenteLeitura={!podeEditarFornecedor}
+          definir={(_chave, valor) => onFormaPagamentoPadraoChange?.(fornecedor, valor)}
+          apenasSeletor
+          nomeCampo={`forma_pagamento_padrao_${fornecedor.id}`}
+        />
+      </section>
+
+      {formaPagamentoPadraoDoFornecedor(fornecedor) !== "boleto" && (
+        <DadosParaPagamento
+          fornecedorId={fornecedor.id}
+          permissoes={permissoesPagamento}
+          onChange={onDadosPagamentoChange}
+        />
+      )}
 
       <Bloco icone={Wallet} titulo="Financeiro">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

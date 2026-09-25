@@ -71,6 +71,7 @@ import {
 } from "../../lib/processosSecretariasSolicitantes.js";
 import SeletorBanco from "./SeletorBanco.jsx";
 import FormaPagamentoProcesso from "./FormaPagamentoProcesso.jsx";
+import { formaPagamentoPadraoDoFornecedor } from "../../lib/processosFormaPagamento.js";
 import {
   camposDoSignatario,
   dadosDoSignatarioParaDocumento,
@@ -578,6 +579,11 @@ export default function ModalProcessoServico({
         // Campo vazio do cadastro não apaga o que o documento já tem escrito.
         if (String(valor ?? "").trim() !== "") mesclado[chave] = valor;
       });
+      // Preferência é uma sugestão de nascimento: nunca reescreve processo salvo
+      // nem uma duplicação, que já carrega a escolha documental do original.
+      if (!processo?.id && !inicial) {
+        mesclado.forma_pagamento = formaPagamentoPadraoDoFornecedor({ ...fornecedor, ...completo });
+      }
       return mesclado;
     });
   }
