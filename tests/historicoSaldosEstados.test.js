@@ -41,6 +41,17 @@ test("falha do histórico oferece detalhe técnico sem misturar erro e vazio", a
   assert.match(trecho, /erroHistorico[\s\S]*Ver detalhes técnicos[\s\S]*Tentar novamente/);
 });
 
+test("histórico por data usa a paleta de secretarias importada", async () => {
+  const pagina = await read("src/pages/Saldos.jsx");
+  const inicio = pagina.indexOf("async function carregarSaldosNaData");
+  const fim = pagina.indexOf("function mudarMes", inicio);
+  const consulta = pagina.slice(inicio, fim);
+
+  assert.match(pagina, /import \{[\s\S]*CORES_SECRETARIAS[\s\S]*\} from "\.\.\/lib\/organizacaoSecretarias"/);
+  assert.match(consulta, /CORES_SECRETARIAS\[i % CORES_SECRETARIAS\.length\]/);
+  assert.doesNotMatch(consulta, /\bCORES\b/);
+});
+
 test("data de hoje usa calendário local e não UTC", async () => {
   const pagina = await read("src/pages/Saldos.jsx");
   const funcao = pagina.slice(pagina.indexOf("function toISO"), pagina.indexOf("function hojeBR"));
