@@ -6,14 +6,14 @@ import {
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
 import { imprimirSaldos, gerarPdfSaldos, agoraBR } from "../lib/saldosDocumento";
-import { carregarSaldosDasContas } from "../lib/saldosContasDados";
-import { totalizarSaldos } from "../lib/saldosContas";
+import { buscarSaldoHistoricoNaData, carregarSaldosDasContas } from "../lib/saldosContasDados";
+import { montarSaldosDasContas, totalizarSaldos } from "../lib/saldosContas";
 import { somar } from "../lib/rateioPagamentos";
 import Layout from "../components/Layout";
 import CampoMoeda from "../components/CampoMoeda";
 import { colunasPorCabecalho, formatBRL, marcarColunasDeMoeda, paraNumeroMoeda } from "../lib/moeda";
 import { registrarEvento } from "../lib/auditoria";
-import { erroAmigavel, mensagemAmigavel } from "../lib/erros";
+import { erroAmigavel, mensagemAmigavel, mensagemErroBanco } from "../lib/erros";
 import { usePermissaoModulo } from "../lib/permissoes";
 import { auditarExclusao } from "../lib/exclusaoRegistros";
 import ModalConfirmarExclusao from "../components/comuns/ModalConfirmarExclusao";
@@ -182,6 +182,7 @@ export default function Saldos() {
   const [contasPorSecretariaNaData, setContasPorSecretariaNaData] = React.useState([]);
   const [carregandoHistorico, setCarregandoHistorico] = React.useState(true);
   const [erroHistorico, setErroHistorico] = React.useState(null);
+  const [detalheErroHistorico, setDetalheErroHistorico] = React.useState(null);
 
   const [usuarioId, setUsuarioId] = React.useState(null);
   // Exclusão sempre passa pela confirmação padrão: nada é excluído no clique.
@@ -412,6 +413,7 @@ export default function Saldos() {
   async function carregarSaldosNaData() {
     setCarregandoHistorico(true);
     setErroHistorico(null);
+    setDetalheErroHistorico(null);
     try {
       const { data: secs, error: e1 } = await supabase
         .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
@@ -425,18 +427,20 @@ export default function Saldos() {
         .select("id, nome_conta, numero_conta, secretaria_id, bancos(nome)");
       if (e2) throw e2;
 
-      // Mesma fonte única, agora com o saldo limitado à data escolhida.
-      const { contas: contasComSaldo } = await carregarSaldosDasContas({
-        contas: (contas ?? []).map((c) => ({
+      // Consulta histórica somente-leitura, limitada à data escolhida. A
+      // associação por conta acontece depois da leitura para não enviar ao
+      // banco um filtro `in` incompatível com tipos legados de conta_id.
+      const saldos = await buscarSaldoHistoricoNaData(dataSelecionada);
+      const contasComSaldo = montarSaldosDasContas(
+        (contas ?? []).map((c) => ({
           id: c.id,
           secretaria_id: c.secretaria_id,
           banco: c.bancos?.nome ?? "--",
           nome_conta: c.nome_conta,
           numero_conta: c.numero_conta,
         })),
-        ate: dataSelecionada,
-        comReservas: false,
-      });
+        { saldos, reservas: new Map() },
+      );
 
       const agrupado = (secs ?? []).map((sec, i) => {
         const contasDaSec = contasComSaldo
@@ -451,6 +455,7 @@ export default function Saldos() {
     } catch (e) {
       setContasPorSecretariaNaData([]);
       setErroHistorico(mensagemAmigavel(e, "Erro ao carregar saldos da data."));
+      setDetalheErroHistorico(mensagemErroBanco(e, "Erro sem detalhe devolvido pelo servidor."));
     } finally {
       setCarregandoHistorico(false);
     }
@@ -1644,6 +1649,16 @@ export default function Saldos() {
               ) : erroHistorico ? (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 print:hidden" role="alert">
                   <p className="text-sm">{erroHistorico}</p>
+                  {detalheErroHistorico && (
+                    <details className="mt-3 text-xs">
+                      <summary className="cursor-pointer select-none font-semibold underline decoration-red-300 underline-offset-2">
+                        Ver detalhes técnicos
+                      </summary>
+                      <p className="mt-2 break-words font-mono" data-testid="detalhe-erro-historico">
+                        {detalheErroHistorico}
+                      </p>
+                    </details>
+                  )}
                   <button
                     type="button"
                     onClick={carregarSaldosNaData}
