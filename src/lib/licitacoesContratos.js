@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-export { diasAteValidade, situacaoContrato } from "./licitacoesContratosRegras.js";
+export { diasAteValidade, situacaoContrato, filtrarLicitacoesContratos } from "./licitacoesContratosRegras.js";
 
 export const BUCKET_LICITACOES = "licitacoes-contratos-anexos";
 export const SITUACOES_CONTRATO = {
