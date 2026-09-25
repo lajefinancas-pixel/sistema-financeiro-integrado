@@ -448,7 +448,13 @@ export default function Saldos() {
           .filter((c) => c.secretaria_id === sec.id && c.dataSaldo !== null)
           .map((c) => ({ ...c, dataDoSaldo: c.dataSaldo }));
         const total = totalizarSaldos(contasDaSec).saldoReal;
-        return { id: sec.id, nome: sec.nome, cor: CORES[i % CORES.length], contas: contasDaSec, total };
+        return {
+          id: sec.id,
+          nome: sec.nome,
+          cor: CORES_SECRETARIAS[i % CORES_SECRETARIAS.length],
+          contas: contasDaSec,
+          total,
+        };
       }).filter((sec) => sec.contas.length > 0);
 
       setContasPorSecretariaNaData(agrupado);
