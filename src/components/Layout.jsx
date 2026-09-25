@@ -313,6 +313,9 @@ function ItemFornecedores({
           <NavLink to={`${item.to}/certidoes`} onClick={onNavegar} className={classeSub}>
             Certidões
           </NavLink>
+          <NavLink to={`${item.to}/licitacoes-contratos`} onClick={onNavegar} className={classeSub}>
+            Licitações/Contratos
+          </NavLink>
           {areas.map((area) => (
             <NavLink
               key={area.id}

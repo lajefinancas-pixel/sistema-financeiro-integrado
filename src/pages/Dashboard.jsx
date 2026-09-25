@@ -162,6 +162,14 @@ export default function Dashboard() {
         .eq("fechado", false)
         .lt("data_programacao", hojeStr);
 
+      const trintaDias = new Date();
+      trintaDias.setDate(trintaDias.getDate() + 30);
+      const { data: contratosAtencao, error: erroContratos } = await supabase
+        .from("licitacoes_contratos")
+        .select("id, data_validade")
+        .eq("encerrado", false)
+        .lte("data_validade", trintaDias.toISOString().slice(0, 10));
+
       const listaPendencias = [];
       if (vencidos && vencidos.length > 0) {
         listaPendencias.push({
@@ -179,6 +187,23 @@ export default function Dashboard() {
         listaPendencias.push({
           id: "fechamentos-pendentes",
           cor: "#EA9A1E", label: `Fechamentos diários pendentes -- ${progsAbertas.length}`, rota: "/pagamentos",
+        });
+      }
+      // Bancos ainda sem a migration continuam abrindo o painel normalmente.
+      // Assim que a estrutura existe, os contratos próximos e vencidos entram
+      // no mesmo bloco e no mesmo sino que as demais pendências.
+      if (!erroContratos && contratosAtencao?.length) {
+        const vencidosContratos = contratosAtencao.filter((item) => item.data_validade < hojeStr).length;
+        const vencendoContratos = contratosAtencao.length - vencidosContratos;
+        if (vencidosContratos > 0) listaPendencias.push({
+          id: "contratos-vencidos", cor: "#DC2626",
+          label: `Licitações/contratos vencidos -- ${vencidosContratos}`,
+          rota: "/fornecedores/licitacoes-contratos?situacao=vencido",
+        });
+        if (vencendoContratos > 0) listaPendencias.push({
+          id: "contratos-vencendo", cor: "#CA8A04",
+          label: `Licitações/contratos vencendo em breve -- ${vencendoContratos}`,
+          rota: "/fornecedores/licitacoes-contratos?situacao=vencendo",
         });
       }
       setPendencias(listaPendencias);

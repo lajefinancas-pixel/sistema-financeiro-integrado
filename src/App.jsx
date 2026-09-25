@@ -7,6 +7,7 @@ import Saldos from "./pages/Saldos";
 import ModuloFornecedores from "./pages/ModuloFornecedores";
 import ModuloProcessos from "./pages/ModuloProcessos";
 import Certidoes from "./pages/Certidoes";
+import LicitacoesContratos from "./pages/LicitacoesContratos";
 import Pagamentos from "./pages/Pagamentos";
 import Baixas from "./pages/Baixas";
 import Tarefas from "./pages/Tarefas";
@@ -49,6 +50,7 @@ export default function App() {
           "Todos os Fornecedores", a página de Fornecedores de sempre. */}
       <Route path="/fornecedores" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       <Route path="/fornecedores/certidoes" element={<RotaProtegida><Certidoes /></RotaProtegida>} />
+      <Route path="/fornecedores/licitacoes-contratos" element={<RotaProtegida><LicitacoesContratos /></RotaProtegida>} />
       <Route path="/fornecedores/:area" element={<RotaProtegida><ModuloFornecedores /></RotaProtegida>} />
       {/* PROCESSOS e as suas áreas, abertas pelo submenu de Processos no menu
           lateral. Neste envio existe Diárias; a rota sem área e qualquer área
