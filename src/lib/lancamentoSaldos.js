@@ -36,9 +36,7 @@ export async function lancarSaldos(linhas) {
   const lista = (linhas ?? []).filter((linha) => linha && linha.conta_id != null && linha.data_saldo);
   if (lista.length === 0) return 0;
 
-  const { error } = await supabase
-    .from("saldos_historico")
-    .upsert(lista, { onConflict: "conta_id,data_saldo" });
+  const { error } = await supabase.rpc("registrar_saldos_manuais", { p_linhas: lista });
   if (error) throw error;
   return lista.length;
 }

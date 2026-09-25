@@ -25,8 +25,8 @@ function hojeISO() {
  * A baixa é a confirmação de que o pagamento saiu de fato no banco. Ela abate o
  * valor em aberto da nota e NÃO DEBITA O SALDO DA CONTA: a conta informada aqui
  * é o registro de onde o dinheiro saiu, não um lançamento de saldo. Quem
- * movimenta saldo continua sendo o lançamento do saldo do dia e a transferência
- * entre contas.
+ * O saldo só muda por lançamento manual autorizado em Saldos das Contas;
+ * transferências também preservam a base diária informada pela manhã.
  *
  * Confirmação repetida (duplo clique, F5, reenvio) não gera duas baixas: a
  * chave de idempotência é sorteada uma única vez por abertura do formulário,
@@ -236,7 +236,7 @@ export default function ModalRegistrarBaixa({ nota, fornecedorId, fornecedor, co
             {/* Digitar localiza entre TODAS as contas cadastradas, de todas as
                 secretarias, e ao abrir a lista as contas vêm organizadas por
                 Secretaria. Escolher a conta aqui registra de onde o dinheiro
-                saiu e que será debitada pela baixa. Não existe cadastro de conta
+                saiu, sem alterar o saldo lançado. Não existe cadastro de conta
                 neste passo: só se escolhe conta que já existe. */}
             <SeletorContas
               className="mt-1"
