@@ -60,7 +60,10 @@ function classeTextoLongo(texto) {
   return "";
 }
 function toISO(d) {
-  return d.toISOString().slice(0, 10);
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
 }
 function hojeISO() {
   return toISO(new Date());
@@ -178,6 +181,7 @@ export default function Saldos() {
   const [datasComSaldo, setDatasComSaldo] = React.useState(new Set());
   const [contasPorSecretariaNaData, setContasPorSecretariaNaData] = React.useState([]);
   const [carregandoHistorico, setCarregandoHistorico] = React.useState(true);
+  const [erroHistorico, setErroHistorico] = React.useState(null);
 
   const [usuarioId, setUsuarioId] = React.useState(null);
   // Exclusão sempre passa pela confirmação padrão: nada é excluído no clique.
@@ -407,7 +411,7 @@ export default function Saldos() {
 
   async function carregarSaldosNaData() {
     setCarregandoHistorico(true);
-    setErro(null);
+    setErroHistorico(null);
     try {
       const { data: secs, error: e1 } = await supabase
         .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
@@ -445,7 +449,8 @@ export default function Saldos() {
 
       setContasPorSecretariaNaData(agrupado);
     } catch (e) {
-      setErro(mensagemAmigavel(e, "Erro ao carregar saldos da data."));
+      setContasPorSecretariaNaData([]);
+      setErroHistorico(mensagemAmigavel(e, "Erro ao carregar saldos da data."));
     } finally {
       setCarregandoHistorico(false);
     }
@@ -1634,29 +1639,42 @@ export default function Saldos() {
             </PainelFiltros>
 
             <div>
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-[#0F2A44] capitalize">{dataSelecionadaBR}</h2>
-                <p className="text-sm text-[#0F2A44]/60">
-                  Total geral: <span className="font-semibold">{formatBRL(totalGeralHistorico)}</span>
-                </p>
-              </div>
-
               {carregandoHistorico ? (
                 <div className="text-sm text-[#0F2A44]/50">Carregando...</div>
-              ) : contasPorSecretariaNaData.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
-                  Nenhum saldo registrado até esta data.
+              ) : erroHistorico ? (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 print:hidden" role="alert">
+                  <p className="text-sm">{erroHistorico}</p>
+                  <button
+                    type="button"
+                    onClick={carregarSaldosNaData}
+                    className="mt-3 text-xs font-semibold px-3 py-2 rounded-lg border border-red-300 hover:bg-red-100"
+                  >
+                    Tentar novamente
+                  </button>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {secretariasHistorico.map((sec) => (
-                    <div
-                      key={sec.id}
-                      {...propsCard(sec.id)}
-                      className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
-                        arrastandoId === sec.id ? "opacity-50" : ""
-                      } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
-                    >
+                <>
+                  <div className="mb-4">
+                    <h2 className="text-lg font-semibold text-[#0F2A44] capitalize">{dataSelecionadaBR}</h2>
+                    <p className="text-sm text-[#0F2A44]/60">
+                      Total geral: <span className="font-semibold">{formatBRL(totalGeralHistorico)}</span>
+                    </p>
+                  </div>
+
+                  {contasPorSecretariaNaData.length === 0 ? (
+                    <div className="bg-white rounded-2xl border border-dashed border-black/10 p-10 text-center text-sm text-[#0F2A44]/40">
+                      Nenhum saldo registrado até esta data.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {secretariasHistorico.map((sec) => (
+                        <div
+                          key={sec.id}
+                          {...propsCard(sec.id)}
+                          className={`rounded-xl border overflow-hidden bg-white transition-shadow print:break-inside-avoid ${
+                            arrastandoId === sec.id ? "opacity-50" : ""
+                          } ${sobreId === sec.id ? "border-[#C9A227] shadow-md" : "border-black/5"}`}
+                        >
                       <div
                         className="flex items-center justify-between px-4 py-2.5"
                         style={{ backgroundColor: `${sec.cor}14`, borderLeft: `4px solid ${sec.cor}` }}
@@ -1713,6 +1731,8 @@ export default function Saldos() {
                     </div>
                   ))}
                 </div>
+              )}
+                </>
               )}
             </div>
           </div>

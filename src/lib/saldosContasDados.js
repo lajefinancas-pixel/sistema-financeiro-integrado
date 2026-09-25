@@ -20,7 +20,9 @@ import { agregarReservas, montarSaldosDasContas, saldoRealPorConta } from "./sal
 
 const TAMANHO_PAGINA = 1000;
 const MAXIMO_PAGINAS = 200; // trava de segurança contra laço infinito
-// Acima disso, filtrar por conta na URL fica maior que buscar tudo e filtrar aqui.
+// Mantém a URL da consulta em um tamanho seguro. Listas maiores são divididas
+// em lotes; nunca retiramos o filtro, pois isso faria a visão de hoje percorrer
+// todo o histórico de todas as contas.
 const MAXIMO_IDS_NO_FILTRO = 150;
 
 /**
@@ -49,8 +51,17 @@ export async function buscarPaginado(montarConsulta) {
 
 function filtrarPorConta(consulta, contaIds) {
   const ids = (contaIds ?? []).map(String);
-  if (ids.length === 0 || ids.length > MAXIMO_IDS_NO_FILTRO) return consulta;
+  if (ids.length === 0) return consulta;
   return consulta.in("conta_id", ids);
+}
+
+export function dividirEmLotes(valores, tamanho = MAXIMO_IDS_NO_FILTRO) {
+  const unicos = [...new Set((valores ?? []).filter((valor) => valor != null).map(String))];
+  const lotes = [];
+  for (let inicio = 0; inicio < unicos.length; inicio += tamanho) {
+    lotes.push(unicos.slice(inicio, inicio + tamanho));
+  }
+  return lotes;
 }
 
 /**
@@ -58,15 +69,25 @@ function filtrarPorConta(consulta, contaIds) {
  * conta. `ate` limita a consulta a uma data (visão histórica da tela de Saldos).
  */
 export async function buscarSaldoRealPorConta({ contaIds, ate } = {}) {
-  const linhas = await buscarPaginado(() => {
-    let consulta = supabase
-      .from("saldos_historico")
-      .select("conta_id, valor_saldo, data_saldo")
-      .order("conta_id", { ascending: true })
-      .order("data_saldo", { ascending: false });
-    if (ate) consulta = consulta.lte("data_saldo", ate);
-    return filtrarPorConta(consulta, contaIds);
-  });
+  if (Array.isArray(contaIds) && contaIds.length === 0) return new Map();
+
+  // Sem lista explícita, preserva a consulta global usada por consumidores
+  // genéricos. Com contas informadas, toda chamada ao banco fica restrita a um
+  // lote pequeno, inclusive quando o cadastro ultrapassa 150 contas.
+  const lotes = Array.isArray(contaIds) ? dividirEmLotes(contaIds) : [null];
+  const linhas = [];
+  for (const lote of lotes) {
+    const pagina = await buscarPaginado(() => {
+      let consulta = supabase
+        .from("saldos_historico")
+        .select("conta_id, valor_saldo, data_saldo")
+        .order("conta_id", { ascending: true })
+        .order("data_saldo", { ascending: false });
+      if (ate) consulta = consulta.lte("data_saldo", ate);
+      return lote ? filtrarPorConta(consulta, lote) : consulta;
+    });
+    linhas.push(...pagina);
+  }
   return saldoRealPorConta(linhas);
 }
 
