@@ -10,6 +10,7 @@ const dataBR = (valor) => new Date(`${valor}T00:00:00`).toLocaleDateString("pt-B
 
 function etiquetaStatus(item) {
   if (item.fechado) return { texto: "Histórica · saldo congelado", classe: "border-stone-300 bg-stone-100 text-stone-700" };
+  if (item.status === "aprovada" && item.concluida) return { texto: "Concluída", classe: "border-violet-200 bg-violet-50 text-violet-800" };
   if (item.status === "aprovada") return { texto: "Confirmada / em execução", classe: "border-emerald-200 bg-emerald-50 text-emerald-800" };
   if (item.status === "em_analise") return { texto: "Em análise", classe: "border-amber-200 bg-amber-50 text-amber-800" };
   return { texto: "Em montagem · editável", classe: "border-sky-200 bg-sky-50 text-sky-800" };
@@ -19,7 +20,7 @@ export default function ListaProgramacoes({ onAbrir }) {
   const [programacoes, setProgramacoes] = React.useState([]);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState("");
-  const [filtros, setFiltros] = React.useState({ numero: "", data: "", secretaria: "", status: "", ordenacao: "data_desc" });
+  const [filtros, setFiltros] = React.useState({ numero: "", dataDe: "", dataAte: "", secretaria: "", status: "", ordenacao: "data_desc" });
 
   React.useEffect(() => {
     let ativo = true;
@@ -43,11 +44,11 @@ export default function ListaProgramacoes({ onAbrir }) {
         </div>
       </div>
 
-      <div className="grid gap-3 border-b border-black/5 bg-[#FAF9F5] p-4 md:grid-cols-2 xl:grid-cols-[.7fr_1fr_1.2fr_1fr_1fr]">
+      <div className="grid gap-3 border-b border-black/5 bg-[#FAF9F5] p-4 md:grid-cols-2 xl:grid-cols-[.7fr_1.35fr_1.2fr_1fr_1fr]">
         <label className="relative text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Número<Search size={14} className="absolute bottom-2 left-2.5 text-[var(--color-brand-navy)]/35"/><input inputMode="numeric" value={filtros.numero} onChange={mudar("numero")} placeholder="Ex.: 41" className="mt-1 block w-full rounded-lg border border-black/10 bg-white py-1.5 pl-8 pr-2 text-[13px] font-normal normal-case tracking-normal"/></label>
-        <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Data<input type="date" value={filtros.data} onChange={mudar("data")} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal"/></label>
+        <fieldset className="min-w-0"><legend className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Período</legend><div className="mt-1 grid grid-cols-2 gap-2"><label className="sr-only" htmlFor="programacoes-data-de">De</label><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-brand-navy)]/45">De</span><input id="programacoes-data-de" aria-label="Data inicial" type="date" value={filtros.dataDe} onChange={mudar("dataDe")} className="block w-full rounded-lg border border-black/10 bg-white py-1.5 pl-7 pr-1 text-[12px] font-normal"/></div><label className="sr-only" htmlFor="programacoes-data-ate">Até</label><div className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-brand-navy)]/45">Até</span><input id="programacoes-data-ate" aria-label="Data final" type="date" value={filtros.dataAte} onChange={mudar("dataAte")} className="block w-full rounded-lg border border-black/10 bg-white py-1.5 pl-8 pr-1 text-[12px] font-normal"/></div></div></fieldset>
         <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Secretaria<select value={filtros.secretaria} onChange={mudar("secretaria")} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal"><option value="">Todas</option>{secretarias.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}</select></label>
-        <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Status<select value={filtros.status} onChange={mudar("status")} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal"><option value="">Todos</option><option value="em_elaboracao">Em montagem</option><option value="em_analise">Em análise</option><option value="aprovada">Confirmada</option><option value="historico">Histórica / fechada</option></select></label>
+        <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Status<select value={filtros.status} onChange={mudar("status")} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal"><option value="">Todos</option><option value="em_elaboracao">Em montagem</option><option value="em_analise">Em análise</option><option value="aprovada">Confirmada / em execução</option><option value="concluida">Concluída</option><option value="historico">Histórica / fechada</option></select></label>
         <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-brand-navy)]/55">Ordenar<select value={filtros.ordenacao} onChange={mudar("ordenacao")} className="mt-1 block w-full rounded-lg border border-black/10 bg-white px-2 py-1.5 text-[13px] font-normal normal-case tracking-normal"><option value="data_desc">Data mais recente</option><option value="numero_desc">Maior número</option><option value="numero_asc">Menor número</option></select></label>
       </div>
 
