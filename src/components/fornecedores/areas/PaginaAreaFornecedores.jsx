@@ -34,6 +34,7 @@ import {
 import { envioParaProgramacao, guardarEnvio } from "../../../lib/programacaoDeAreas.js";
 import { itensDaRelacaoDaArea, relacaoDaArea } from "../../../lib/relatoriosAreasFornecedores.js";
 import { apelidoDoFornecedor, nomeOficialDoFornecedor } from "../../../lib/nomesFornecedor.js";
+import { consultarRegularidadesPagamento } from "../../../lib/regularidadePagamentoFornecedor.js";
 
 /**
  * A listagem de uma área específica de Fornecedores (Patrocínios, Aluguéis ou
@@ -66,6 +67,7 @@ export default function PaginaAreaFornecedores({
   const [erro, setErro] = React.useState(null);
   const [faltaMigration, setFaltaMigration] = React.useState(false);
   const [aviso, setAviso] = React.useState(null);
+  const [regularidades, setRegularidades] = React.useState({});
 
   const [busca, setBusca] = React.useState("");
   const [filtros, setFiltros] = React.useState(() => filtrosVazios(area));
@@ -102,7 +104,13 @@ export default function PaginaAreaFornecedores({
     setErro(null);
     setFaltaMigration(false);
     try {
-      setRegistros(await carregarRegistrosDaArea(area.id));
+      const carregados = await carregarRegistrosDaArea(area.id);
+      setRegistros(carregados);
+      try {
+        setRegularidades(await consultarRegularidadesPagamento(carregados.map((r) => r.fornecedor_id)));
+      } catch {
+        setRegularidades({});
+      }
     } catch (falha) {
       if (estruturaDeAreasAusente(falha)) {
         setFaltaMigration(true);
@@ -411,18 +419,19 @@ export default function PaginaAreaFornecedores({
                   {coluna.rotulo}
                 </th>
               ))}
+              <th className="px-3 py-2.5 font-medium">Regularidade</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5">
             {carregando || carregandoApoio ? (
               <tr>
-                <td colSpan={area.colunas.length} className="px-3 py-6 text-center text-[#0F2A44]/50">
+                <td colSpan={area.colunas.length + 1} className="px-3 py-6 text-center text-[#0F2A44]/50">
                   Carregando...
                 </td>
               </tr>
             ) : visiveis.length === 0 ? (
               <tr>
-                <td colSpan={area.colunas.length} className="px-3 py-6 text-center text-[#0F2A44]/50">
+                <td colSpan={area.colunas.length + 1} className="px-3 py-6 text-center text-[#0F2A44]/50">
                   {registros.length === 0
                     ? `Nenhum registro em ${area.rotulo}.`
                     : "Nenhum registro atende à busca ou aos filtros."}
@@ -434,6 +443,7 @@ export default function PaginaAreaFornecedores({
                   key={registro.id}
                   area={area}
                   registro={registro}
+                  regularidade={regularidades[String(registro.fornecedor_id)]}
                   permissao={permissao}
                   onVer={() => abrirDetalhe(registro)}
                   onEditar={() => {
@@ -502,6 +512,7 @@ export default function PaginaAreaFornecedores({
 function Linha({
   area,
   registro,
+  regularidade,
   permissao,
   onVer,
   onEditar,
@@ -630,6 +641,23 @@ function Linha({
           </td>
         );
       })}
+      <td className="px-3 py-2.5">
+        {regularidade ? (
+          <div className="flex min-w-[150px] flex-col items-start gap-1">
+            <span
+              className="inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium"
+              style={{ color: regularidade.documental.cor, backgroundColor: regularidade.documental.bg }}
+            >
+              {regularidade.documental.texto}
+            </span>
+            <span className={`text-[11px] ${regularidade.temDadosPagamento ? "text-[#15803D]" : "text-[#9A6700]"}`}>
+              {regularidade.temDadosPagamento ? "Dados para pagamento cadastrados" : "Dados para pagamento pendentes"}
+            </span>
+          </div>
+        ) : (
+          <span className="text-[11px] text-[#0F2A44]/40">Não disponível</span>
+        )}
+      </td>
     </tr>
   );
 }

@@ -718,6 +718,7 @@ export default function Baixas() {
       {notaParaBaixa && (
         <ModalRegistrarBaixa
           nota={notaParaBaixa}
+          fornecedorId={fornecedor?.id}
           fornecedor={nomeDoFornecedor(fornecedor)}
           contas={base.contas}
           onFechar={() => setNotaParaBaixa(null)}
