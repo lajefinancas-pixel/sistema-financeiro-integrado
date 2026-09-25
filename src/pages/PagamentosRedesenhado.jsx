@@ -57,6 +57,7 @@ import {
 } from "../lib/nomesFornecedor";
 import { linhasDaProposta } from "../lib/programacaoProposta";
 import { validarFornecedoresDaProgramacao } from "../lib/validacaoFornecedoresProgramacao";
+import { programacaoConcluida } from "../lib/programacoesHistorico";
 
 const hojeISO = () => {
   const agora = new Date();
@@ -1374,6 +1375,7 @@ export default function PagamentosRedesenhado() {
   const totalProgramado = somarPagamentos(pagamentos);
   const totalPago = pagamentos.reduce((total, item) => total + (item.situacao === "pago" ? numero(item.valor_a_pagar) : 0), 0);
   const totalNaoPago = pagamentos.reduce((total, item) => total + (["cancelado", "suspenso"].includes(item.situacao) ? numero(item.valor_a_pagar) : 0), 0);
+  const concluida = programacao?.status === STATUS_APROVADA && programacao?.fechado !== true && programacaoConcluida(totalProgramado, totalPago);
   // O restante é parte do planejamento e não muda com uma marcação de execução.
   const restante = calcularRestante(totalDisponivel, totalProgramado);
   // "--" onde o saldo daquele dia não foi gravado. A tela não põe o saldo de
@@ -1547,7 +1549,7 @@ export default function PagamentosRedesenhado() {
 
           {!programacao ? <div className="rounded-xl border border-dashed border-[var(--color-brand-navy)]/20 bg-white/60 px-4 py-12 text-center"><h2 className="font-serif text-lg text-[var(--color-brand-navy)]">Comece uma programação diária</h2><p className="mt-1 text-[12px] text-[var(--color-brand-navy)]/55">Planejamento apenas: nenhuma conta é debitada ou bloqueada.</p></div> : <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--color-brand-navy)] px-3 py-2 text-white">
-              <div className="min-w-0"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-[15px] font-semibold">{programacao.nome_programacao}</h1>{concluida && <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-violet-800">Concluída</span>}</div><p className="text-[10px] uppercase tracking-[0.1em] text-white/55">{concluida ? "CONCLUÍDA" : statusLabel(programacao.status, programacao.fechado)} · ID {programacao.id} · {dataBR(programacao.data_programacao)}</p></div>
               <div className="flex flex-wrap gap-2 print:hidden"><button type="button" onClick={() => setDuplicacao({ conflito: 0 })} disabled={salvando || !podeEditar} className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-white/10 disabled:opacity-50"><Copy size={13}/> Duplicar programação</button><button onClick={salvarProgramacao} disabled={salvando || !podeEditarProgramacao} className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand-navy)] disabled:opacity-50">{salvando ? "Salvando..." : "Salvar programação"}</button>{podeRevisarProposta(programacao) && <button onClick={() => setMostrarAprovacao(true)} disabled={salvando || !podeEditarProgramacao || fase2Indisponivel || permissoesFase2?.aprovar_programacao === false || impedimentosDaAprovacao.length > 0} title={fase2Indisponivel ? "Execute a migration da Fase 2 para confirmar." : permissoesFase2?.aprovar_programacao === false ? "Você não tem permissão para confirmar programação." : impedimentosDaAprovacao[0] || "Confirmar não movimenta saldo"} className="inline-flex items-center gap-1.5 rounded-lg bg-[#B06A3C] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"><Check size={14}/> CONFIRMAR PROGRAMAÇÃO</button>}{podeReabrirProgramacao(programacao) && permissoesFase2?.reabrir_programacao !== false && <button onClick={abrirReabertura} disabled={salvando} title="Volta à montagem sem desfazer baixas, transferências, marcações nem saldos." className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 px-3 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"><Unlock size={13}/> Reabrir programação</button>}</div>
             </div>
 

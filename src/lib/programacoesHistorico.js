@@ -28,12 +28,13 @@ export async function listarHistoricoProgramacoes(cliente) {
 
   const pagamentos = await consultarTodas(() => cliente
     .from("pagamentos")
-    .select("id, programacao_id, fornecedor_id")
+    .select("id, programacao_id, fornecedor_id, valor_a_pagar, situacao")
     .not("programacao_id", "is", null)
     .is("excluido_em", null)
     .order("id"));
 
   const fornecedoresPorProgramacao = new Map();
+  const pagoPorProgramacao = new Map();
   for (const pagamento of pagamentos) {
     const chave = String(pagamento.programacao_id);
     if (!fornecedoresPorProgramacao.has(chave)) fornecedoresPorProgramacao.set(chave, new Set());
@@ -42,25 +43,43 @@ export async function listarHistoricoProgramacoes(cliente) {
     fornecedoresPorProgramacao.get(chave).add(
       pagamento.fornecedor_id == null ? `avulso:${pagamento.id}` : `fornecedor:${pagamento.fornecedor_id}`,
     );
+    if (pagamento.situacao === "pago") {
+      pagoPorProgramacao.set(chave, (pagoPorProgramacao.get(chave) ?? 0) + Number(pagamento.valor_a_pagar ?? 0));
+    }
   }
 
   return programacoes.map((item) => ({
     ...item,
     secretaria_nome: item.secretarias?.nome || "Secretaria não identificada",
     quantidade_fornecedores: fornecedoresPorProgramacao.get(String(item.id))?.size ?? 0,
+    total_pago_interno: pagoPorProgramacao.get(String(item.id)) ?? 0,
+    concluida: programacaoConcluida(item.total_programado, pagoPorProgramacao.get(String(item.id)) ?? 0),
   }));
+}
+
+/** Estado somente de exibição, derivado da marcação interna da secretaria. */
+export function programacaoConcluida(totalProgramado, totalPago) {
+  const programadoEmCentavos = Math.round(Number(totalProgramado ?? 0) * 100);
+  const pagoEmCentavos = Math.round(Number(totalPago ?? 0) * 100);
+  return programadoEmCentavos > 0 && pagoEmCentavos === programadoEmCentavos;
 }
 
 export function filtrarEOrdenarProgramacoes(programacoes, filtros) {
   const numero = String(filtros.numero ?? "").trim();
-  const data = String(filtros.data ?? "").trim();
+  const dataDe = String(filtros.dataDe ?? "").trim();
+  const dataAte = String(filtros.dataAte ?? "").trim();
   const secretaria = String(filtros.secretaria ?? "").trim();
   const status = String(filtros.status ?? "").trim();
   const resultado = programacoes.filter((item) => (
     (!numero || String(item.id).includes(numero))
-    && (!data || item.data_programacao === data)
+    && (!dataDe || item.data_programacao >= dataDe)
+    && (!dataAte || item.data_programacao <= dataAte)
     && (!secretaria || String(item.secretaria_id) === secretaria)
-    && (!status || (status === "historico" ? item.fechado === true : item.fechado !== true && item.status === status))
+    && (!status || (
+      status === "historico" ? item.fechado === true
+        : status === "concluida" ? item.fechado !== true && item.status === "aprovada" && item.concluida === true
+          : item.fechado !== true && item.status === status && !(status === "aprovada" && item.concluida === true)
+    ))
   ));
 
   return [...resultado].sort((a, b) => {

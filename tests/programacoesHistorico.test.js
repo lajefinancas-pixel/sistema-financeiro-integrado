@@ -1,23 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { filtrarEOrdenarProgramacoes } from "../src/lib/programacoesHistorico.js";
+import { filtrarEOrdenarProgramacoes, programacaoConcluida } from "../src/lib/programacoesHistorico.js";
 
 const PROGRAMACOES = [
   { id: 39, data_programacao: "2026-09-22", secretaria_id: 1, status: "em_elaboracao", fechado: false },
   { id: 41, data_programacao: "2026-09-24", secretaria_id: 2, status: "em_analise", fechado: false },
   { id: 40, data_programacao: "2026-09-23", secretaria_id: 1, status: "aprovada", fechado: true },
+  { id: 42, data_programacao: "2026-09-20", secretaria_id: 1, status: "aprovada", fechado: false, concluida: false },
+  { id: 43, data_programacao: "2026-09-10", secretaria_id: 1, status: "aprovada", fechado: false, concluida: true },
 ];
 
 test("histórico começa pela data mais recente e permite ordenar pelo número", () => {
   assert.deepEqual(
     filtrarEOrdenarProgramacoes(PROGRAMACOES, { ordenacao: "data_desc" }).map((item) => item.id),
-    [41, 40, 39],
+    [41, 40, 39, 42, 43],
   );
   assert.deepEqual(
     filtrarEOrdenarProgramacoes(PROGRAMACOES, { ordenacao: "numero_asc" }).map((item) => item.id),
-    [39, 40, 41],
+    [39, 40, 41, 42, 43],
   );
+});
+
+test("período usa limites inclusivos e aceita somente uma das pontas", () => {
+  assert.deepEqual(filtrarEOrdenarProgramacoes(PROGRAMACOES, { dataDe: "2026-09-10", dataAte: "2026-09-23" }).map((item) => item.id), [40, 39, 42, 43]);
+  assert.deepEqual(filtrarEOrdenarProgramacoes(PROGRAMACOES, { dataDe: "2026-09-23" }).map((item) => item.id), [41, 40]);
+  assert.deepEqual(filtrarEOrdenarProgramacoes(PROGRAMACOES, { dataAte: "2026-09-20" }).map((item) => item.id), [42, 43]);
+});
+
+test("concluída exige total positivo integralmente marcado como pago", () => {
+  assert.equal(programacaoConcluida(150.3, 150.3), true);
+  assert.equal(programacaoConcluida(150.3, 100), false);
+  assert.equal(programacaoConcluida(0, 0), false);
+  assert.deepEqual(filtrarEOrdenarProgramacoes(PROGRAMACOES, { status: "concluida" }).map((item) => item.id), [43]);
+  assert.deepEqual(filtrarEOrdenarProgramacoes(PROGRAMACOES, { status: "aprovada" }).map((item) => item.id), [42]);
 });
 
 test("buscar pelo número 41 encontra somente a programação correta", () => {
@@ -35,7 +51,7 @@ test("filtros distinguem histórico fechado de status ainda ativo", () => {
   );
   assert.deepEqual(
     filtrarEOrdenarProgramacoes(PROGRAMACOES, { status: "aprovada", ordenacao: "data_desc" }).map((item) => item.id),
-    [],
+    [42],
   );
 });
 
