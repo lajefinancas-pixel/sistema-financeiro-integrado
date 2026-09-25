@@ -92,6 +92,22 @@ export async function buscarSaldoRealPorConta({ contaIds, ate } = {}) {
 }
 
 /**
+ * Saldo histórico para uma data.
+ *
+ * Esta leitura deliberadamente não envia `conta_id=in.(...)` ao PostgREST.
+ * A visão por data precisa continuar compatível com bases antigas nas quais o
+ * tipo de `saldos_historico.conta_id` não acompanha o tipo devolvido por
+ * `contas_bancarias.id`. A associação é feita em memória por chave textual,
+ * como já ocorre em `saldoRealPorConta`, e a paginação continua impedindo o
+ * corte silencioso depois de 1000 lançamentos.
+ *
+ * É uma consulta somente-leitura: não chama RPC e não grava saldo.
+ */
+export async function buscarSaldoHistoricoNaData(ate) {
+  return buscarSaldoRealPorConta({ ate });
+}
+
+/**
  * Valor Reservado de cada conta: o rateio das programações que ainda não virou
  * débito. `programacaoIds` restringe o cálculo a algumas programações (a tela
  * de Pagamentos Diários usa as do dia); sem ele, considera todas.
