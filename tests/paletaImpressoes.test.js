@@ -12,6 +12,7 @@ const documentos = [
   "processosDocumentoComum.js",
   "processosDiariasDocumento.js",
   "processosServicosDocumento.js",
+  "licitacoesContratosDocumento.js",
 ];
 
 const verdesLegados = /#17352F|#E5EFEA|#0F2823|\[23,\s*53,\s*47\]|\[229,\s*239,\s*234\]/i;
