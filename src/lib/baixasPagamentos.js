@@ -82,7 +82,8 @@ export async function estornarBaixaDeNota(baixaId, motivo) {
  * Leitura
  * ---------------------------------------------------------------------- */
 
-const COLUNAS_FORNECEDOR_BAIXA = "id,razao_social,nome_fantasia,cpf_cnpj,secretaria_id,ativo,secretarias(nome)";
+const COLUNAS_FORNECEDOR_BAIXA = "id,razao_social,nome_fantasia,cpf_cnpj,secretaria_id,ativo,forma_pagamento_padrao,secretarias(nome)";
+const COLUNAS_FORNECEDOR_BAIXA_LEGADO = COLUNAS_FORNECEDOR_BAIXA.replace(",forma_pagamento_padrao", "");
 
 /**
  * Fornecedores para a busca do primeiro passo da tela: nome, razão social,
@@ -104,8 +105,11 @@ export async function carregarFornecedoresDaBaixa() {
     );
 
   let resposta = await consultar(`${COLUNAS_FORNECEDOR_BAIXA},${COLUNA_APELIDO}`);
+  if (resposta.error && String(resposta.error?.code ?? "") === "42703") {
+    resposta = await consultar(`${COLUNAS_FORNECEDOR_BAIXA_LEGADO},${COLUNA_APELIDO}`);
+  }
   if (resposta.error && estruturaDeApelidoAusente(resposta.error)) {
-    resposta = await consultar(COLUNAS_FORNECEDOR_BAIXA);
+    resposta = await consultar(COLUNAS_FORNECEDOR_BAIXA_LEGADO);
   }
   if (resposta.error) throw resposta.error;
   return resposta.data ?? [];

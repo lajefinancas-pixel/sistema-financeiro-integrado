@@ -42,6 +42,8 @@ import {
   textoDosVinculos,
   vinculosDoFornecedor,
 } from "../lib/exclusaoRegistros";
+import FormaPagamentoProcesso from "../components/processos/FormaPagamentoProcesso.jsx";
+import { FORMA_PAGAMENTO_PADRAO } from "../lib/processosFormaPagamento.js";
 
 /**
  * Recado de quando a migration do apelido ainda não foi rodada neste banco.
@@ -447,6 +449,7 @@ export default function Fornecedores() {
     descricao: "",
     telefone: "",
     email: "",
+    forma_pagamento_padrao: FORMA_PAGAMENTO_PADRAO,
   });
 
   // Apelido de fornecedor já cadastrado: o cadastro não tem tela de edição, então
@@ -702,6 +705,7 @@ export default function Fornecedores() {
         descricao: form.descricao || null,
         telefone: form.telefone || null,
         email: form.email || null,
+        forma_pagamento_padrao: form.forma_pagamento_padrao || FORMA_PAGAMENTO_PADRAO,
       };
       if (apelido) cadastro.apelido = apelido;
 
@@ -730,13 +734,14 @@ export default function Fornecedores() {
           telefone: form.telefone || null,
           email: form.email || null,
           descricao: form.descricao || null,
+          forma_pagamento_padrao: form.forma_pagamento_padrao || FORMA_PAGAMENTO_PADRAO,
         },
         nivel: "informacao",
       });
 
       setForm({
         razao_social: "", nome_fantasia: "", apelido: "", cpf_cnpj: "", secretaria_id: "",
-        descricao: "", telefone: "", email: "",
+        descricao: "", telefone: "", email: "", forma_pagamento_padrao: FORMA_PAGAMENTO_PADRAO,
       });
       setMostrarForm(false);
       await carregarDados();
@@ -745,6 +750,19 @@ export default function Fornecedores() {
     } finally {
       setSalvando(false);
     }
+  }
+
+  async function alterarFormaPagamentoPadrao(fornecedor, valor) {
+    setErro(null);
+    const anterior = fornecedor.forma_pagamento_padrao || FORMA_PAGAMENTO_PADRAO;
+    setFornecedores((lista) => lista.map((item) => item.id === fornecedor.id ? { ...item, forma_pagamento_padrao: valor } : item));
+    const { error } = await supabase.from("fornecedores").update({ forma_pagamento_padrao: valor }).eq("id", fornecedor.id);
+    if (error) {
+      setFornecedores((lista) => lista.map((item) => item.id === fornecedor.id ? { ...item, forma_pagamento_padrao: anterior } : item));
+      setErro(mensagemAmigavel(error, "Não foi possível alterar a forma de pagamento padrão."));
+      return;
+    }
+    await registrarEvento({ modulo: "fornecedores", acao: "editou", registroAfetado: `Forma de pagamento padrão de ${fornecedor.razao_social}`, valorAnterior: { forma_pagamento_padrao: anterior }, valorNovo: { forma_pagamento_padrao: valor }, nivel: "informacao" });
   }
 
   /** Abre o lápis do apelido já com o apelido atual do fornecedor no campo. */
@@ -2223,6 +2241,17 @@ export default function Fornecedores() {
               />
             </div>
 
+            <div className="rounded-xl border border-black/10 bg-[#F8FAFC] p-4">
+              <h3 className="text-sm font-semibold text-[#0F2A44]">Forma de pagamento padrão</h3>
+              <p className="mb-3 text-xs text-[#0F2A44]/50">Esta opção apenas sugere como processos novos começam; cada Liquidação continua editável.</p>
+              <FormaPagamentoProcesso
+                formulario={{ forma_pagamento: form.forma_pagamento_padrao }}
+                definir={(_chave, valor) => setForm((atual) => ({ ...atual, forma_pagamento_padrao: valor }))}
+                apenasSeletor
+                nomeCampo="novo_fornecedor_forma_pagamento_padrao"
+              />
+            </div>
+
             <button
               type="submit" disabled={salvando}
               className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-50"
@@ -2390,6 +2419,8 @@ export default function Fornecedores() {
                       onExcluirValor={excluirValor}
                       onVerHistorico={() => setHistoricoDe(f)}
                       permissoesPagamento={permissoesEspeciais}
+                      podeEditarFornecedor={podeEditarFornecedor}
+                      onFormaPagamentoPadraoChange={alterarFormaPagamentoPadrao}
                       onDadosPagamentoChange={(formas) => setDadosPagamentoPorFornecedor((atual) => ({ ...atual, [String(f.id)]: formas.length > 0 }))}
                       onEstornoConcluido={async () => {
                         await Promise.all([carregarDados(), carregarPagamentosRealizados()]);

@@ -18,3 +18,10 @@ export function formaPagamentoDoProcesso(processo) {
     ? FORMA_PAGAMENTO_BOLETO
     : FORMA_PAGAMENTO_PADRAO;
 }
+
+/** A preferência do cadastro só sugere boleto; valor ausente ou legado mantém o padrão atual. */
+export function formaPagamentoPadraoDoFornecedor(fornecedor) {
+  return fornecedor?.forma_pagamento_padrao === FORMA_PAGAMENTO_BOLETO
+    ? FORMA_PAGAMENTO_BOLETO
+    : FORMA_PAGAMENTO_PADRAO;
+}

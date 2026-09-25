@@ -209,7 +209,8 @@ export async function listarHistorico(processoId) {
 // O cadastro de fornecedores é SOMENTE LEITURA para este módulo. Preencher o
 // documento à mão não cria fornecedor, e alterar um valor no documento não
 // altera o cadastro: o vínculo interno permanece, o cadastro não é tocado.
-const COLUNAS_FORNECEDOR = "id,razao_social,nome_fantasia,cpf_cnpj,telefone,email,descricao";
+const COLUNAS_FORNECEDOR = "id,razao_social,nome_fantasia,cpf_cnpj,telefone,email,descricao,forma_pagamento_padrao";
+const COLUNAS_FORNECEDOR_LEGADO = COLUNAS_FORNECEDOR.replace(",forma_pagamento_padrao", "");
 
 /**
  * O fornecedor escolhido, com o que o cadastro tiver.
@@ -225,8 +226,11 @@ export async function carregarFornecedorCompleto(fornecedorId) {
     supabase.from("fornecedores").select(colunas).eq("id", fornecedorId).limit(1);
 
   let resposta = await consultar(`${COLUNAS_FORNECEDOR},apelido,endereco`);
-  if (resposta.error) resposta = await consultar(`${COLUNAS_FORNECEDOR},apelido`);
-  if (resposta.error) resposta = await consultar(COLUNAS_FORNECEDOR);
+  if (resposta.error && String(resposta.error?.code ?? "") === "42703") {
+    resposta = await consultar(`${COLUNAS_FORNECEDOR_LEGADO},apelido,endereco`);
+  }
+  if (resposta.error) resposta = await consultar(`${COLUNAS_FORNECEDOR_LEGADO},apelido`);
+  if (resposta.error) resposta = await consultar(COLUNAS_FORNECEDOR_LEGADO);
   if (resposta.error) throw resposta.error;
   return resposta.data?.[0] ?? null;
 }
