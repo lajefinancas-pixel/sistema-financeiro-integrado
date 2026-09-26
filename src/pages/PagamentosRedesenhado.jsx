@@ -560,7 +560,7 @@ export default function PagamentosRedesenhado() {
 
   async function carregarSecretarias() {
     try {
-      const { data: itens, error } = await supabase.from("secretarias").select("id, nome").eq("ativo", true).order("nome");
+      const { data: itens, error } = await supabase.from("secretarias").select("id, nome").eq("ativo", true).eq("possui_financeiro", true).order("nome");
       if (error) throw error;
       setSecretarias(itens ?? []);
       // Quem chegou de uma área abre já na secretaria do fornecedor daquele

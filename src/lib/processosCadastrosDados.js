@@ -167,8 +167,8 @@ async function auditar({ acao, registro, anterior = null, novo = null }) {
  * ---------------------------------------------------------------------- */
 
 const COLUNAS_SOLICITANTE = [
-  "id", "nome", "nome_curto", "secretario", "secretario_cpf", "secretario_cargo",
-  "situacao", "criado_em", "atualizado_em",
+  "cadastro_unico_id", "nome", "nome_curto", "secretario", "secretario_cpf", "secretario_cargo",
+  "ativo", "possui_financeiro",
 ].join(",");
 
 /**
@@ -183,7 +183,7 @@ const COLUNAS_SOLICITANTE = [
  */
 export async function carregarSolicitantes({ apenasAtivas = false } = {}) {
   let consulta = supabase.from(TABELA_SOLICITANTES).select(COLUNAS_SOLICITANTE).order("nome");
-  if (apenasAtivas) consulta = consulta.eq("situacao", "ativo");
+  if (apenasAtivas) consulta = consulta.eq("ativo", true);
 
   const { data, error } = await consulta;
   if (error) {
@@ -193,16 +193,14 @@ export async function carregarSolicitantes({ apenasAtivas = false } = {}) {
     }
     throw error;
   }
-  return estadoDoCadastro({ registros: data ?? [] });
+  return estadoDoCadastro({ registros: (data ?? []).map((s) => ({ ...s, id: s.cadastro_unico_id, situacao: s.ativo === false ? "inativo" : "ativo" })) });
 }
 
 export async function criarSolicitante(formulario) {
   const autor = await usuarioAtualId();
   const linha = {
     ...solicitanteParaBanco(formulario),
-    situacao: "ativo",
-    criado_por: autor,
-    atualizado_por: autor,
+    ativo: true,
   };
 
   const { data, error } = await supabase
@@ -211,6 +209,9 @@ export async function criarSolicitante(formulario) {
     .select(COLUNAS_SOLICITANTE)
     .single();
   if (error) throw error;
+
+  data.id = data.cadastro_unico_id;
+  data.situacao = data.ativo === false ? "inativo" : "ativo";
 
   await auditar({ acao: "criar_secretaria_solicitante", registro: nomeOficialDoSolicitante(data), novo: linha });
   return data;
@@ -227,17 +228,17 @@ export async function salvarSolicitante(id, formulario, { anterior = null } = {}
   const autor = await usuarioAtualId();
   const linha = {
     ...solicitanteParaBanco(formulario),
-    atualizado_em: new Date().toISOString(),
-    atualizado_por: autor,
   };
 
   const { data, error } = await supabase
     .from(TABELA_SOLICITANTES)
     .update(linha)
-    .eq("id", id)
+    .eq("cadastro_unico_id", id)
     .select(COLUNAS_SOLICITANTE)
     .single();
   if (error) throw error;
+  data.id = data.cadastro_unico_id;
+  data.situacao = data.ativo === false ? "inativo" : "ativo";
 
   const mudou = diferencaDoSolicitante(anterior, data);
   await auditar({
@@ -260,11 +261,13 @@ export async function alternarSituacaoDoSolicitante(id, situacao, { anterior = n
   const autor = await usuarioAtualId();
   const { data, error } = await supabase
     .from(TABELA_SOLICITANTES)
-    .update({ situacao, atualizado_em: new Date().toISOString(), atualizado_por: autor })
-    .eq("id", id)
+    .update({ ativo: situacao !== "inativo" })
+    .eq("cadastro_unico_id", id)
     .select(COLUNAS_SOLICITANTE)
     .single();
   if (error) throw error;
+  data.id = data.cadastro_unico_id;
+  data.situacao = data.ativo === false ? "inativo" : "ativo";
 
   await auditar({
     acao: situacao === "inativo" ? "inativar_secretaria_solicitante" : "reativar_secretaria_solicitante",

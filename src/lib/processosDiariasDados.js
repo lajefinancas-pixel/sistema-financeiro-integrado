@@ -132,7 +132,7 @@ const COLUNAS = [
 ].join(",");
 
 const SELECAO = `${COLUNAS}`
-  + ", solicitante:processos_secretarias_solicitantes ( id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
+  + ", solicitante:secretarias!processos_diarias_solicitante_fkey ( cadastro_unico_id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
   + ", secretaria:secretarias ( id, nome )";
 
 /**
@@ -233,6 +233,7 @@ export async function carregarSecretariasFinanceiras() {
     .from("secretarias")
     .select("id,nome")
     .eq("ativo", true)
+    .eq("possui_financeiro", true)
     .order("nome");
   if (error) throw error;
   return data ?? [];

@@ -360,20 +360,12 @@ test("3. cadastrar a solicitante e escolhê-la no processo traz secretário, CPF
 });
 
 /* -------------------------------------------------------------------------
- * 4. O cadastro de secretarias do FINANCEIRO continua intacto e separado
+ * 4. Cadastro único de secretarias
  * ---------------------------------------------------------------------- */
 
-test("4. o cadastro de secretarias de Saldos/Pagamentos segue intocado e separado", async () => {
-  // Duas tabelas, dois nomes, duas finalidades.
-  assert.equal(TABELA_SOLICITANTES, "processos_secretarias_solicitantes");
-  assert.notEqual(TABELA_SOLICITANTES, "secretarias");
-
-  // ⚠️ Nenhum arquivo deste envio ESCREVE em public.secretarias.
-  for (const arquivo of ARQUIVOS_DO_ENVIO) {
-    const fonte = await read(arquivo);
-    assert.ok(!/from\("secretarias"\)[^;]*\.(insert|update|upsert|delete)/s.test(fonte), arquivo);
-    assert.ok(!/\.(insert|update|upsert|delete)\([^)]*\)[^;]*from\("secretarias"\)/s.test(fonte), arquivo);
-  }
+test("4. Processos usa o mesmo cadastro único de secretarias", async () => {
+  // Processos e Financeiro consultam a mesma tabela; a marca distingue a lista.
+  assert.equal(TABELA_SOLICITANTES, "secretarias");
 
   // A leitura existe, e é só isso: o processo antigo continua mostrando a
   // secretaria financeira que gravou.
@@ -381,7 +373,7 @@ test("4. o cadastro de secretarias de Saldos/Pagamentos segue intocado e separad
   assert.ok(/from\("secretarias"\)/.test(dadosDiarias));
   assert.ok(/\.select\(/.test(dadosDiarias));
 
-  // A tela do financeiro não foi tocada por este envio.
+  // A gestão única permanece em Configurações > Financeiro.
   const financeiro = await read("src/components/configuracoes/CategoriaFinanceiro.jsx");
   assert.ok(!/solicitante|processos_bancos|processos_secretarias/i.test(financeiro));
 

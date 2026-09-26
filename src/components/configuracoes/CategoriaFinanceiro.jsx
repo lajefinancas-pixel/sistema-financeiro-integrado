@@ -31,6 +31,7 @@ function ModalSecretaria({ secretaria, salvando, erro, onSalvar, onFechar }) {
   const editando = Boolean(secretaria?.id);
   const [nome, setNome] = React.useState(secretaria?.nome ?? "");
   const [ativo, setAtivo] = React.useState(secretaria?.ativo !== false);
+  const [possuiFinanceiro, setPossuiFinanceiro] = React.useState(secretaria?.possui_financeiro === true);
 
   return (
     <ModalShell
@@ -54,7 +55,7 @@ function ModalSecretaria({ secretaria, salvando, erro, onSalvar, onFechar }) {
           </button>
           <button
             type="button"
-            onClick={() => onSalvar({ nome, ativo })}
+            onClick={() => onSalvar({ nome, ativo, possui_financeiro: possuiFinanceiro })}
             disabled={salvando || nome.trim() === ""}
             className="text-sm px-5 py-2.5 rounded-lg bg-[#0F2A44] text-white hover:bg-[#0F2A44]/90 disabled:opacity-40"
           >
@@ -89,6 +90,21 @@ function ModalSecretaria({ secretaria, salvando, erro, onSalvar, onFechar }) {
             <span className="block text-[11px] text-[#0F2A44]/50 mt-0.5 leading-relaxed">
               Secretarias inativas deixam de ser oferecidas nos cadastros de Saldos, Fornecedores e
               Pagamentos, mas os registros já lançados nelas continuam intactos.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={possuiFinanceiro}
+            onChange={(e) => setPossuiFinanceiro(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-[#0F2A44]"
+          />
+          <span>
+            <span className="text-sm text-[#0F2A44]">Possui financeiro próprio</span>
+            <span className="block text-[11px] text-[#0F2A44]/50 mt-0.5 leading-relaxed">
+              Exibe a secretaria em Saldos, contas bancárias, baixas, transferências e escolhas financeiras.
             </span>
           </span>
         </label>
@@ -160,23 +176,23 @@ export default function CategoriaFinanceiro({ podeEditar }) {
     carregarSecretarias();
   }, []);
 
-  async function salvarSecretaria({ nome, ativo }) {
+  async function salvarSecretaria({ nome, ativo, possui_financeiro }) {
     if (salvando) return;
     setSalvando(true);
     setErroModal(null);
     try {
       const editando = Boolean(emEdicao?.id);
-      const anterior = editando ? { nome: emEdicao.nome, ativo: emEdicao.ativo } : null;
+      const anterior = editando ? { nome: emEdicao.nome, ativo: emEdicao.ativo, possui_financeiro: emEdicao.possui_financeiro } : null;
       const gravada = editando
-        ? await atualizarSecretaria(emEdicao.id, { nome, ativo })
-        : await criarSecretaria(nome, { ativo });
+        ? await atualizarSecretaria(emEdicao.id, { nome, ativo, possui_financeiro })
+        : await criarSecretaria(nome, { ativo, possui_financeiro });
 
       await registrarEvento({
         modulo: "administracao",
         acao: editando ? "alterou" : "criou",
         registroAfetado: `Configurações do sistema — Secretaria "${gravada.nome}"`,
         valorAnterior: anterior,
-        valorNovo: { nome: gravada.nome, ativo: gravada.ativo },
+        valorNovo: { nome: gravada.nome, ativo: gravada.ativo, possui_financeiro: gravada.possui_financeiro },
         nivel: "atencao",
       });
 
@@ -342,6 +358,9 @@ export default function CategoriaFinanceiro({ podeEditar }) {
                   </div>
 
                   <BadgeAtivo ativo={secretaria.ativo} />
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${secretaria.possui_financeiro ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                    Financeiro: {secretaria.possui_financeiro ? "Sim" : "Não"}
+                  </span>
 
                   <div className="flex items-center gap-1.5">
                     <button

@@ -223,7 +223,7 @@ export default function Saldos() {
     setErro(null);
     try {
       const { data: secs, error: e1 } = await supabase
-        .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
+        .from("secretarias").select("id, nome").eq("ativo", true).eq("possui_financeiro", true).order("nome");
       if (e1) throw e1;
 
       const { data: bcs, error: e2 } = await supabase
@@ -416,7 +416,7 @@ export default function Saldos() {
     setDetalheErroHistorico(null);
     try {
       const { data: secs, error: e1 } = await supabase
-        .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
+        .from("secretarias").select("id, nome").eq("ativo", true).eq("possui_financeiro", true).order("nome");
       if (e1) throw e1;
 
       // Sem filtro de ativo: esta visão é consulta de período anterior, e conta
@@ -632,13 +632,9 @@ export default function Saldos() {
     setModalConta({ modo: "editar", conta });
   }
 
-  /** Secretaria escolhida no formulário, criando-a quando for nova. */
+  /** Secretaria financeira escolhida no cadastro único. */
   async function resolverSecretaria(dados) {
-    if (!dados.nova_secretaria) return { id: dados.secretaria_id, nome: nomeDaSecretariaSalva(dados.secretaria_id) };
-    const nome = String(dados.secretaria_novo_nome).trim();
-    const { data, error } = await supabase.from("secretarias").insert({ nome }).select("id, nome").single();
-    if (error) throw error;
-    return { id: data.id, nome: data.nome };
+    return { id: dados.secretaria_id, nome: nomeDaSecretariaSalva(dados.secretaria_id) };
   }
 
   async function resolverBanco(dados) {
@@ -1069,13 +1065,7 @@ export default function Saldos() {
             );
             if (existente) {
               secretariaId = existente.id;
-            } else {
-              const { data, error } = await supabase
-                .from("secretarias").insert({ nome: secretariaNome }).select().single();
-              if (error) throw error;
-              secretariaId = data.id;
-              secretarias.push({ id: data.id, nome: secretariaNome });
-            }
+            } else throw new Error(`A secretaria "${secretariaNome}" não possui financeiro próprio ou não está cadastrada.`);
             secretariasCache[secretariaNome.toLowerCase()] = secretariaId;
           }
 

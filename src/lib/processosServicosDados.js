@@ -131,7 +131,7 @@ const COLUNAS = [
 ].join(",");
 
 const SELECAO = `${COLUNAS}`
-  + ", solicitante:processos_secretarias_solicitantes ( id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
+  + ", solicitante:secretarias!processos_servicos_solicitante_fkey ( cadastro_unico_id, nome, nome_curto, secretario, secretario_cpf, secretario_cargo )"
   + ", fornecedor:fornecedores ( id, razao_social, nome_fantasia, cpf_cnpj )";
 
 /**

@@ -91,7 +91,7 @@ export default function Dashboard() {
       setNomeUsuario(usuarioRow?.nome ?? "");
 
       const { data: secs, error: eSecs } = await supabase
-        .from("secretarias").select("id, nome").eq("ativo", true).order("nome");
+        .from("secretarias").select("id, nome").eq("ativo", true).eq("possui_financeiro", true).order("nome");
       if (eSecs) throw eSecs;
 
       const { data: contas, error: eContas } = await supabase

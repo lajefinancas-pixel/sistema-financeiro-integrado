@@ -234,7 +234,9 @@ export default function Configuracoes() {
                 onSalvo={recarregar}
               />
             ) : categoriaAtual === "financeiro" ? (
-              <CategoriaFinanceiro podeEditar={podeEditar} />
+              <CategoriaFinanceiro
+                podeEditar={podeEditar && usuarioLogado?.perfis_acesso?.nome === "Administrador"}
+              />
             ) : categoriaAtual === "fornecedores" ? (
               <CategoriaFornecedores />
             ) : categoriaAtual === "tributario" ? (

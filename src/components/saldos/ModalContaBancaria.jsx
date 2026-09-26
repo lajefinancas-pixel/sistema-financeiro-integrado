@@ -229,7 +229,6 @@ export default function ModalContaBancaria({
                     {secretaria.nome}
                   </option>
                 ))}
-                <option value={OPCAO_NOVA}>+ Cadastrar nova secretaria</option>
               </select>
             ) : (
               <div className="flex gap-2 mt-1">

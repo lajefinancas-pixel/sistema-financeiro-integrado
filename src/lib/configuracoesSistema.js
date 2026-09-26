@@ -678,7 +678,7 @@ async function vinculosDasSecretarias() {
 export async function listarSecretarias() {
   const { data, error } = await supabase
     .from("secretarias")
-    .select("id, nome, ativo")
+    .select("id, nome, ativo, possui_financeiro")
     .order("nome");
   if (error) {
     throw erroAmigavel(mensagemAmigavel(error, "Não foi possível carregar as secretarias."));
@@ -694,6 +694,7 @@ export async function listarSecretarias() {
       id: secretaria.id,
       nome: secretaria.nome,
       ativo: secretaria.ativo !== false,
+      possui_financeiro: secretaria.possui_financeiro === true,
       contas,
       fornecedores,
       podeExcluir: contas === 0 && fornecedores === 0,
@@ -727,7 +728,7 @@ async function nomeJaUsado(nome, ignorarId = null) {
 }
 
 /** Cadastra uma secretaria nova. */
-export async function criarSecretaria(nomeBruto, { ativo = true } = {}) {
+export async function criarSecretaria(nomeBruto, { ativo = true, possui_financeiro = false } = {}) {
   const nome = nomeDeSecretaria(nomeBruto);
   if (await nomeJaUsado(nome)) {
     throw erroAmigavel(`Já existe uma secretaria chamada "${nome}".`);
@@ -735,8 +736,8 @@ export async function criarSecretaria(nomeBruto, { ativo = true } = {}) {
 
   const { data, error } = await supabase
     .from("secretarias")
-    .insert({ nome, ativo: ativo !== false })
-    .select("id, nome, ativo")
+    .insert({ nome, ativo: ativo !== false, possui_financeiro: possui_financeiro === true })
+    .select("id, nome, ativo, possui_financeiro")
     .single();
   if (error) {
     throw erroAmigavel(
@@ -748,7 +749,7 @@ export async function criarSecretaria(nomeBruto, { ativo = true } = {}) {
       )
     );
   }
-  return { id: data.id, nome: data.nome, ativo: data.ativo !== false };
+  return { id: data.id, nome: data.nome, ativo: data.ativo !== false, possui_financeiro: data.possui_financeiro === true };
 }
 
 /**
@@ -758,7 +759,7 @@ export async function criarSecretaria(nomeBruto, { ativo = true } = {}) {
  * de Saldos, Fornecedores, Pagamentos e Histórico já listam somente as ativas,
  * e nenhum registro antigo é perdido.
  */
-export async function atualizarSecretaria(id, { nome: nomeBruto, ativo }) {
+export async function atualizarSecretaria(id, { nome: nomeBruto, ativo, possui_financeiro = false }) {
   const nome = nomeDeSecretaria(nomeBruto);
   if (await nomeJaUsado(nome, id)) {
     throw erroAmigavel(`Já existe outra secretaria chamada "${nome}".`);
@@ -766,9 +767,9 @@ export async function atualizarSecretaria(id, { nome: nomeBruto, ativo }) {
 
   const { data, error } = await supabase
     .from("secretarias")
-    .update({ nome, ativo: ativo !== false })
+    .update({ nome, ativo: ativo !== false, possui_financeiro: possui_financeiro === true })
     .eq("id", id)
-    .select("id, nome, ativo");
+    .select("id, nome, ativo, possui_financeiro");
   if (error) {
     throw erroAmigavel(
       mensagemAmigavel(
@@ -785,7 +786,7 @@ export async function atualizarSecretaria(id, { nome: nomeBruto, ativo }) {
   }
 
   const linha = data[0];
-  return { id: linha.id, nome: linha.nome, ativo: linha.ativo !== false };
+  return { id: linha.id, nome: linha.nome, ativo: linha.ativo !== false, possui_financeiro: linha.possui_financeiro === true };
 }
 
 /**
