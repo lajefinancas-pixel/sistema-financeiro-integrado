@@ -36,7 +36,7 @@ export function mapaDeCoresDasSecretarias(secretariasOficiais = []) {
 export async function carregarOrganizacaoSecretarias() {
   const [{ data: dadosUsuario }, { data: secretarias }] = await Promise.all([
     supabase.auth.getUser(),
-    supabase.from("secretarias").select("id, nome").eq("ativo", true).order("nome"),
+    supabase.from("secretarias").select("id, nome").eq("ativo", true).eq("possui_financeiro", true).order("nome"),
   ]);
   const usuarioId = dadosUsuario?.user?.id ?? null;
   let ordem = [];

@@ -121,7 +121,10 @@ export default function CategoriaProcessos({ podeEditar = false }) {
         podeEditar={podeEditarTabela}
         verificando={verificando}
       />
-      <BlocoSecretariasSolicitantes podeEditar={podeEditar} />
+      <div className="rounded-2xl border border-[#C9A227]/20 bg-[#FFFDF5] px-5 py-4 text-sm text-[#0F2A44]/70">
+        O cadastro único de secretarias, inclusive a marcação de financeiro próprio, fica em
+        <strong> Configurações → Financeiro</strong> e é administrado somente pelo perfil Administrador.
+      </div>
       {/* O cadastro de BANCOS saiu daqui: ele passou a servir todo o sistema --
           os documentos, os dados para pagamento do fornecedor e o cadastro das
           contas bancárias -- e por isso mora agora em Configurações → Geral. */}

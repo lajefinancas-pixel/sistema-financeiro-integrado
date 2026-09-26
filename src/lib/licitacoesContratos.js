@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-export { diasAteValidade, situacaoContrato, filtrarLicitacoesContratos } from "./licitacoesContratosRegras.js";
+export { diasAteValidade, situacaoContrato, filtrarLicitacoesContratos, rotuloSecretariasDaLicitacao, secretariasDaLicitacao } from "./licitacoesContratosRegras.js";
 
 export const BUCKET_LICITACOES = "licitacoes-contratos-anexos";
 export const SITUACOES_CONTRATO = {
@@ -11,9 +11,10 @@ export const SITUACOES_CONTRATO = {
 export async function listarLicitacoes() {
   const { data, error } = await supabase.from("licitacoes_contratos").select(`
     id, fornecedor_id, tipo_id, numero, objeto, data_inicio, data_validade, valor,
-    secretaria_id, observacoes, encerrado, criado_em,
+    secretaria_id, todas_secretarias, observacoes, encerrado, criado_em,
     fornecedores(id, razao_social, nome_fantasia, cpf_cnpj),
     tipos_licitacao_contrato(id, nome), secretarias(id, nome),
+    licitacoes_contratos_secretarias(secretaria_id, secretarias(id, nome)),
     licitacoes_contratos_anexos(id, nome, arquivo_url, criado_em)
   `).order("data_validade", { ascending: true });
   if (error) throw error; return data ?? [];
@@ -28,10 +29,18 @@ export async function carregarApoioLicitacoes() {
   return { fornecedores: f.data ?? [], tipos: t.data ?? [], secretarias: s.data ?? [] };
 }
 export async function salvarLicitacao(campos, id, usuarioId) {
-  const linha = { fornecedor_id: campos.fornecedor_id, tipo_id: campos.tipo_id, numero: campos.numero.trim(), objeto: campos.objeto.trim(), data_inicio: campos.data_inicio, data_validade: campos.data_validade, valor: campos.valor || null, secretaria_id: campos.secretaria_id || null, observacoes: campos.observacoes.trim() || null, encerrado: campos.encerrado };
+  const secretariaIds = [...new Set((campos.secretaria_ids ?? []).filter(Boolean).map(String))];
+  const linha = { fornecedor_id: campos.fornecedor_id, tipo_id: campos.tipo_id, numero: campos.numero.trim(), objeto: campos.objeto.trim(), data_inicio: campos.data_inicio, data_validade: campos.data_validade, valor: campos.valor || null, secretaria_id: secretariaIds[0] || null, todas_secretarias: campos.todas_secretarias === true, observacoes: campos.observacoes.trim() || null, encerrado: campos.encerrado };
   if (!linha.fornecedor_id || !linha.tipo_id || !linha.numero || !linha.objeto || !linha.data_inicio || !linha.data_validade) throw new Error("Preencha todos os campos obrigatórios.");
+  if (secretariaIds.length === 0) throw new Error("Selecione ao menos uma secretaria.");
   const consulta = id ? supabase.from("licitacoes_contratos").update(linha).eq("id", id) : supabase.from("licitacoes_contratos").insert({ ...linha, criado_por: usuarioId });
-  const { data, error } = await consulta.select("id").single(); if (error) throw error; return data;
+  const { data, error } = await consulta.select("id").single(); if (error) throw error;
+  const removidos = await supabase.from("licitacoes_contratos_secretarias").delete().eq("licitacao_contrato_id", data.id);
+  if (removidos.error) throw removidos.error;
+  const vinculos = secretariaIds.map((secretaria_id) => ({ licitacao_contrato_id: data.id, secretaria_id }));
+  const gravados = await supabase.from("licitacoes_contratos_secretarias").insert(vinculos);
+  if (gravados.error) throw gravados.error;
+  return data;
 }
 function nomeSeguro(nome) { return String(nome).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120); }
 export async function anexarArquivos(registroId, arquivos) {

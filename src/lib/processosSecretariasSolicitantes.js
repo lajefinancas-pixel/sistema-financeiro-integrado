@@ -25,7 +25,7 @@
 
 import { cpfFormatado, somenteDigitos } from "./processosServidores.js";
 
-export const TABELA_SOLICITANTES = "processos_secretarias_solicitantes";
+export const TABELA_SOLICITANTES = "secretarias";
 
 /** A migration que cria o cadastro. Rodada À MÃO no SQL Editor do Supabase. */
 export const MIGRATION_SOLICITANTES = "20260911240000_processos_solicitantes_e_bancos.sql";
@@ -91,6 +91,7 @@ export function solicitanteParaBanco(formulario) {
   });
   // O nome oficial é obrigatório; o resto entra como null quando em branco.
   linha.nome = texto(base.nome);
+  linha.ativo = texto(base.situacao) !== "inativo";
   if (linha.secretario_cpf) linha.secretario_cpf = cpfFormatado(linha.secretario_cpf);
   return linha;
 }
@@ -149,7 +150,7 @@ export function ordenarSolicitantes(solicitantes = []) {
 }
 
 export function solicitantesAtivos(solicitantes = []) {
-  return (solicitantes ?? []).filter((s) => texto(s?.situacao) !== "inativo");
+  return (solicitantes ?? []).filter((s) => s?.ativo !== false && texto(s?.situacao) !== "inativo");
 }
 
 export function filtrarSolicitantes(solicitantes = [], { busca = "", situacao = "" } = {}) {

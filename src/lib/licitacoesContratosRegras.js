@@ -30,13 +30,28 @@ export function fornecedorContratoAtendeBusca(fornecedor, termo) {
     .some((valor) => normalizarTexto(valor).includes(busca));
 }
 
+export function secretariasDaLicitacao(item) {
+  const vinculadas = (item?.licitacoes_contratos_secretarias ?? [])
+    .map((vinculo) => vinculo?.secretarias ?? vinculo?.secretaria)
+    .filter(Boolean);
+  if (vinculadas.length > 0) return vinculadas;
+  return item?.secretarias ? [item.secretarias] : [];
+}
+
+export function rotuloSecretariasDaLicitacao(item, totalSecretariasAtivas = 0) {
+  const secretarias = secretariasDaLicitacao(item);
+  if (item?.todas_secretarias || (totalSecretariasAtivas > 0 && secretarias.length === totalSecretariasAtivas)) return "Todas as secretarias";
+  if (secretarias.length === 0) return "Sem secretaria";
+  return secretarias.map((s) => s.nome).sort((a, b) => a.localeCompare(b, "pt-BR")).join(", ");
+}
+
 export function filtrarLicitacoesContratos(itens = [], filtros = {}) {
   const objeto = normalizarTexto(filtros.objeto);
   return (itens ?? []).filter((item) =>
     fornecedorContratoAtendeBusca(item.fornecedores, filtros.fornecedor) &&
     (!objeto || normalizarTexto(item.objeto).includes(objeto)) &&
     (!filtros.tipo || item.tipo_id === filtros.tipo) &&
-    (!filtros.secretaria || item.secretaria_id === filtros.secretaria) &&
+    (!filtros.secretaria || item.todas_secretarias === true || secretariasDaLicitacao(item).some((s) => String(s.id) === String(filtros.secretaria)) || String(item.secretaria_id ?? "") === String(filtros.secretaria)) &&
     (!filtros.situacao || situacaoContrato(item) === filtros.situacao) &&
     (!filtros.assinaturaDe || item.data_inicio >= filtros.assinaturaDe) &&
     (!filtros.assinaturaAte || item.data_inicio <= filtros.assinaturaAte) &&
